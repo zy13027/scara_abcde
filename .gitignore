@@ -1,0 +1,14 @@
+# TIA Portal generated directories (build artifacts)
+AdditionalFiles/
+IM/
+Logs/
+System/
+TMP/
+Vci/
+XRef/
+*.ap20
+*.al20
+
+# Don't commit results logs into the repo by default — keep harness scripts only
+UserFiles/harness/results/*.log
+!UserFiles/harness/results/.gitkeep

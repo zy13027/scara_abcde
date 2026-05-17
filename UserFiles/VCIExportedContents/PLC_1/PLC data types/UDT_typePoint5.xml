@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Document>
   <Engineering version="V20" />
   <SW.Types.PlcStruct ID="0">
@@ -8,30 +8,22 @@
     <Member Name="x" Datatype="LReal">
       <Comment>
         <MultiLanguageText Lang="en-US">Cartesian X position [mm]</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">笛卡尔 X 坐标 [mm]</MultiLanguageText>
       </Comment>
-      <StartValue>0.0</StartValue>
     </Member>
     <Member Name="y" Datatype="LReal">
       <Comment>
         <MultiLanguageText Lang="en-US">Cartesian Y position [mm]</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">笛卡尔 Y 坐标 [mm]</MultiLanguageText>
       </Comment>
-      <StartValue>0.0</StartValue>
     </Member>
     <Member Name="z" Datatype="LReal">
       <Comment>
         <MultiLanguageText Lang="en-US">Cartesian Z position [mm]</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">笛卡尔 Z 坐标 [mm]</MultiLanguageText>
       </Comment>
-      <StartValue>0.0</StartValue>
     </Member>
     <Member Name="a" Datatype="LReal">
       <Comment>
         <MultiLanguageText Lang="en-US">Wrist orientation rotation A [deg]</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">末端旋转角度 A [度]</MultiLanguageText>
       </Comment>
-      <StartValue>0.0</StartValue>
     </Member>
   </Section>
 </Sections></Interface>
@@ -44,23 +36,17 @@
           <MultilingualTextItem ID="2" CompositionName="Items">
             <AttributeList>
               <Culture>en-US</Culture>
-              <Text>SCARA TCP target point (XYZA) for ABCDE 5-point cycle. Wang Shuo / Huashili pattern reference. B/C orientation omitted (SCARA 3D only supports A rotation about Z).</Text>
-            </AttributeList>
-          </MultilingualTextItem>
-          <MultilingualTextItem ID="3" CompositionName="Items">
-            <AttributeList>
-              <Culture>zh-CN</Culture>
-              <Text>SCARA 末端目标点 (XYZA)，用于 ABCDE 5 点循环。王硕 / 华西丽模式参考。</Text>
+              <Text />
             </AttributeList>
           </MultilingualTextItem>
         </ObjectList>
       </MultilingualText>
-      <MultilingualText ID="4" CompositionName="Title">
+      <MultilingualText ID="3" CompositionName="Title">
         <ObjectList>
-          <MultilingualTextItem ID="5" CompositionName="Items">
+          <MultilingualTextItem ID="4" CompositionName="Items">
             <AttributeList>
               <Culture>en-US</Culture>
-              <Text>SCARA TCP target point</Text>
+              <Text />
             </AttributeList>
           </MultilingualTextItem>
         </ObjectList>

@@ -13,6 +13,7 @@
       <MemoryReserve>100</MemoryReserve>
       <Name>GDB_MCDData</Name>
       <Namespace />
+      <Number>6</Number>
       <ProgrammingLanguage>DB</ProgrammingLanguage>
     </AttributeList>
     <ObjectList>
@@ -24,25 +25,13 @@
               <Text />
             </AttributeList>
           </MultilingualTextItem>
-          <MultilingualTextItem ID="3" CompositionName="Items">
-            <AttributeList>
-              <Culture>zh-CN</Culture>
-              <Text />
-            </AttributeList>
-          </MultilingualTextItem>
         </ObjectList>
       </MultilingualText>
-      <MultilingualText ID="4" CompositionName="Title">
+      <MultilingualText ID="3" CompositionName="Title">
         <ObjectList>
-          <MultilingualTextItem ID="5" CompositionName="Items">
+          <MultilingualTextItem ID="4" CompositionName="Items">
             <AttributeList>
               <Culture>en-US</Culture>
-              <Text />
-            </AttributeList>
-          </MultilingualTextItem>
-          <MultilingualTextItem ID="6" CompositionName="Items">
-            <AttributeList>
-              <Culture>zh-CN</Culture>
               <Text />
             </AttributeList>
           </MultilingualTextItem>

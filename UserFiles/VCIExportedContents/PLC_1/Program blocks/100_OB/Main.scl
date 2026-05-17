@@ -1,47 +1,52 @@
-ORGANIZATION_BLOCK "Main"
+﻿ORGANIZATION_BLOCK "Main"
 TITLE = "Main Program Sweep (Cycle)"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 2.0
 // =====================================================================
-// SCARA ABCDE — Main (OB1)
-// (2026-05-17 rev 2 — rewritten per approved plan zazzy-mixing-hammock.md)
+// SCARA ABCDE â€” Main (OB1)
+// (2026-05-17 rev 2 â€” rewritten per approved plan zazzy-mixing-hammock.md)
 //
 // CHANGES vs v1.0 (backed up at .backup/2026-05-17/100_OB/Main.scl):
 //   - Removed inline LKinCtrl_MC_GroupPower / GroupHome / GroupReset calls
-//     per source spec line 11 ("不用任何的库" / no libraries)
+//     per source spec line 11 ("ä¸ç”¨ä»»ä½•çš„åº“" / no libraries)
 //   - Delegates per-axis MC_Power/Home + system MC_GroupReset to new
 //     FB_AxisCtrl (multi-instance MC iDBs co-located in one FB iDB)
 //
 // PER-SCAN MC INSTRUCTION COUNT:
-//   FB_AxisCtrl:           4× MC_Power + 4× MC_Home + 1× MC_GroupReset = 9
-//   FB_AutoCtrl_ABCDE:     1× MC_MoveLinearAbsolute                    = 1
+//   FB_AxisCtrl:           4Ã— MC_Power + 4Ã— MC_Home + 1Ã— MC_GroupReset = 9
+//   FB_AutoCtrl_ABCDE:     1Ã— MC_MoveLinearAbsolute                    = 1
 //   Total declared:                                                   10
-//   Actively pulsing at any time:                                ~4-5 (vs v9's ~50 → OB91 overflow)
+//   Actively pulsing at any time:                                ~4-5 (vs v9's ~50 â†’ OB91 overflow)
 //   Result: V-OB91 buffer overflow gate should pass after 30s continuous cycle
 //
 // Block call sequence (cyclic, every scan):
-//   1. instFB_AxisCtrl()           — enable / home / reset kinematic group
-//   2. instFB_AutoCtrl_ABCDE()     — Wang Shuo 4-REGION ABCDE state machine
-//   3. instFB_MCDDataTransfer()    — publish TO data to GDB_MCDData for MCD viewport
+//   1. instFB_AxisCtrl()           â€” enable / home / reset kinematic group
+//   2. instFB_AutoCtrl_ABCDE()     â€” Wang Shuo 4-REGION ABCDE state machine
+//   3. instFB_MCDDataTransfer()    â€” publish TO data to GDB_MCDData for MCD viewport
 // =====================================================================
 
 BEGIN
-	REGION Axis_Control
-	    // Per-axis MC_Power / MC_Home + system MC_GroupReset.
-	    // Replaces what was 3× LKinCtrl_MC_Group* wrappers in v1.0.
-	    "instFB_AxisCtrl"();
-	END_REGION
-
-	REGION Auto_Cycle
-	    // Wang Shuo 4-REGION pattern with single MC_MoveLinearAbsolute
-	    // re-pulsing Execute per ABCDE step (6-state per source spec §3.3).
-	    "instFB_AutoCtrl_ABCDE"();
-	END_REGION
-
-	REGION MCD_DataTransfer
-	    // Publish ScaraArm3D.AxesData.A[i].{Position,Velocity} to GDB_MCDData
-	    // for NX MCD signal-adapter consumption (V7 + V-OB91 gates).
-	    "instFB_MCDDataTransfer"();
-	END_REGION
-
+	
+	 REGION Axis_Control
+	     // Per-axis MC_Power / MC_Home + system MC_GroupReset.
+	     // Replaces what was 3Ã— LKinCtrl_MC_Group* wrappers in v1.0.
+	     "instFB_AxisCtrl"();
+	 END_REGION
+	
+	 REGION Auto_Cycle
+	     // Wang Shuo 4-REGION pattern with single MC_MoveLinearAbsolute
+	     // re-pulsing Execute per ABCDE step (6-state per source spec Â§3.3).
+	   "instFB_AutoCtrl_ABCDE"();
+	   
+	     
+	 END_REGION
+	
+	 REGION MCD_DataTransfer
+	     // Publish ScaraArm3D.AxesData.A[i].{Position,Velocity} to GDB_MCDData
+	     // for NX MCD signal-adapter consumption (V7 + V-OB91 gates).
+	     "instFB_MCDDataTransfer"();
+	 END_REGION
+	
+	
 END_ORGANIZATION_BLOCK
+

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Document>
   <Engineering version="V20" />
   <SW.Blocks.InstanceDB ID="0">
@@ -11,9 +11,9 @@
   <Section Name="InOut" />
   <Section Name="Static" />
 </Sections></Interface>
-      <MemoryLayout>Optimized</MemoryLayout>
       <Name>instFB_MCDDataTransfer</Name>
       <Namespace />
+      <Number>5</Number>
       <ProgrammingLanguage>DB</ProgrammingLanguage>
     </AttributeList>
     <ObjectList>
@@ -22,7 +22,7 @@
           <MultilingualTextItem ID="2" CompositionName="Items">
             <AttributeList>
               <Culture>en-US</Culture>
-              <Text>iDB for FB_MCDDataTransfer — publishes ScaraArm3D.AxesData.A[i].{Position,Velocity} to GDB_MCDData for NX MCD viewport</Text>
+              <Text />
             </AttributeList>
           </MultilingualTextItem>
         </ObjectList>
@@ -32,7 +32,7 @@
           <MultilingualTextItem ID="4" CompositionName="Items">
             <AttributeList>
               <Culture>en-US</Culture>
-              <Text>MCD Data Transfer instance DB</Text>
+              <Text />
             </AttributeList>
           </MultilingualTextItem>
         </ObjectList>
