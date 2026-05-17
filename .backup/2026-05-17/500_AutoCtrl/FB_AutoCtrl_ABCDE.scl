@@ -1,0 +1,173 @@
+FUNCTION_BLOCK "FB_AutoCtrl_ABCDE"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 1.0
+// =====================================================================
+// SCARA ABCDE 5-Point Continuous Auto Cycle
+//
+// 2026-05-17 — Minimal demo authored from scratch following Wang Shuo's
+// (Huashili) 4-REGION FB_AutoCtrl pattern. Replaces the deeply over-
+// engineered FB_PalletizingProgramme in hmiDemoMomoryCapacity_v9 which
+// triggered OB91 buffer overflow due to ~50+ concurrent MC instructions
+// per scan from FB_PalletizingProgramme + FB_AxisManualWiring (28 MC)
+// + FB_ModeManager + LKinCtrl_MC_MovePath wrappers.
+//
+// THIS FB uses ONLY one system MC instruction (MC_MoveLinearAbsolute) on
+// the kinematic group, plus three Group* wrappers (Power/Home/Reset).
+// Total per-scan MC count: ~10 (vs 50+ in v9). OB91 buffer headroom
+// preserved.
+//
+// 4-REGION structure (Wang Shuo canonical):
+//   1. 初始化路径 / INITIALIZE_PATH — R_TRIG → load 5 hardcoded ABCDE pts
+//   2. 启动 / START                — R_TRIG + permissive → step := 10
+//   3. 停止 / STOP                 — R_TRIG → step := 0
+//   4. 自动 / AUTO (main CASE)     — 11 steps:
+//        0=idle
+//        10/30/50/70/90 = 去 A/B/C/D/E (issue MoveLinAbs, wait .Done)
+//        20/40/60/80/100 = 到达 A/B/C/D/E (drop Execute, advance)
+//        100 → loop back to 10
+//
+// HMI bindings (via GDB_MachineCmd):
+//   bo_InitPath   (button)  → REGION 1 trigger
+//   bo_Start      (button)  → REGION 2 trigger
+//   bo_Stop       (button)  → REGION 3 trigger
+//   bo_Mode       (switch)  → permissive
+//   bo_ESTOP_LOCK (safety)  → permissive
+//   i16_AutoStep  (display) → current step number
+//
+// Reference: Huashili FB_AutoCtrl at
+//   E:\TIA_V20_Demo_Proj\Huashili_GlassCutting_v2.1\Vci\plc\
+//   Program blocks\500_LogicCtrl\FB_AutoCtrl.xml lines 111-1162
+// =====================================================================
+
+   VAR
+      // === Edge-detect instances (Wang Shuo pattern) ===
+      sRTRIGInitialPath { S7_SetPoint := 'False' } : R_TRIG;
+      sRTRIGStart       { S7_SetPoint := 'False' } : R_TRIG;
+      sRTRIGStop        { S7_SetPoint := 'False' } : R_TRIG;
+
+      // === Motion FB: ONE single system MC_MoveLinearAbsolute, re-triggered per step ===
+      instMoveLinAbs    { InstructionName := 'MC_MOVELINEARABSOLUTE'; LibVersion := '9.0'; S7_SetPoint := 'False' } : MC_MOVELINEARABSOLUTE;
+
+      // === 5-point hardcoded ABCDE path (set in REGION INITIALIZE_PATH) ===
+      pts               { S7_SetPoint := 'False' } : Array[1..5] of "UDT_typePoint5";
+
+      // === Static state ===
+      statTargetPos     { ExternalWritable := 'False' } : "UDT_typePoint5";  // currently commanded target (HMI display)
+      statOldStep       { S7_SetPoint := 'False' } : Int;                    // for step-change edge detection
+      statMoveDoneOld   { S7_SetPoint := 'False' } : Bool;                   // for MoveLinAbs.Done rising-edge detection
+      statExecutePulse  { S7_SetPoint := 'False' } : Bool;                   // one-scan Execute pulse on step change
+   END_VAR
+
+   VAR_TEMP
+      tempCurrentPtIdx : Int;       // 1..5 mapping from i16_AutoStep
+      tempStepChanged  : Bool;
+      tempIsGoingStep  : Bool;
+      tempIsArrivedStep : Bool;
+   END_VAR
+
+
+BEGIN
+
+	// =====================================================================
+	// REGION 1 — INITIALIZE_PATH
+	// Wang Shuo pattern: R_TRIG rising edge on operator's "Init" button
+	// loads hardcoded ABCDE coordinates into pts[1..5] array once.
+	// =====================================================================
+	#sRTRIGInitialPath(CLK := "GDB_MachineCmd".bo_InitPath);
+	IF #sRTRIGInitialPath.Q THEN
+	    // ABCDE — square pattern in WCS, all at Z=400mm above home
+	    // Coordinates chosen well inside reachable annulus (R = 1800-2300mm
+	    // from column, given L1=1150, L2=1200, max reach 2350)
+	    #pts[1].x := 1800.0;  #pts[1].y :=    0.0;  #pts[1].z := 400.0;  #pts[1].a := 0.0;   // A
+	    #pts[2].x := 1800.0;  #pts[2].y :=  300.0;  #pts[2].z := 400.0;  #pts[2].a := 0.0;   // B
+	    #pts[3].x := 1500.0;  #pts[3].y :=  300.0;  #pts[3].z := 400.0;  #pts[3].a := 0.0;   // C
+	    #pts[4].x := 1500.0;  #pts[4].y := -300.0;  #pts[4].z := 400.0;  #pts[4].a := 0.0;   // D
+	    #pts[5].x := 1800.0;  #pts[5].y := -300.0;  #pts[5].z := 400.0;  #pts[5].a := 0.0;   // E
+	    "GDB_MachineCmd".bo_PathInitialed := TRUE;
+	END_IF;
+
+	// =====================================================================
+	// REGION 2 — START
+	// Wang Shuo pattern: button rising edge + permissive AND chain → step:=10
+	// =====================================================================
+	#sRTRIGStart(CLK := "GDB_MachineCmd".bo_Start);
+	IF "GDB_MachineCmd".bo_Mode
+	   AND "GDB_MachineCmd".bo_ESTOP_LOCK
+	   AND ("GDB_MachineCmd".i16_AutoStep = 0)
+	   AND #sRTRIGStart.Q
+	   AND "GDB_MachineCmd".bo_PathInitialed
+	   AND NOT "GDB_MachineCmd".bo_Alarm
+	   AND "GDB_Control".axesEnabled
+	   AND "GDB_Control".axesHomed
+	THEN
+	    "GDB_MachineCmd".i16_AutoStep := 10;
+	END_IF;
+
+	// =====================================================================
+	// REGION 3 — STOP
+	// Wang Shuo pattern: button rising edge → step:=0 (return to idle)
+	// =====================================================================
+	#sRTRIGStop(CLK := "GDB_MachineCmd".bo_Stop);
+	IF #sRTRIGStop.Q THEN
+	    "GDB_MachineCmd".i16_AutoStep := 0;
+	END_IF;
+
+	// =====================================================================
+	// REGION 4 — AUTO (main CASE state machine)
+	// =====================================================================
+
+	// Detect step-change for Execute pulse
+	#tempStepChanged := ("GDB_MachineCmd".i16_AutoStep <> #statOldStep);
+	#statOldStep := "GDB_MachineCmd".i16_AutoStep;
+
+	// Classify current step as "going-to" (10/30/50/70/90) or "arrived-at" (20/40/60/80/100)
+	#tempIsGoingStep := ("GDB_MachineCmd".i16_AutoStep = 10)
+	                   OR ("GDB_MachineCmd".i16_AutoStep = 30)
+	                   OR ("GDB_MachineCmd".i16_AutoStep = 50)
+	                   OR ("GDB_MachineCmd".i16_AutoStep = 70)
+	                   OR ("GDB_MachineCmd".i16_AutoStep = 90);
+
+	#tempIsArrivedStep := ("GDB_MachineCmd".i16_AutoStep = 20)
+	                     OR ("GDB_MachineCmd".i16_AutoStep = 40)
+	                     OR ("GDB_MachineCmd".i16_AutoStep = 60)
+	                     OR ("GDB_MachineCmd".i16_AutoStep = 80)
+	                     OR ("GDB_MachineCmd".i16_AutoStep = 100);
+
+	// Map step → point index. Going-step 10/30/50/70/90 → 1/2/3/4/5
+	IF #tempIsGoingStep THEN
+	    #tempCurrentPtIdx := ("GDB_MachineCmd".i16_AutoStep + 10) / 20;  // 10→1, 30→2, 50→3, 70→4, 90→5
+	    #statTargetPos := #pts[#tempCurrentPtIdx];
+	END_IF;
+
+	// Execute pulse: high for ONE scan when entering a new "going-to" step
+	#statExecutePulse := #tempStepChanged AND #tempIsGoingStep;
+
+	// Drive MC_MoveLinearAbsolute on the kinematic group
+	#instMoveLinAbs(AxesGroup    := "ScaraArm3D",
+	                Execute      := #statExecutePulse,
+	                Position[1]  := #statTargetPos.x,
+	                Position[2]  := #statTargetPos.y,
+	                Position[3]  := #statTargetPos.z,
+	                Position[4]  := #statTargetPos.a,
+	                Velocity     := 300.0,
+	                Acceleration := 3000.0,
+	                Deceleration := 3000.0,
+	                Jerk         := 30000.0,
+	                BufferMode   := 1);   // 1 = aborting buffer (no queue)
+
+	// On MoveLinAbs.Done rising edge while in a "going-to" step, advance to "arrived"
+	IF #instMoveLinAbs.Done AND NOT #statMoveDoneOld AND #tempIsGoingStep THEN
+	    "GDB_MachineCmd".i16_AutoStep := "GDB_MachineCmd".i16_AutoStep + 10;  // 10→20, 30→40, 50→60, 70→80, 90→100
+	END_IF;
+	#statMoveDoneOld := #instMoveLinAbs.Done;
+
+	// Auto-advance from "arrived" to next "going-to" (one scan later, gives Execute time to drop)
+	IF #tempIsArrivedStep AND NOT #tempStepChanged THEN
+	    IF "GDB_MachineCmd".i16_AutoStep = 100 THEN
+	        "GDB_MachineCmd".i16_AutoStep := 10;       // loop back to A
+	    ELSE
+	        "GDB_MachineCmd".i16_AutoStep := "GDB_MachineCmd".i16_AutoStep + 10;  // 20→30, 40→50, etc.
+	    END_IF;
+	END_IF;
+
+END_FUNCTION_BLOCK

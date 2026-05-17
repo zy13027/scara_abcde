@@ -1,0 +1,1065 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.TechnologicalObjects.TechnologicalInstanceDB ID="0">
+    <AttributeList>
+      <InstanceOfName>TO_PositioningAxis</InstanceOfName>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="Base">
+    <Sections Datatype="TO_SpeedAxis" Version="9.0">
+      <Section Name="Base">
+        <Sections Datatype="TO_Axis" Version="9.0">
+          <Section Name="Base">
+            <Sections Datatype="TO_Object" Version="9.0">
+              <Section Name="Input" />
+              <Section Name="Output" />
+              <Section Name="InOut" />
+              <Section Name="Static" />
+            </Sections>
+          </Section>
+          <Section Name="Input" />
+          <Section Name="Output" />
+          <Section Name="InOut" />
+          <Section Name="Static" />
+        </Sections>
+      </Section>
+      <Section Name="Input" />
+      <Section Name="Output" />
+      <Section Name="InOut" />
+      <Section Name="Static">
+        <Member Name="Actor" Datatype="TO_Struct_Actor" Version="9.0">
+          <Sections>
+            <Section Name="None">
+              <Member Name="InverseDirection" Datatype="Bool">
+                <StartValue>false</StartValue>
+              </Member>
+              <Member Name="Efficiency" Datatype="LReal">
+                <StartValue>1.0</StartValue>
+              </Member>
+              <Member Name="Interface" Datatype="TO_Struct_ActorInterface" Version="9.0">
+                <Sections>
+                  <Section Name="None">
+                    <Member Name="AddressIn" Datatype="VREF" Version="1.0">
+                      <Sections>
+                        <Section Name="None">
+                          <Member Name="RID" Datatype="DWord">
+                            <StartValue>16#208072a</StartValue>
+                          </Member>
+                        </Section>
+                      </Sections>
+                    </Member>
+                    <Member Name="AddressOut" Datatype="VREF" Version="1.0">
+                      <Sections>
+                        <Section Name="None">
+                          <Member Name="RID" Datatype="DWord">
+                            <StartValue>16#208072b</StartValue>
+                          </Member>
+                        </Section>
+                      </Sections>
+                    </Member>
+                  </Section>
+                </Sections>
+              </Member>
+              <Member Name="DriveParameter" Datatype="TO_Struct_ActorDriveParameter" Version="9.0">
+                <Sections>
+                  <Section Name="None">
+                    <Member Name="ReferenceSpeed" Datatype="LReal">
+                      <StartValue>2000.0</StartValue>
+                    </Member>
+                    <Member Name="MaxSpeed" Datatype="LReal">
+                      <StartValue>2500.0</StartValue>
+                    </Member>
+                    <Member Name="ReferenceTorque" Datatype="LReal">
+                      <StartValue>23.9</StartValue>
+                    </Member>
+                  </Section>
+                </Sections>
+              </Member>
+            </Section>
+          </Sections>
+        </Member>
+        <Member Name="TorqueLimiting" Datatype="TO_Struct_TorqueLimiting" Version="9.0">
+          <Sections>
+            <Section Name="None">
+              <Member Name="LimitBase" Datatype="DInt">
+                <StartValue>1</StartValue>
+              </Member>
+              <Member Name="PositionBasedMonitorings" Datatype="DInt">
+                <StartValue>0</StartValue>
+              </Member>
+              <Member Name="LimitDefaults" Datatype="TO_Struct_TorqueLimitingLimitDefaults" Version="9.0">
+                <Sections>
+                  <Section Name="None">
+                    <Member Name="Torque" Datatype="LReal">
+                      <StartValue>0.0</StartValue>
+                    </Member>
+                    <Member Name="Force" Datatype="LReal">
+                      <StartValue>0.0</StartValue>
+                    </Member>
+                  </Section>
+                </Sections>
+              </Member>
+            </Section>
+          </Sections>
+        </Member>
+        <Member Name="LoadGear" Datatype="TO_Struct_LoadGear" Version="9.0">
+          <Sections>
+            <Section Name="None">
+              <Member Name="Numerator" Datatype="UDInt">
+                <StartValue>1348860</StartValue>
+              </Member>
+              <Member Name="Denominator" Datatype="UDInt">
+                <StartValue>10000</StartValue>
+              </Member>
+            </Section>
+          </Sections>
+        </Member>
+        <Member Name="DynamicLimits" Datatype="TO_Struct_DynamicLimits" Version="9.0">
+          <Sections>
+            <Section Name="None">
+              <Member Name="MaxVelocity" Datatype="LReal">
+                <StartValue>360.0</StartValue>
+              </Member>
+              <Member Name="Velocity" Datatype="LReal">
+                <StartValue>1000000000000.0</StartValue>
+              </Member>
+              <Member Name="MaxAcceleration" Datatype="LReal">
+                <StartValue>720.0</StartValue>
+              </Member>
+              <Member Name="MaxDeceleration" Datatype="LReal">
+                <StartValue>720.0</StartValue>
+              </Member>
+              <Member Name="MaxJerk" Datatype="LReal">
+                <StartValue>14400.0</StartValue>
+              </Member>
+            </Section>
+          </Sections>
+        </Member>
+        <Member Name="DynamicDefaults" Datatype="TO_Struct_DynamicDefaults" Version="9.0">
+          <Sections>
+            <Section Name="None">
+              <Member Name="Velocity" Datatype="LReal">
+                <StartValue>88.964</StartValue>
+              </Member>
+              <Member Name="Acceleration" Datatype="LReal">
+                <StartValue>177.928</StartValue>
+              </Member>
+              <Member Name="Deceleration" Datatype="LReal">
+                <StartValue>177.928</StartValue>
+              </Member>
+              <Member Name="Jerk" Datatype="LReal">
+                <StartValue>24712.2222222222</StartValue>
+              </Member>
+              <Member Name="EmergencyDeceleration" Datatype="LReal">
+                <StartValue>72000.0</StartValue>
+              </Member>
+            </Section>
+          </Sections>
+        </Member>
+        <Member Name="Override" Datatype="TO_Struct_Override" Version="9.0">
+          <Sections>
+            <Section Name="None">
+              <Member Name="Velocity" Datatype="LReal">
+                <StartValue>100.0</StartValue>
+              </Member>
+            </Section>
+          </Sections>
+        </Member>
+        <Member Name="ControlPanel" Datatype="TO_Struct_ControlPanel" Version="9.0">
+          <Sections>
+            <Section Name="None">
+              <Member Name="Input" Datatype="TO_Struct_ControlPanelInput" Version="9.0">
+                <Sections>
+                  <Section Name="None">
+                    <Member Name="Command" Datatype="Array[1..3] of TO_Struct_ControlPanelInputCmd" Version="9.0">
+                      <Sections>
+                        <Section Name="None">
+                          <Member Name="ReqCounter" Datatype="UDInt">
+                            <Subelement Path="1">
+                              <StartValue>0</StartValue>
+                            </Subelement>
+                            <Subelement Path="2">
+                              <StartValue>0</StartValue>
+                            </Subelement>
+                          </Member>
+                          <Member Name="Type" Datatype="UDInt">
+                            <Subelement Path="1">
+                              <StartValue>0</StartValue>
+                            </Subelement>
+                            <Subelement Path="2">
+                              <StartValue>0</StartValue>
+                            </Subelement>
+                          </Member>
+                          <Member Name="Position" Datatype="LReal">
+                            <Subelement Path="1">
+                              <StartValue>0.0</StartValue>
+                            </Subelement>
+                            <Subelement Path="2">
+                              <StartValue>0.0</StartValue>
+                            </Subelement>
+                          </Member>
+                          <Member Name="Velocity" Datatype="LReal">
+                            <Subelement Path="1">
+                              <StartValue>0.0</StartValue>
+                            </Subelement>
+                            <Subelement Path="2">
+                              <StartValue>0.0</StartValue>
+                            </Subelement>
+                          </Member>
+                          <Member Name="Acceleration" Datatype="LReal">
+                            <Subelement Path="1">
+                              <StartValue>0.0</StartValue>
+                            </Subelement>
+                            <Subelement Path="2">
+                              <StartValue>0.0</StartValue>
+                            </Subelement>
+                          </Member>
+                          <Member Name="Deceleration" Datatype="LReal">
+                            <Subelement Path="1">
+                              <StartValue>0.0</StartValue>
+                            </Subelement>
+                            <Subelement Path="2">
+                              <StartValue>0.0</StartValue>
+                            </Subelement>
+                          </Member>
+                          <Member Name="Jerk" Datatype="LReal">
+                            <Subelement Path="1">
+                              <StartValue>0.0</StartValue>
+                            </Subelement>
+                            <Subelement Path="2">
+                              <StartValue>0.0</StartValue>
+                            </Subelement>
+                          </Member>
+                          <Member Name="Param" Datatype="LReal">
+                            <Subelement Path="1">
+                              <StartValue>0.0</StartValue>
+                            </Subelement>
+                            <Subelement Path="2">
+                              <StartValue>0.0</StartValue>
+                            </Subelement>
+                          </Member>
+                        </Section>
+                      </Sections>
+                    </Member>
+                    <Member Name="TimeOut" Datatype="LReal">
+                      <StartValue>2000.0</StartValue>
+                    </Member>
+                    <Member Name="EsLifeSign" Datatype="UDInt">
+                      <StartValue>0</StartValue>
+                    </Member>
+                  </Section>
+                </Sections>
+              </Member>
+            </Section>
+          </Sections>
+        </Member>
+        <Member Name="InternalToTrace" Datatype="Array[1..4] of TO_Struct_Internal" Version="9.0">
+          <Sections>
+            <Section Name="None">
+              <Member Name="Id" Datatype="DInt">
+                <Subelement Path="1">
+                  <StartValue>0</StartValue>
+                </Subelement>
+                <Subelement Path="2">
+                  <StartValue>0</StartValue>
+                </Subelement>
+                <Subelement Path="3">
+                  <StartValue>0</StartValue>
+                </Subelement>
+                <Subelement Path="4">
+                  <StartValue>0</StartValue>
+                </Subelement>
+              </Member>
+              <Member Name="Value" Datatype="LReal">
+                <Subelement Path="1">
+                  <StartValue>0.0</StartValue>
+                </Subelement>
+                <Subelement Path="2">
+                  <StartValue>0.0</StartValue>
+                </Subelement>
+                <Subelement Path="3">
+                  <StartValue>0.0</StartValue>
+                </Subelement>
+                <Subelement Path="4">
+                  <StartValue>0.0</StartValue>
+                </Subelement>
+              </Member>
+            </Section>
+          </Sections>
+        </Member>
+        <Member Name="Simulation" Datatype="TO_Struct_AxisSimulation" Version="9.0">
+          <Sections>
+            <Section Name="None">
+              <Member Name="Mode" Datatype="UDInt">
+                <StartValue>1</StartValue>
+              </Member>
+            </Section>
+          </Sections>
+        </Member>
+      </Section>
+    </Sections>
+  </Section>
+  <Section Name="Input" />
+  <Section Name="Output" />
+  <Section Name="InOut" />
+  <Section Name="Static">
+    <Member Name="Position" Datatype="LReal">
+      <AttributeList>
+        <BooleanAttribute Name="ExternalWritable" SystemDefined="true">false</BooleanAttribute>
+      </AttributeList>
+    </Member>
+    <Member Name="ActualPosition" Datatype="LReal">
+      <AttributeList>
+        <BooleanAttribute Name="ExternalWritable" SystemDefined="true">false</BooleanAttribute>
+      </AttributeList>
+    </Member>
+    <Member Name="ActualVelocity" Datatype="LReal">
+      <AttributeList>
+        <BooleanAttribute Name="ExternalWritable" SystemDefined="true">false</BooleanAttribute>
+      </AttributeList>
+    </Member>
+    <Member Name="ActualAcceleration" Datatype="LReal">
+      <AttributeList>
+        <BooleanAttribute Name="ExternalWritable" SystemDefined="true">false</BooleanAttribute>
+      </AttributeList>
+    </Member>
+    <Member Name="OperativeSensor" Datatype="UDInt">
+      <AttributeList>
+        <BooleanAttribute Name="ExternalWritable" SystemDefined="true">false</BooleanAttribute>
+      </AttributeList>
+    </Member>
+    <Member Name="ModuloCycle" Datatype="DInt">
+      <AttributeList>
+        <BooleanAttribute Name="ExternalWritable" SystemDefined="true">false</BooleanAttribute>
+      </AttributeList>
+    </Member>
+    <Member Name="ActualModuloCycle" Datatype="DInt">
+      <AttributeList>
+        <BooleanAttribute Name="ExternalWritable" SystemDefined="true">false</BooleanAttribute>
+      </AttributeList>
+    </Member>
+    <Member Name="Clamping" Datatype="TO_Struct_Clamping" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+      <Sections>
+        <Section Name="None">
+          <Member Name="FollowingErrorDeviation" Datatype="LReal">
+            <StartValue>360.0</StartValue>
+          </Member>
+          <Member Name="PositionTolerance" Datatype="LReal">
+            <StartValue>360.0</StartValue>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="Sensor" Datatype="Array[1..4] of TO_Struct_Sensor" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+      <Sections>
+        <Section Name="None">
+          <Member Name="Type" Datatype="DInt">
+            <Subelement Path="1">
+              <StartValue>2</StartValue>
+            </Subelement>
+          </Member>
+          <Member Name="InverseDirection" Datatype="Bool">
+            <Subelement Path="1">
+              <StartValue>false</StartValue>
+            </Subelement>
+            <Subelement Path="2">
+              <StartValue>false</StartValue>
+            </Subelement>
+            <Subelement Path="3">
+              <StartValue>false</StartValue>
+            </Subelement>
+            <Subelement Path="4">
+              <StartValue>false</StartValue>
+            </Subelement>
+          </Member>
+          <Member Name="System" Datatype="DInt">
+            <Subelement Path="1">
+              <StartValue>1</StartValue>
+            </Subelement>
+            <Subelement Path="2">
+              <StartValue>1</StartValue>
+            </Subelement>
+            <Subelement Path="3">
+              <StartValue>1</StartValue>
+            </Subelement>
+            <Subelement Path="4">
+              <StartValue>1</StartValue>
+            </Subelement>
+          </Member>
+          <Member Name="MountingMode" Datatype="DInt">
+            <Subelement Path="1">
+              <StartValue>0</StartValue>
+            </Subelement>
+            <Subelement Path="2">
+              <StartValue>0</StartValue>
+            </Subelement>
+            <Subelement Path="3">
+              <StartValue>0</StartValue>
+            </Subelement>
+            <Subelement Path="4">
+              <StartValue>0</StartValue>
+            </Subelement>
+          </Member>
+          <Member Name="DataAdaption" Datatype="DInt">
+            <Subelement Path="2">
+              <StartValue>0</StartValue>
+            </Subelement>
+            <Subelement Path="3">
+              <StartValue>0</StartValue>
+            </Subelement>
+            <Subelement Path="4">
+              <StartValue>0</StartValue>
+            </Subelement>
+          </Member>
+          <Member Name="Interface" Datatype="TO_Struct_SensorInterface" Version="9.0">
+            <Sections>
+              <Section Name="None">
+                <Member Name="AddressIn" Datatype="VREF" Version="1.0">
+                  <Sections>
+                    <Section Name="None">
+                      <Member Name="RID" Datatype="DWord">
+                        <Subelement Path="1">
+                          <StartValue>16#208072a</StartValue>
+                        </Subelement>
+                      </Member>
+                    </Section>
+                  </Sections>
+                </Member>
+                <Member Name="AddressOut" Datatype="VREF" Version="1.0">
+                  <Sections>
+                    <Section Name="None">
+                      <Member Name="RID" Datatype="DWord">
+                        <Subelement Path="1">
+                          <StartValue>16#208072b</StartValue>
+                        </Subelement>
+                      </Member>
+                    </Section>
+                  </Sections>
+                </Member>
+              </Section>
+            </Sections>
+          </Member>
+          <Member Name="Parameter" Datatype="TO_Struct_SensorParameter" Version="9.0">
+            <Sections>
+              <Section Name="None">
+                <Member Name="Resolution" Datatype="LReal">
+                  <Subelement Path="1">
+                    <StartValue>0.001</StartValue>
+                  </Subelement>
+                  <Subelement Path="2">
+                    <StartValue>0.001</StartValue>
+                  </Subelement>
+                  <Subelement Path="3">
+                    <StartValue>0.001</StartValue>
+                  </Subelement>
+                  <Subelement Path="4">
+                    <StartValue>0.001</StartValue>
+                  </Subelement>
+                </Member>
+                <Member Name="StepsPerRevolution" Datatype="UDInt">
+                  <Subelement Path="1">
+                    <StartValue>1024</StartValue>
+                  </Subelement>
+                  <Subelement Path="2">
+                    <StartValue>2048</StartValue>
+                  </Subelement>
+                  <Subelement Path="3">
+                    <StartValue>2048</StartValue>
+                  </Subelement>
+                  <Subelement Path="4">
+                    <StartValue>2048</StartValue>
+                  </Subelement>
+                </Member>
+                <Member Name="FineResolutionXist1" Datatype="UDInt">
+                  <Subelement Path="1">
+                    <StartValue>11</StartValue>
+                  </Subelement>
+                  <Subelement Path="2">
+                    <StartValue>11</StartValue>
+                  </Subelement>
+                  <Subelement Path="3">
+                    <StartValue>11</StartValue>
+                  </Subelement>
+                  <Subelement Path="4">
+                    <StartValue>11</StartValue>
+                  </Subelement>
+                </Member>
+                <Member Name="FineResolutionXist2" Datatype="UDInt">
+                  <Subelement Path="1">
+                    <StartValue>0</StartValue>
+                  </Subelement>
+                  <Subelement Path="2">
+                    <StartValue>9</StartValue>
+                  </Subelement>
+                  <Subelement Path="3">
+                    <StartValue>9</StartValue>
+                  </Subelement>
+                  <Subelement Path="4">
+                    <StartValue>9</StartValue>
+                  </Subelement>
+                </Member>
+                <Member Name="DeterminableRevolutions" Datatype="UDInt">
+                  <Subelement Path="2">
+                    <StartValue>1</StartValue>
+                  </Subelement>
+                  <Subelement Path="3">
+                    <StartValue>1</StartValue>
+                  </Subelement>
+                  <Subelement Path="4">
+                    <StartValue>1</StartValue>
+                  </Subelement>
+                </Member>
+                <Member Name="DistancePerRevolution" Datatype="LReal">
+                  <Subelement Path="1">
+                    <StartValue>100.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="2">
+                    <StartValue>100.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="3">
+                    <StartValue>100.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="4">
+                    <StartValue>100.0</StartValue>
+                  </Subelement>
+                </Member>
+                <Member Name="BehaviorGx_XIST1" Datatype="DInt">
+                  <Subelement Path="1">
+                    <StartValue>0</StartValue>
+                  </Subelement>
+                  <Subelement Path="2">
+                    <StartValue>0</StartValue>
+                  </Subelement>
+                  <Subelement Path="3">
+                    <StartValue>0</StartValue>
+                  </Subelement>
+                  <Subelement Path="4">
+                    <StartValue>0</StartValue>
+                  </Subelement>
+                </Member>
+              </Section>
+            </Sections>
+          </Member>
+          <Member Name="ActiveHoming" Datatype="TO_Struct_SensorActiveHoming" Version="9.0">
+            <Sections>
+              <Section Name="None">
+                <Member Name="Mode" Datatype="DInt">
+                  <Subelement Path="1">
+                    <StartValue>0</StartValue>
+                  </Subelement>
+                  <Subelement Path="2">
+                    <StartValue>0</StartValue>
+                  </Subelement>
+                  <Subelement Path="3">
+                    <StartValue>0</StartValue>
+                  </Subelement>
+                  <Subelement Path="4">
+                    <StartValue>0</StartValue>
+                  </Subelement>
+                </Member>
+                <Member Name="SideInput" Datatype="Bool">
+                  <Subelement Path="1">
+                    <StartValue>true</StartValue>
+                  </Subelement>
+                  <Subelement Path="2">
+                    <StartValue>true</StartValue>
+                  </Subelement>
+                  <Subelement Path="3">
+                    <StartValue>true</StartValue>
+                  </Subelement>
+                  <Subelement Path="4">
+                    <StartValue>true</StartValue>
+                  </Subelement>
+                </Member>
+                <Member Name="Direction" Datatype="DInt">
+                  <Subelement Path="1">
+                    <StartValue>0</StartValue>
+                  </Subelement>
+                  <Subelement Path="2">
+                    <StartValue>0</StartValue>
+                  </Subelement>
+                  <Subelement Path="3">
+                    <StartValue>0</StartValue>
+                  </Subelement>
+                  <Subelement Path="4">
+                    <StartValue>0</StartValue>
+                  </Subelement>
+                </Member>
+                <Member Name="HomePositionOffset" Datatype="LReal">
+                  <Subelement Path="1">
+                    <StartValue>0.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="2">
+                    <StartValue>0.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="3">
+                    <StartValue>0.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="4">
+                    <StartValue>0.0</StartValue>
+                  </Subelement>
+                </Member>
+                <Member Name="SwitchLevel" Datatype="Bool">
+                  <Subelement Path="1">
+                    <StartValue>true</StartValue>
+                  </Subelement>
+                  <Subelement Path="2">
+                    <StartValue>true</StartValue>
+                  </Subelement>
+                  <Subelement Path="3">
+                    <StartValue>true</StartValue>
+                  </Subelement>
+                  <Subelement Path="4">
+                    <StartValue>true</StartValue>
+                  </Subelement>
+                </Member>
+              </Section>
+            </Sections>
+          </Member>
+          <Member Name="PassiveHoming" Datatype="TO_Struct_SensorPassiveHoming" Version="9.0">
+            <Sections>
+              <Section Name="None">
+                <Member Name="Mode" Datatype="DInt">
+                  <Subelement Path="1">
+                    <StartValue>0</StartValue>
+                  </Subelement>
+                  <Subelement Path="2">
+                    <StartValue>0</StartValue>
+                  </Subelement>
+                  <Subelement Path="3">
+                    <StartValue>0</StartValue>
+                  </Subelement>
+                  <Subelement Path="4">
+                    <StartValue>0</StartValue>
+                  </Subelement>
+                </Member>
+                <Member Name="SideInput" Datatype="Bool">
+                  <Subelement Path="1">
+                    <StartValue>true</StartValue>
+                  </Subelement>
+                  <Subelement Path="2">
+                    <StartValue>true</StartValue>
+                  </Subelement>
+                  <Subelement Path="3">
+                    <StartValue>true</StartValue>
+                  </Subelement>
+                  <Subelement Path="4">
+                    <StartValue>true</StartValue>
+                  </Subelement>
+                </Member>
+                <Member Name="Direction" Datatype="DInt">
+                  <Subelement Path="1">
+                    <StartValue>2</StartValue>
+                  </Subelement>
+                  <Subelement Path="2">
+                    <StartValue>2</StartValue>
+                  </Subelement>
+                  <Subelement Path="3">
+                    <StartValue>2</StartValue>
+                  </Subelement>
+                  <Subelement Path="4">
+                    <StartValue>2</StartValue>
+                  </Subelement>
+                </Member>
+                <Member Name="SwitchLevel" Datatype="Bool">
+                  <Subelement Path="1">
+                    <StartValue>true</StartValue>
+                  </Subelement>
+                  <Subelement Path="2">
+                    <StartValue>true</StartValue>
+                  </Subelement>
+                  <Subelement Path="3">
+                    <StartValue>true</StartValue>
+                  </Subelement>
+                  <Subelement Path="4">
+                    <StartValue>true</StartValue>
+                  </Subelement>
+                </Member>
+              </Section>
+            </Sections>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="Extrapolation" Datatype="TO_Struct_Extrapolation" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+      <Sections>
+        <Section Name="None">
+          <Member Name="FollowingAxisDependentTime" Datatype="LReal">
+            <StartValue>0.0</StartValue>
+          </Member>
+          <Member Name="Settings" Datatype="TO_Struct_ExtrapolationSettings" Version="9.0">
+            <Sections>
+              <Section Name="None">
+                <Member Name="SystemDefinedExtrapolation" Datatype="DInt">
+                  <StartValue>1</StartValue>
+                </Member>
+                <Member Name="ExtrapolatedVelocityMode" Datatype="DInt">
+                  <StartValue>1</StartValue>
+                </Member>
+              </Section>
+            </Sections>
+          </Member>
+          <Member Name="PositionFilter" Datatype="TO_Struct_ExtrapolationPositionFilter" Version="9.0">
+            <Sections>
+              <Section Name="None">
+                <Member Name="T1" Datatype="LReal">
+                  <StartValue>0.0</StartValue>
+                </Member>
+                <Member Name="T2" Datatype="LReal">
+                  <StartValue>0.0</StartValue>
+                </Member>
+              </Section>
+            </Sections>
+          </Member>
+          <Member Name="VelocityFilter" Datatype="TO_Struct_ExtrapolationVelocityFilter" Version="9.0">
+            <Sections>
+              <Section Name="None">
+                <Member Name="T1" Datatype="LReal">
+                  <StartValue>0.0</StartValue>
+                </Member>
+                <Member Name="T2" Datatype="LReal">
+                  <StartValue>0.0</StartValue>
+                </Member>
+              </Section>
+            </Sections>
+          </Member>
+          <Member Name="VelocityTolerance" Datatype="TO_Struct_ExtrapolationVelocityTolerance" Version="9.0">
+            <Sections>
+              <Section Name="None">
+                <Member Name="Range" Datatype="LReal">
+                  <StartValue>0.0</StartValue>
+                </Member>
+              </Section>
+            </Sections>
+          </Member>
+          <Member Name="Hysteresis" Datatype="TO_Struct_ExtrapolationHysteresis" Version="9.0">
+            <Sections>
+              <Section Name="None">
+                <Member Name="Value" Datatype="LReal">
+                  <StartValue>0.0</StartValue>
+                </Member>
+              </Section>
+            </Sections>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="Mechanics" Datatype="TO_Struct_Mechanics" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+      <Sections>
+        <Section Name="None">
+          <Member Name="LeadScrew" Datatype="LReal">
+            <StartValue>10.0</StartValue>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="Properties" Datatype="TO_Struct_Properties" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="ExternalWritable" SystemDefined="true">false</BooleanAttribute>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+      <Sections>
+        <Section Name="None">
+          <Member Name="MotionType" Datatype="DInt">
+            <StartValue>1</StartValue>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="Modulo" Datatype="TO_Struct_Modulo" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+      <Sections>
+        <Section Name="None">
+          <Member Name="Enable" Datatype="Bool">
+            <StartValue>false</StartValue>
+          </Member>
+          <Member Name="Length" Datatype="LReal">
+            <StartValue>360.0</StartValue>
+          </Member>
+          <Member Name="StartValue" Datatype="LReal">
+            <StartValue>0.0</StartValue>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="PositionLimits_SW" Datatype="TO_Struct_PositionLimitsSW" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+      <Sections>
+        <Section Name="None">
+          <Member Name="Active" Datatype="Bool">
+            <StartValue>true</StartValue>
+          </Member>
+          <Member Name="MinPosition" Datatype="LReal">
+            <StartValue>-160.0</StartValue>
+          </Member>
+          <Member Name="MaxPosition" Datatype="LReal">
+            <StartValue>160.0</StartValue>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="PositionLimits_HW" Datatype="TO_Struct_PositionLimitsHW" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+      <Sections>
+        <Section Name="None">
+          <Member Name="Active" Datatype="Bool">
+            <StartValue>false</StartValue>
+          </Member>
+          <Member Name="Mode" Datatype="DInt">
+            <StartValue>1</StartValue>
+          </Member>
+          <Member Name="MinSwitchLevel" Datatype="Bool">
+            <StartValue>true</StartValue>
+          </Member>
+          <Member Name="MaxSwitchLevel" Datatype="Bool">
+            <StartValue>true</StartValue>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="Homing" Datatype="TO_Struct_Homing" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+      <Sections>
+        <Section Name="None">
+          <Member Name="AutoReversal" Datatype="Bool">
+            <StartValue>false</StartValue>
+          </Member>
+          <Member Name="ApproachDirection" Datatype="Bool">
+            <StartValue>false</StartValue>
+          </Member>
+          <Member Name="ApproachVelocity" Datatype="LReal">
+            <StartValue>3600.0</StartValue>
+          </Member>
+          <Member Name="ReferencingVelocity" Datatype="LReal">
+            <StartValue>900.0</StartValue>
+          </Member>
+          <Member Name="HomePosition" Datatype="LReal">
+            <StartValue>0.0</StartValue>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="PositionControl" Datatype="TO_Struct_PositionControl" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+      <Sections>
+        <Section Name="None">
+          <Member Name="Kv" Datatype="LReal">
+            <StartValue>100.0</StartValue>
+          </Member>
+          <Member Name="Kpc" Datatype="LReal">
+            <StartValue>100.0</StartValue>
+          </Member>
+          <Member Name="EnableDSC" Datatype="Bool">
+            <StartValue>true</StartValue>
+          </Member>
+          <Member Name="SmoothingTimeByChangeDifference" Datatype="LReal">
+            <StartValue>0.0</StartValue>
+          </Member>
+          <Member Name="InitialOperativeSensor" Datatype="UDInt">
+            <StartValue>1</StartValue>
+          </Member>
+          <Member Name="ControlDifferenceQuantization" Datatype="TO_Struct_PositionDifferenceQuantification" Version="9.0">
+            <Sections>
+              <Section Name="None">
+                <Member Name="Mode" Datatype="DInt">
+                  <StartValue>1</StartValue>
+                </Member>
+                <Member Name="Value" Datatype="LReal">
+                  <StartValue>0.001</StartValue>
+                </Member>
+              </Section>
+            </Sections>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="TorquePreControl" Datatype="TO_Struct_TorquePreControl" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+    </Member>
+    <Member Name="SetpointFilter" Datatype="TO_Struct_SetpointFilter" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+    </Member>
+    <Member Name="DynamicAxisModel" Datatype="TO_Struct_DynamicAxisModel" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+      <Sections>
+        <Section Name="None">
+          <Member Name="VelocityTimeConstant" Datatype="LReal">
+            <StartValue>0.004</StartValue>
+          </Member>
+          <Member Name="AdditionalPositionTimeConstant" Datatype="LReal">
+            <StartValue>0.0</StartValue>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="FollowingError" Datatype="TO_Struct_FollowingError" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+      <Sections>
+        <Section Name="None">
+          <Member Name="EnableMonitoring" Datatype="Bool">
+            <StartValue>true</StartValue>
+          </Member>
+          <Member Name="MinValue" Datatype="LReal">
+            <StartValue>360.0</StartValue>
+          </Member>
+          <Member Name="MaxValue" Datatype="LReal">
+            <StartValue>3600.0</StartValue>
+          </Member>
+          <Member Name="MinVelocity" Datatype="LReal">
+            <StartValue>360.0</StartValue>
+          </Member>
+          <Member Name="WarningLevel" Datatype="LReal">
+            <StartValue>70.0</StartValue>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="CrossPlcSynchronousOperation" Datatype="TO_Struct_CrossPlcSynchronousOperation" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+      <Sections>
+        <Section Name="None">
+          <Member Name="LocalLeadingValueDelayTime" Datatype="LReal">
+            <StartValue>0.0</StartValue>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="PositioningMonitoring" Datatype="TO_Struct_PositioningMonitoring" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+      <Sections>
+        <Section Name="None">
+          <Member Name="ToleranceTime" Datatype="LReal">
+            <StartValue>1.0</StartValue>
+          </Member>
+          <Member Name="MinDwellTime" Datatype="LReal">
+            <StartValue>0.01</StartValue>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="StandstillSignal" Datatype="TO_Struct_StandstillSignal" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+      <Sections>
+        <Section Name="None">
+          <Member Name="VelocityThreshold" Datatype="LReal">
+            <StartValue>2.0</StartValue>
+          </Member>
+          <Member Name="MinDwellTime" Datatype="LReal">
+            <StartValue>0.01</StartValue>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="StatusPositioning" Datatype="TO_Struct_StatusPositioning" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="ExternalWritable" SystemDefined="true">false</BooleanAttribute>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+    </Member>
+    <Member Name="StatusServo" Datatype="TO_Struct_StatusServo" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="ExternalWritable" SystemDefined="true">false</BooleanAttribute>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+    </Member>
+    <Member Name="StatusProvidedLeadingValue" Datatype="TO_Struct_StatusProvidedLeadingValue" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="ExternalWritable" SystemDefined="true">false</BooleanAttribute>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+    </Member>
+    <Member Name="StatusSensor" Datatype="Array[1..4] of TO_Struct_StatusSensor" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="ExternalWritable" SystemDefined="true">false</BooleanAttribute>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+    </Member>
+    <Member Name="StatusExtrapolation" Datatype="TO_Struct_StatusExtrapolation" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="ExternalWritable" SystemDefined="true">false</BooleanAttribute>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+    </Member>
+    <Member Name="StatusKinematicsMotion" Datatype="TO_Struct_StatusKinematicsMotion" Version="9.0">
+      <AttributeList>
+        <BooleanAttribute Name="ExternalWritable" SystemDefined="true">false</BooleanAttribute>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>J1_SCARA_Arm3D</Name>
+      <Namespace />
+      <Number>11</Number>
+      <OfSystemLibElement>TO_PositioningAxis</OfSystemLibElement>
+      <OfSystemLibVersion>9.0</OfSystemLibVersion>
+      <ParameterData>
+<Parameters xmlns="http://www.siemens.com/automation/Openness/SW/Parameters/v1">
+  <Parameter Name="_Properties.MotionType" Value="1" />
+  <Parameter Name="Sensor[1].Type" Value="2" />
+  <Parameter Name="_Actor.Interface.Telegram" Value="105" />
+  <Parameter Name="_Sensor[1].Interface.Telegram" Value="105" />
+  <AdditionalData xmlns="http://www.siemens.com/automation/Openness/SW/Motion/Axis/v1" />
+</Parameters></ParameterData>
+      <ProgrammingLanguage>Motion_DB</ProgrammingLanguage>
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.TechnologicalObjects.TechnologicalInstanceDB>
+</Document>

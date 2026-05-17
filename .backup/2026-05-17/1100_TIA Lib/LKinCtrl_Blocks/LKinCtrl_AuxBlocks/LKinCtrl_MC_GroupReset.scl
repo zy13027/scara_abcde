@@ -1,0 +1,256 @@
+﻿FUNCTION_BLOCK "LKinCtrl_MC_GroupReset"
+TITLE = LKinCtrl_MC_GroupReset
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//FB provides funcitonalities to reset all axes (TO_PositioningAxis or TO_SynchronousAxis) interconnected with TO Kinematics and the TO Kinematics itself using internal MC_RESET
+   VAR_INPUT 
+      execute : Bool;   // Rising edge starts action once
+      restart : Array[1..7] of Bool;   // reinitialization of technology object
+   END_VAR
+
+   VAR_OUTPUT 
+      done { ExternalWritable := 'False'} : Bool;   // axesGroup successfully referenced
+      busy { ExternalWritable := 'False'} : Bool;   // FB is not finished and new output values can be expected
+      active { ExternalWritable := 'False'} : Bool;   // FB in control of axesGroup / kinematic in motion
+      commandAborted { ExternalWritable := 'False'} : Bool;   // command is aborted by another command
+      error { ExternalWritable := 'False'} : Bool;   // an error occurred during the execution of the FB
+      diagnostics { ExternalWritable := 'False'} : "LKinCtrl_typeAuxFCDiagnostics";   // diagnostics information of FB (optional)
+   END_VAR
+
+   VAR_IN_OUT 
+      axesGroup {InstructionName := 'TO_Kinematics'; LibVersion := '9.0'} : TO_Kinematics;   // reference to the axesGroup
+   END_VAR
+
+   VAR 
+      statExecuteOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // Old value of 'execute' input for edge detection
+      statDone { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // Static value for output 'done'
+      statBusy { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // Static value for output 'busy'
+      statError { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // Static value for output 'error'
+      statStatus { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Word := #STATUS_NO_CALL;   // Static value for output 'status'
+      statSubfunctionStatus { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Word;   // Static value for output 'subFunctionStatus'
+      statAxisNumberDiag { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int;   // Static value for output 'axisNumber'
+      statErrorDetailNumber { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : UDInt;   // static to store axis error detail number
+      statStateMachine { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt := #NO_PROCESSING;   // State in the state machine of the FB
+      statInitInstances { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static to initialize all instances
+      statAxes { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..#MAX_NO_OF_AXES] of DB_ANY;   // array of struct containing axis DB_ANY and type of axis
+      instMCResetAxes {InstructionName := 'MC_RESET'; LibVersion := '9.0'; ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : Array[1..#MAX_NO_OF_AXES] of MC_RESET;   // multi instance array of MC_RESET for axes
+      instMCResetKin {InstructionName := 'MC_RESET'; LibVersion := '9.0'; ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : MC_RESET;   // multi instance of MC_RESET for TO_Kinematics
+   END_VAR
+
+   VAR_TEMP 
+      tempExecute : Bool;   // temporary value for input 'execute'
+      tempAxisCtr : Int;   // temporary counter variable for axes
+      tempRefToAxis {InstructionName := 'TO_PositioningAxis'; LibVersion := '9.0'} : REF_TO TO_PositioningAxis;   // temporary reference to axis
+   END_VAR
+
+   VAR CONSTANT 
+      NO_PROCESSING : DInt := 0;   // state machine constant
+      RESET_AXES : DInt := 10;   // state machine constant
+      RESET_KINEMATICS : DInt := 20;   // state machine constant
+      MAX_NO_OF_AXES : Int := 6;   // maximum number of axes
+      STATUS_EXECUTION_FINISHED : Word := 16#0000;   // Execution finished without errors
+      STATUS_NO_CALL : Word := 16#7000;   // No job being currently processed
+      STATUS_FIRST_CALL : Word := 16#7001;   // First call after incoming new job (rising edge 'execute')
+      STATUS_SUBSEQUENT_CALL : Word := 16#7002;   // Subsequent call during active processing without further details
+      STATUS_COMMAND_ABORTED : Word := 16#7FFF;   // Commanded functionality has been aborted by another command
+      ERR_AXIS_ERROR : Word := 16#8360;   // error pending at axis
+      ERR_KIN_ERROR : Word := 16#8361;   // error pending at kinematics
+      ERR_MC_RESET_AXES : Word := 16#8362;   // error during execution of MC_RESET for axis
+      ERR_MC_RESET_KIN : Word := 16#8363;   // error during execution of MC_RESET for kinematics
+      ERR_AXIS_REF : Word := 16#8373;   // error due to missing axis reference
+      ERR_UNDEFINED_STATE : Word := 16#8600;   // error due to an undefined state in state machine
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN/DP
+	// Engineering: TIA Portal V18
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 3.0
+	// Functionality: LKinCtrl_MC_GroupReset
+	// The FB is executing MC_RESET function blocks to reset all axes
+	// and the axesGroup (TO Kinematics)
+	//
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   27.02.2019    JR                  First release version v1.0
+	// 01.01.00   14.10.2022    FR                  Reworked with REF_TO
+	//===========================================================================================
+	
+	#tempExecute := #execute; // Work with temporary value / create process image
+	
+	REGION TRIGGERING
+	  IF (#tempExecute = TRUE) AND (#statExecuteOld = FALSE) // Check if FB is triggered
+	  THEN // First call; initialize FB
+	    #statDone := FALSE;
+	    #statBusy := TRUE;
+	    #statError := FALSE;
+	    #statStatus := #STATUS_FIRST_CALL;
+	    
+	    #statStateMachine := #RESET_AXES; // State machine - start processing
+	    
+	    // Initialize functionality: reset of variables, diagnostics, etc.
+	    #statErrorDetailNumber := 0;
+	    #statAxisNumberDiag := 0;
+	    #statSubfunctionStatus := 16#0;
+	    #statInitInstances := TRUE;
+	    
+	    // Initialize functionality: call subsidiary FBs with FALSE
+	    // assign DB number of connected axis to DB_ANY type
+	    #statAxes[1] := #axesGroup.KinematicsAxis.A1;
+	    #statAxes[2] := #axesGroup.KinematicsAxis.A2;
+	    #statAxes[3] := #axesGroup.KinematicsAxis.A3;
+	    #statAxes[4] := #axesGroup.KinematicsAxis.A4;
+	    #statAxes[5] := #axesGroup.KinematicsAxis.A5;
+	    #statAxes[6] := #axesGroup.KinematicsAxis.A6;
+	    
+	    // Call mc_reset_kin with false
+	    #instMCResetKin(Axis    := #axesGroup,
+	                    Execute := FALSE);
+	    
+	  ELSIF (#statStatus = #STATUS_FIRST_CALL) THEN
+	    #statStatus := #STATUS_SUBSEQUENT_CALL;
+	  END_IF;
+	  
+	  // Edge detection 'execute' input
+	  #statExecuteOld := #tempExecute;
+	END_REGION TRIGGERING
+	
+	IF (#statStatus = #STATUS_NO_CALL) THEN
+	  // Nothing to do -> End here to reduce "system load"
+	  RETURN;
+	END_IF;
+	
+	REGION STATE_MACHINE
+	  CASE #statStateMachine OF // State machine of FB
+	    #NO_PROCESSING: // No processing active (Note: this state must always be present and left empty)
+	      ;
+	      
+	    #RESET_AXES:
+	      REGION RESET_AXES
+	        IF #statInitInstances = FALSE THEN
+	          // set to next state but overwrite if one instance of MC_Reset is still busy 
+	          #statStateMachine := #RESET_KINEMATICS;
+	        END_IF;
+	        
+	        FOR #tempAxisCtr := 1 TO #MAX_NO_OF_AXES DO
+	          // To init MC_Reset, call with execute=FALSE in first cycle
+	          #instMCResetAxes[#tempAxisCtr].Execute := NOT #statInitInstances;
+	          
+	          // Check if axis is used
+	          IF #statAxes[#tempAxisCtr] = 0 THEN
+	            CONTINUE;
+	          END_IF;
+	          
+	          // Cast
+	          #tempRefToAxis ?= #statAxes[#tempAxisCtr];
+	          
+	          // Check if cast is valid
+	          IF #tempRefToAxis = NULL THEN
+	            // set status
+	            #statStatus := #ERR_AXIS_REF;
+	            // write axis number to diagnostics
+	            #statAxisNumberDiag := #tempAxisCtr;
+	            EXIT;
+	          END_IF;
+	          
+	          // check for no error to be pending
+	          IF #statStatus.%X15 = FALSE THEN
+	            // Call mc_reset
+	            #instMCResetAxes[#tempAxisCtr](Axis    := #tempRefToAxis^,
+	                                           Restart := #restart[#tempAxisCtr]);
+	            
+	            // check for reset to be busy
+	            IF #instMCResetAxes[#tempAxisCtr].Busy THEN
+	              // stay in this state if busy
+	              #statStateMachine := #RESET_AXES;
+	            ELSIF #instMCResetAxes[#tempAxisCtr].Error OR #instMCResetAxes[#tempAxisCtr].CommandAborted THEN
+	              // set status
+	              #statStatus := #ERR_MC_RESET_AXES;
+	              // write MC_POWER errorID to diagnostics
+	              #statSubfunctionStatus := #instMCResetAxes[#tempAxisCtr].ErrorId;
+	              // write axis number to diagnostics
+	              #statAxisNumberDiag := #tempAxisCtr;
+	              // exit loop once error is found
+	              EXIT;
+	            END_IF;
+	          END_IF;
+	        END_FOR;
+	        
+	        // Reset init bit
+	        #statInitInstances := FALSE;
+	      END_REGION RESET_AXES
+	      
+	    #RESET_KINEMATICS:
+	      REGION RESET_KINEMATICS
+	        // Call mc_reset_kin
+	        #instMCResetKin(Axis    := #axesGroup,
+	                        Execute := TRUE,
+	                        Restart := #restart[7]);
+	        
+	        // check for TO Kinematics reset to be completed
+	        IF #instMCResetKin.Done THEN
+	          // set status to initiate end of FB execution
+	          #statStatus := #STATUS_EXECUTION_FINISHED;
+	        ELSIF #instMCResetKin.#Error OR #instMCResetKin.#CommandAborted THEN
+	          // set status
+	          #statStatus := #ERR_MC_RESET_KIN;
+	          // write MC_HOME errorID to diagnostics
+	          #statSubfunctionStatus := #instMCResetKin.ErrorId;
+	          // write axis number to diagnostics
+	          #statAxisNumberDiag := #MAX_NO_OF_AXES + 1;
+	        END_IF;
+	      END_REGION RESET_KINEMATICS
+	      
+	    ELSE // Undefined state in state machine reached
+	      #statStatus := #ERR_UNDEFINED_STATE;
+	  END_CASE;
+	END_REGION STATE_MACHINE
+	
+	REGION OUTPUTS
+	  // Write outputs
+	  IF (#statStatus = #STATUS_EXECUTION_FINISHED) AND (#statDone = FALSE) THEN // Execution finished without errors
+	    #statDone := TRUE;
+	    #statBusy := FALSE;
+	    #statError := FALSE;
+	    #statStateMachine := #NO_PROCESSING; // Switch state machine to "no processing"
+	    
+	  ELSIF (#statStatus.%X15 = TRUE) AND (#statError = FALSE) THEN // Error occurred (#statStatus is 16#8000 to 16#FFFF)
+	    #statDone := FALSE;
+	    #statBusy := FALSE;
+	    #statError := TRUE;
+	    #statStateMachine := #NO_PROCESSING; // Switch state machine to "no processing"
+	    
+	  ELSIF (#tempExecute = FALSE) AND ((#statDone = TRUE) OR (#statError = TRUE)) THEN // Reset outputs
+	    #statDone := FALSE;
+	    #statBusy := FALSE;
+	    #statError := FALSE;
+	    #statStatus := #STATUS_NO_CALL;
+	  END_IF;
+	  
+	  // Write static values to outputs
+	  #done := #statDone;
+	  #busy := #statBusy;
+	  #error := #statError;
+	  #diagnostics.status := #statStatus;
+	  #diagnostics.subfunctionStatus := #statSubfunctionStatus;
+	  #diagnostics.axisNumber := #statAxisNumberDiag;
+	  #diagnostics.errorDetail := #statErrorDetailNumber;
+	  #diagnostics.stateNumber := #statStateMachine;
+	END_REGION OUTPUTS
+	
+	// =================================================================================================================
+	// End of Function Block: LKinCtrl_MC_GroupReset
+	// =================================================================================================================
+END_FUNCTION_BLOCK
+

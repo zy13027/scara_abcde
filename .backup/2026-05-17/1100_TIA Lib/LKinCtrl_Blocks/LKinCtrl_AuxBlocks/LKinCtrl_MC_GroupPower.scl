@@ -1,0 +1,417 @@
+﻿FUNCTION_BLOCK "LKinCtrl_MC_GroupPower"
+TITLE = LKinCtrl_MC_GroupPower
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//FB provides funcitonalities to enable all axes (TO_PositioningAxis or TO_SynchronousAxis) interconnected with TO Kinematics
+   VAR_INPUT 
+      enable : Bool;   // TRUE: Enable axes; FALSE: Disable axes
+      startMode : Array[1..#MAX_NO_OF_AXES] of DInt := [6(1)];   // startMode of axis; 0: enable NOT position controlled; 1: enable position controlled
+      stopMode : Array[1..#MAX_NO_OF_AXES] of Int;   // stopMode of axis; 0: emergency stop; 1: immediate stop; 2: stop with max dynamics
+   END_VAR
+
+   VAR_OUTPUT 
+      busy { ExternalWritable := 'False'} : Bool;   // TRUE: FB is not finished and new output values can be expected
+      error { ExternalWritable := 'False'} : Bool;   // TRUE: An error occurred during the execution of the FB
+      axesEnabled { ExternalWritable := 'False'} : Bool := FALSE;   // TRUE: all axes of axesGroup enabled; FALSE: all axes of axesGroup disabled
+      diagnostics { ExternalWritable := 'False'} : "LKinCtrl_typeAuxFCDiagnostics" := (#STATUS_NO_CALL, (), (), (), ());   // Diagnostics information of FB (optional)
+   END_VAR
+
+   VAR_IN_OUT 
+      axesGroup {InstructionName := 'TO_Kinematics'; LibVersion := '9.0'} : TO_Kinematics;   // reference to the axesGroup
+   END_VAR
+
+   VAR 
+      statEnableOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // old value of 'enable' input for edge detection
+      statBusy { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static value for output 'busy'
+      statError { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static value for output 'error'
+      statErrorUserCleared { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // error occurred that can only be solved by user; rising edge at enable input necessary
+      statErrorAutoCleared { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // error occurred that can be acknowledged by FB
+      statStatus { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Word := #STATUS_NO_CALL;   // static value for output 'status'
+      statSubfunctionStatus { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Word;   // static value for output 'subFunctionStatus'
+      statAxesEnabled { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static value for output 'axesEnabled'
+      statAxesDisabled { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static value for output 'axesDisabled'
+      statErrorDetailNumber { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : UDInt;   // static to store axis error detail number
+      statStateMachine { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt := #NO_PROCESSING;   // state in the state machine of the FB
+      statDisablingCompleted { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // TRUE: Disabling has been completed
+      statAxisNumberDiag { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int;   // static value for output 'axisNumber'
+      instMC_Power {InstructionName := 'MC_POWER'; LibVersion := '9.0'; ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : Array[1..#MAX_NO_OF_AXES] of MC_POWER;   // multi instance array of MC_RESET for axes
+      statAxes { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..#MAX_NO_OF_AXES] of DB_ANY;   // array of struct containing axis DB_ANY and type of axis
+      statAxisStatusWord { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DWord;   // static to store axis status word
+      statAxisErrorDetailNumber { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : UDInt;   // static to store axis error detail number
+      statExsitingAxesCtr { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int;   // static counter for existing axes
+      statEnabledAxesCtr { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int;   // static counter for enabled axes
+      statDisabledAxesCtr { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int;   // static counter for disabled axes
+   END_VAR
+
+   VAR_TEMP 
+      tempEnable : Bool;   // temporary value for input 'enable'
+      tempAxisCtr : Int;   // temporary counter variable for axes
+      tempEncoderValid : Bool;   // temporary check if encoder is valid
+      tempRefToAxis {InstructionName := 'TO_PositioningAxis'; LibVersion := '9.0'} : REF_TO TO_PositioningAxis;   // temporary reference to axis
+   END_VAR
+
+   VAR CONSTANT 
+      NO_PROCESSING : DInt := 0;   // FB state: No processing
+      CHECK_AXES : DInt := 10;   // state machine constant
+      ENABLE_AXES : DInt := 20;   // state machine constant
+      DISABLING_AXES : DInt := 50;   // state machine constant
+      MAX_NO_OF_AXES : Int := 6;   // maximum number of axes
+      STATUS_NO_ERROR : Word := 16#0000;   // no error occured
+      STATUS_NO_CALL : Word := 16#7000;   // no job being currently processed
+      STATUS_FIRST_CALL : Word := 16#7001;   // first call after incoming new job (rising edge 'execute')
+      STATUS_SUBSEQUENT_CALL : Word := 16#7002;   // subsequent call during active processing without further details
+      STATUS_ENABLING_AXES_IN_PROGRESS : Word := 16#7008;   // enabling axes in progress
+      STATUS_DISABLING_AXES_IN_PROGRESS : Word := 16#7010;   // disabling axes in progress
+      STATUS_ALL_AXES_ENABLED : Word := 16#7009;   // all access enabled successfully
+      STATUS_ALL_AXES_DISABLED : Word := 16#7011;   // all access disabled successfully
+      STATUS_WAITING_FOR_COMM : Word := 16#7012;   // waiting for encoder and drive to be valid
+      ERR_UNDEFINED_STATE : Word := 16#8600;   // error due to an undefined state in state machine
+      ERR_AXIS_ERROR : Word := 16#8370;   // error pending at axis
+      ERR_KIN_ERROR : Word := 16#8371;   // error pending at kinematics
+      ERR_MC_POWER : Word := 16#8372;   // error during execution of MC_POWER for axis
+      ERR_AXIS_REF : Word := 16#8373;   // error due to missing axis reference
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2020 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN/DP
+	// Engineering: TIA Portal V18
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 3.0
+	// Functionality: LKinCtrl_MC_GroupPower
+	// The FB is executing MC_RESET function blocks to reset all axes
+	// and the axesGroup (TO Kinematics)
+	//
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   05.03.2019    JR                  First release version v1.0
+	// 01.00.01   13.02.2020    FR                  Reset "axesEnabled" output in case of error
+	// 01.00.02   14.12.2021    FR                  Check MC_Power.busy when disabling
+	// 01.01.00   13.10.2022    FR                  Reworked with REF_TO
+	//===========================================================================================
+	
+	#tempEnable := #enable; // Work with temporary value / create process image
+	
+	REGION ENABLING/DISABLING
+	  IF (#tempEnable = TRUE) AND (#statStatus = #STATUS_NO_CALL) THEN // Enable FB
+	    // First call; initialize FB
+	    #statBusy := TRUE;
+	    #statError := FALSE;
+	    #statAxesEnabled := FALSE;
+	    #statErrorUserCleared := FALSE;
+	    #statErrorAutoCleared := FALSE;
+	    #statStatus := #STATUS_FIRST_CALL;
+	    
+	    #statStateMachine := #ENABLE_AXES; // State machine - start processing
+	    
+	    // initialize functionality: reset of variables, diagnostics, etc.
+	    #statDisablingCompleted := FALSE;
+	    #statAxisStatusWord := 16#0;
+	    #statExsitingAxesCtr := 0;
+	    #statDisabledAxesCtr := 0;
+	    #statEnabledAxesCtr := 0;
+	    #statErrorDetailNumber := 0;
+	    #statAxisNumberDiag := 0;
+	    #statSubfunctionStatus := #STATUS_NO_ERROR;
+	    
+	    // check available & connected axes at TO_Kinematics
+	    // assign DB number of connected axis to DB_ANY type
+	    #statAxes[1] := #axesGroup.KinematicsAxis.A1;
+	    #statAxes[2] := #axesGroup.KinematicsAxis.A2;
+	    #statAxes[3] := #axesGroup.KinematicsAxis.A3;
+	    #statAxes[4] := #axesGroup.KinematicsAxis.A4;
+	    #statAxes[5] := #axesGroup.KinematicsAxis.A5;
+	    #statAxes[6] := #axesGroup.KinematicsAxis.A6;
+	    
+	    FOR #tempAxisCtr := 1 TO #MAX_NO_OF_AXES DO
+	      // Count existing axes
+	      IF #statAxes[#tempAxisCtr] <> 0 THEN
+	        #statExsitingAxesCtr += 1;
+	      END_IF;
+	    END_FOR;
+	    
+	  ELSIF (#tempEnable = FALSE) AND (#statEnableOld = TRUE) THEN // Disable FB 
+	    #statStateMachine := #DISABLING_AXES;
+	    
+	  ELSIF (#statStatus = #STATUS_FIRST_CALL) THEN // Set status identifier of subsequent call
+	    #statStatus := #STATUS_SUBSEQUENT_CALL;
+	  END_IF;
+	  
+	  // Edge detection 'enable' input
+	  #statEnableOld := #tempEnable;
+	END_REGION ENABLING/DISABLING
+	
+	IF (#statStatus = #STATUS_NO_CALL) THEN
+	  // Nothing to do -> End here to reduce "system load"
+	  RETURN;
+	END_IF;
+	
+	REGION STATE_MACHINE
+	  CASE #statStateMachine OF // State machine of FB
+	    #NO_PROCESSING: // No processing active (Note: this state must always be present and left empty)
+	      ;
+	      
+	    #CHECK_AXES: // Check if axes is ready to enable
+	      REGION CHECK_AXES
+	        FOR #tempAxisCtr := 1 TO #MAX_NO_OF_AXES DO
+	          // Check if axis is used
+	          IF #statAxes[#tempAxisCtr] = 0 THEN
+	            CONTINUE;
+	          END_IF;
+	          
+	          // Cast
+	          #tempRefToAxis ?= #statAxes[#tempAxisCtr];
+	          
+	          // Check if cast is valid
+	          IF #tempRefToAxis = NULL THEN
+	            // set status
+	            #statStatus := #ERR_AXIS_REF;
+	            // set error bit
+	            #statErrorUserCleared := TRUE;
+	            // write axis number to diagnostics
+	            #statAxisNumberDiag := #tempAxisCtr;
+	            EXIT;
+	          END_IF;
+	          
+	          // Check active sensor to be valid
+	          CASE #tempRefToAxis^.OperativeSensor OF // Workaround for REF_TO TO_POS
+	            1:
+	              #tempEncoderValid := #tempRefToAxis^.StatusSensor[1].AdaptionState = 2 AND #tempRefToAxis^.StatusSensor[1].State = 2 AND #tempRefToAxis^.StatusSensor[1].CommunicationOK;
+	            2:
+	              #tempEncoderValid := #tempRefToAxis^.StatusSensor[2].AdaptionState = 2 AND #tempRefToAxis^.StatusSensor[2].State = 2 AND #tempRefToAxis^.StatusSensor[2].CommunicationOK;
+	            3:
+	              #tempEncoderValid := #tempRefToAxis^.StatusSensor[3].AdaptionState = 2 AND #tempRefToAxis^.StatusSensor[3].State = 2 AND #tempRefToAxis^.StatusSensor[3].CommunicationOK;
+	            4:
+	              #tempEncoderValid := #tempRefToAxis^.StatusSensor[4].AdaptionState = 2 AND #tempRefToAxis^.StatusSensor[4].State = 2 AND #tempRefToAxis^.StatusSensor[4].CommunicationOK;
+	            ELSE
+	              #tempEncoderValid := FALSE;
+	          END_CASE;
+	          
+	          // Check status
+	          IF #tempRefToAxis^.StatusDrive.CommunicationOK = TRUE
+	            AND #tempRefToAxis^.StatusDrive.AdaptionState = 2
+	            AND #tempEncoderValid
+	          THEN
+	            //Status is ok to enable axis
+	            #statStateMachine := #ENABLE_AXES;
+	          ELSE
+	            // Status is not ok to enable axis 
+	            // write axis number to diagnostics
+	            #statAxisNumberDiag := #tempAxisCtr;
+	            // Wait here until status is ok?
+	            #statStatus := #STATUS_WAITING_FOR_COMM;
+	            #statStateMachine := #CHECK_AXES;
+	            EXIT;
+	          END_IF;
+	        END_FOR;
+	      END_REGION CHECK_AXES
+	      
+	    #ENABLE_AXES:
+	      REGION ENABLE_AXES
+	        // reset enabled axes counter
+	        #statEnabledAxesCtr := 0;
+	        
+	        FOR #tempAxisCtr := 1 TO #MAX_NO_OF_AXES DO
+	          // Check if axis is used
+	          IF #statAxes[#tempAxisCtr] = 0 THEN
+	            CONTINUE;
+	          END_IF;
+	          
+	          // Cast
+	          #tempRefToAxis ?= #statAxes[#tempAxisCtr];
+	          
+	          // Check if cast is valid
+	          IF #tempRefToAxis = NULL THEN
+	            // set status
+	            #statStatus := #ERR_AXIS_REF;
+	            // set error bit
+	            #statErrorUserCleared := TRUE;
+	            // write axis number to diagnostics
+	            #statAxisNumberDiag := #tempAxisCtr;
+	            EXIT;
+	          END_IF;
+	          
+	          // Get StatusWord
+	          IF #tempRefToAxis^.StatusWord.%X1 = TRUE THEN
+	            // set status
+	            #statStatus := #ERR_AXIS_ERROR;
+	            // set error bit
+	            #statErrorUserCleared := TRUE;
+	            // write axis number to diagnostics
+	            #statAxisNumberDiag := #tempAxisCtr;
+	            // set subFunctionStatus
+	            #statErrorDetailNumber := #tempRefToAxis^.ErrorDetail.Number;
+	            EXIT;
+	          END_IF;
+	          
+	          // check for no error to be pending
+	          IF #statStatus.%X15 = FALSE THEN
+	            // set status message
+	            #statStatus := #STATUS_ENABLING_AXES_IN_PROGRESS;
+	            
+	            // Call mc_power
+	            #instMC_Power[#tempAxisCtr](Axis      := #tempRefToAxis^,
+	                                        Enable    := TRUE,
+	                                        StartMode := #startMode[#tempAxisCtr],
+	                                        StopMode  := #stopMode[#tempAxisCtr]);
+	            
+	            // check for enabling to be done
+	            IF #instMC_Power[#tempAxisCtr].Status THEN
+	              // count done signals
+	              #statEnabledAxesCtr += 1;
+	            ELSIF #instMC_Power[#tempAxisCtr].Error THEN
+	              // set status
+	              #statStatus := #ERR_MC_POWER;
+	              // set error bit
+	              #statErrorUserCleared := TRUE;
+	              // write MC_POWER errorID to diagnostics
+	              #statSubfunctionStatus := #instMC_Power[#tempAxisCtr].ErrorId;
+	              // write axis number to diagnostics
+	              #statAxisNumberDiag := #tempAxisCtr;
+	              // exit FOR loop once error is found
+	              EXIT;
+	            END_IF;
+	            
+	            // check for all axes to be enabled successfully
+	            IF #statEnabledAxesCtr = #statExsitingAxesCtr THEN
+	              // set output to signalize enabling successful
+	              #statAxesEnabled := TRUE;
+	              // set status message
+	              #statStatus := #STATUS_ALL_AXES_ENABLED;
+	            END_IF;
+	          END_IF;
+	        END_FOR;
+	      END_REGION
+	      
+	    #DISABLING_AXES: // Disabling active
+	      REGION DISABLING_AXES
+	        // set status message
+	        #statStatus := #STATUS_DISABLING_AXES_IN_PROGRESS;
+	        
+	        // reset enabled axes counter
+	        #statDisabledAxesCtr := 0;
+	        
+	        FOR #tempAxisCtr := 1 TO #MAX_NO_OF_AXES DO
+	          // Check if axis is used
+	          IF #statAxes[#tempAxisCtr] = 0 THEN
+	            CONTINUE;
+	          END_IF;
+	          
+	          // cast
+	          #tempRefToAxis ?= #statAxes[#tempAxisCtr];
+	          
+	          IF #tempRefToAxis = NULL THEN
+	            // set status
+	            #statStatus := #ERR_AXIS_REF;
+	            // set error bit
+	            #statErrorUserCleared := TRUE;
+	            // write axis number to diagnostics
+	            #statAxisNumberDiag := #tempAxisCtr;
+	            EXIT;
+	          END_IF;
+	          
+	          // check for no error to be pending
+	          IF #statStatus.%X15 = FALSE THEN
+	            // set status message
+	            #statStatus := #STATUS_DISABLING_AXES_IN_PROGRESS;
+	            
+	            // Call mc_power
+	            #instMC_Power[#tempAxisCtr](Axis      := #tempRefToAxis^,
+	                                        Enable    := FALSE,
+	                                        StartMode := #startMode[#tempAxisCtr],
+	                                        StopMode  := #stopMode[#tempAxisCtr]);
+	            
+	            // check for enabling to be done
+	            IF #instMC_Power[#tempAxisCtr].Status = FALSE
+	              AND #instMC_Power[#tempAxisCtr].Busy = FALSE
+	            THEN
+	              // count done signals
+	              #statDisabledAxesCtr += 1;
+	            ELSIF #instMC_Power[#tempAxisCtr].Error THEN
+	              // set status
+	              #statStatus := #ERR_MC_POWER;
+	              // set error bit
+	              #statErrorUserCleared := TRUE;
+	              // write MC_POWER errorID to diagnostics
+	              #statSubfunctionStatus := #instMC_Power[#tempAxisCtr].ErrorId;
+	              // write axis number to diagnostics
+	              #statAxisNumberDiag := #tempAxisCtr;
+	              // exit FOR loop once error is found
+	              EXIT;
+	            END_IF;
+	            
+	            // check for all axes to be disabled successfully
+	            IF #statDisabledAxesCtr = #statExsitingAxesCtr THEN
+	              // set status message
+	              #statStatus := #STATUS_ALL_AXES_DISABLED;
+	              // reset variable for axesEnabled output
+	              #statAxesEnabled := FALSE;
+	              // when disabling is complete the bit #statDisablingCompleted must be set
+	              #statDisablingCompleted := TRUE;
+	            END_IF;
+	          END_IF;
+	        END_FOR;
+	      END_REGION DISABLING_AXES
+	      
+	    ELSE // Undefined state in state machine reached
+	      #statStatus := #ERR_UNDEFINED_STATE;
+	      #statErrorUserCleared := TRUE;
+	  END_CASE;
+	END_REGION STATE_MACHINE
+	
+	REGION OUTPUTS
+	  // Write outputs
+	  IF (#statDisablingCompleted = TRUE) THEN
+	    // Reset outputs if disabling completed
+	    #statBusy := FALSE;
+	    #statError := FALSE;
+	    #statErrorUserCleared := FALSE;
+	    #statErrorAutoCleared := FALSE;
+	    #statStatus := #STATUS_NO_CALL;
+	    #statStateMachine := #NO_PROCESSING; // Switch state machine to "no processing"
+	    
+	  ELSIF (#statErrorUserCleared = TRUE) AND (#statError = FALSE) THEN
+	    // Error can only be cleared by user; rising edge at enable input is needed to continue 
+	    #statBusy := FALSE;
+	    #statError := TRUE;
+	    #statStateMachine := #NO_PROCESSING; // Switch state machine to "no processing"
+	    
+	  ELSIF (#statErrorAutoCleared = TRUE) AND (#statError = FALSE) THEN
+	    // Error can be reset by FB automatically  
+	    #statBusy := TRUE;
+	    #statError := TRUE;
+	    // TODO: Handling of autocleared error
+	    
+	  ELSIF (#statErrorAutoCleared = FALSE) AND (#statErrorUserCleared = FALSE) AND (#statError = TRUE) THEN
+	    // If autocleared error is acknowledged
+	    #statBusy := TRUE;
+	    #statError := FALSE;
+	    #statStatus := #STATUS_SUBSEQUENT_CALL;
+	  END_IF;
+	  
+	  // Write static values to outputs
+	  #busy := #statBusy;
+	  #error := #statError;
+	  #axesEnabled := #statAxesEnabled;
+	  #diagnostics.status := #statStatus;
+	  #diagnostics.subfunctionStatus := #statSubfunctionStatus;
+	  #diagnostics.axisNumber := #statAxisNumberDiag;
+	  #diagnostics.errorDetail := #statErrorDetailNumber;
+	  #diagnostics.stateNumber := #statStateMachine;
+	END_REGION OUTPUTS
+	
+	// =================================================================================================================
+	// End of Function Block: LKinCtrl_MC_GroupPower
+	// =================================================================================================================
+END_FUNCTION_BLOCK
+
