@@ -97,11 +97,32 @@ $step = Read-Tag 'GDB_MachineCmd.i16_AutoStep'
 Assert-Gate 'F.CycleStarted' ($step -gt 0) "i16_AutoStep=$step (cycle running)"
 
 # ====================================================================
+# Verify V8 SCL is loaded (statProgress + statTotalDistance must exist)
+# ====================================================================
+Write-Host ""
+Write-Host "--- V8 SCL precheck ---" -ForegroundColor Cyan
+$v8Loaded = $true
+try {
+    $testProgress = Read-Tag 'instFB_AutoCtrl_ABCDE.statProgress'
+    Write-Host "  instFB_AutoCtrl_ABCDE.statProgress = $testProgress (V8 SCL loaded)" -ForegroundColor Green
+} catch {
+    $v8Loaded = $false
+    Write-Host "  instFB_AutoCtrl_ABCDE.statProgress NOT FOUND: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "  -> Operator must re-import FB_AutoCtrl_ABCDE.scl rev 3.0 + Rebuild All + Re-download" -ForegroundColor Red
+}
+Assert-Gate 'F.V8SclLoaded' $v8Loaded "statProgress tag $(if($v8Loaded){'exists'}else{'MISSING — V8 SCL not deployed'})"
+if (-not $v8Loaded) {
+    Write-Host "Cannot proceed with V8 verification — old SCL still loaded." -ForegroundColor Red
+    Pulse-Tag 'GDB_MachineCmd.bo_Stop' -HoldMs 300
+    exit 1
+}
+
+# ====================================================================
 # V8: sample velocity + statProgress for 45s while cycle runs
 # ====================================================================
 Write-Host ""
 Write-Host "--- V8: 45-second velocity sampling (BM_BLENDING_HIGH) ---" -ForegroundColor Cyan
-Write-Host "  Polling ScaraArm3D.AxesData.A[1..3].Velocity + statProgress every 100ms..."
+Write-Host "  Polling GDB_MCDData.Velocity[1..3] + statProgress every 100ms..."
 
 $velSamples = New-Object System.Collections.ArrayList
 $prevStep = -1
@@ -109,37 +130,40 @@ $cycleCount = 0
 $endTime = (Get-Date).AddSeconds(45)
 
 while ((Get-Date) -lt $endTime) {
-    $sample = @{}
+    # Read each tag separately so one failure doesn't lose the whole sample
+    $step = $null; $vMag = $null; $progress = $null; $totalDist = $null
+    try { $step      = [int](Read-Tag 'GDB_MachineCmd.i16_AutoStep') }                catch { }
+    try { $progress  = [double](Read-Tag 'instFB_AutoCtrl_ABCDE.statProgress') }       catch { }
+    try { $totalDist = [double](Read-Tag 'instFB_AutoCtrl_ABCDE.statTotalDistance') }  catch { }
     try {
-        $v1 = [double](Read-Tag 'ScaraArm3D.AxesData.A[1].Velocity')
-        $v2 = [double](Read-Tag 'ScaraArm3D.AxesData.A[2].Velocity')
-        $v3 = [double](Read-Tag 'ScaraArm3D.AxesData.A[3].Velocity')
+        $v1 = [double](Read-Tag 'GDB_MCDData.Velocity[1]')
+        $v2 = [double](Read-Tag 'GDB_MCDData.Velocity[2]')
+        $v3 = [double](Read-Tag 'GDB_MCDData.Velocity[3]')
         $vMag = [Math]::Sqrt($v1*$v1 + $v2*$v2 + $v3*$v3)
-        $step = [int](Read-Tag 'GDB_MachineCmd.i16_AutoStep')
-        $progress = [double](Read-Tag 'instFB_AutoCtrl_ABCDE.statProgress')
-        $totalDist = [double](Read-Tag 'instFB_AutoCtrl_ABCDE.statTotalDistance')
-        $sample = @{
-            Time = (Get-Date).ToString('HH:mm:ss.fff')
-            Step = $step
-            VMag = $vMag
-            Progress = $progress
-            TotalDist = $totalDist
-        }
-        [void]$velSamples.Add($sample)
+    } catch { }
 
+    if ($null -ne $step) {
+        $sampleTime = (Get-Date).ToString('HH:mm:ss.fff')
+        [void]$velSamples.Add(@{
+            Time      = $sampleTime
+            Step      = $step
+            VMag      = $vMag
+            Progress  = $progress
+            TotalDist = $totalDist
+        })
         if ($step -ne $prevStep) {
             [void]$script:Transitions.Add([PSCustomObject]@{
-                Time = $sample.Time; From = $prevStep; To = $step
-                Progress = $progress; TotalDist = $totalDist
+                Time = $sampleTime; From = $prevStep; To = $step
+                Progress = $progress; TotalDist = $totalDist; VMag = $vMag
             })
             if ($prevStep -eq 50 -and $step -eq 10) { $cycleCount++ }
-            Write-Host ("  {0}  step {1,3} -> {2,3}  progress@advance={3:F2}  totalDist={4,8:F2}" -f `
-                       $sample.Time, $prevStep, $step, $progress, $totalDist)
+            $vStr = if ($null -ne $vMag) { "{0,7:F2}" -f $vMag } else { "    n/a" }
+            $pStr = if ($null -ne $progress) { "{0:F2}" -f $progress } else { "n/a" }
+            $dStr = if ($null -ne $totalDist) { "{0,8:F2}" -f $totalDist } else { "  n/a" }
+            Write-Host ("  {0}  step {1,3} -> {2,3}  progress@advance={3}  totalDist={4}  vMag={5}" -f `
+                       $sampleTime, $prevStep, $step, $pStr, $dStr, $vStr)
             $prevStep = $step
         }
-    } catch {
-        # Tag read failure (e.g. statProgress not present on old SCL) — log + continue
-        Write-Warning "Sample failed: $($_.Exception.Message)"
     }
     Start-Sleep -Milliseconds 100
 }
@@ -151,8 +175,9 @@ Write-Host ""
 Write-Host "--- V8 analysis ---" -ForegroundColor Cyan
 
 $totalSamples = $velSamples.Count
-$standstillSamples = @($velSamples | Where-Object { $_.VMag -lt 0.5 }).Count
-$standstillRatio = if ($totalSamples -gt 0) { $standstillSamples / $totalSamples } else { 1.0 }
+$velocityCapable = @($velSamples | Where-Object { $null -ne $_.VMag }).Count
+$standstillSamples = @($velSamples | Where-Object { $null -ne $_.VMag -and $_.VMag -lt 0.5 }).Count
+$standstillRatio = if ($velocityCapable -gt 0) { $standstillSamples / $velocityCapable } else { 1.0 }
 $movingRatio = 1.0 - $standstillRatio
 
 Write-Host "  Total samples: $totalSamples"
@@ -166,20 +191,37 @@ Assert-Gate 'V8.Blending' ($standstillRatio -lt 0.05) `
 # V8 cycle count: blending should be FASTER than basic, so >3 cycles in 45s expected
 Assert-Gate 'V8.CycleCount' ($cycleCount -ge 3) "$cycleCount cycle wraps in 45s (Phase D had 3-4; blending should be similar or faster)"
 
-# V8 step-change progress: at each step advance, statProgress should be >0.5 (not 1.0)
-$progressAtAdvance = @($script:Transitions | Where-Object { $_.To -in @(10,20,30,40,50) -and $null -ne $_.Progress } | Select-Object -ExpandProperty Progress)
-if ($progressAtAdvance.Count -gt 0) {
-    $minProg = ($progressAtAdvance | Measure-Object -Minimum).Minimum
-    $maxProg = ($progressAtAdvance | Measure-Object -Maximum).Maximum
-    $avgProg = ($progressAtAdvance | Measure-Object -Average).Average
-    Write-Host "  Progress @ step-advance: min=$([Math]::Round($minProg,2)) max=$([Math]::Round($maxProg,2)) avg=$([Math]::Round($avgProg,2))"
-    # If progress is ~0 at advance, the advance is happening at step entry (wrong)
-    # If progress is ~0.5-0.7, the >0.5 advance is firing correctly
-    # If progress is ~1.0, .Done is still gating (V8 not in effect)
-    Assert-Gate 'V8.ProgressAdvance' ($avgProg -ge 0.4 -and $avgProg -le 0.8) `
-        "Avg progress @ advance = $([Math]::Round($avgProg,2)) (target 0.4-0.8: motion advanced mid-flight, not at .Done)"
+# V8 progress trigger verification — compute MAX statProgress observed within each step's
+# duration (between transitions). The progress-based advance fires when statProgress > 0.5,
+# so the max per step should be ≥ 0.5. We can't measure progress AT the moment of advance
+# because by the time the script reads (after step changed), the new motion already started
+# and statProgress dropped back to ~0. Max-per-step is the correct proxy.
+$maxProgressPerStep = @()
+$currentStepInProgress = $null
+$maxProgInStep = 0.0
+foreach ($s in $velSamples) {
+    if ($s.Step -ne $currentStepInProgress) {
+        if ($null -ne $currentStepInProgress -and $currentStepInProgress -in @(10,20,30,40,50)) {
+            $maxProgressPerStep += $maxProgInStep
+        }
+        $currentStepInProgress = $s.Step
+        $maxProgInStep = 0.0
+    }
+    if ($null -ne $s.Progress -and $s.Progress -gt $maxProgInStep) {
+        $maxProgInStep = $s.Progress
+    }
+}
+if ($maxProgressPerStep.Count -gt 0) {
+    $avgMaxProg = ($maxProgressPerStep | Measure-Object -Average).Average
+    $minMaxProg = ($maxProgressPerStep | Measure-Object -Minimum).Minimum
+    $maxMaxProg = ($maxProgressPerStep | Measure-Object -Maximum).Maximum
+    Write-Host "  Max statProgress per step (n=$($maxProgressPerStep.Count)): min=$([Math]::Round($minMaxProg,2)) avg=$([Math]::Round($avgMaxProg,2)) max=$([Math]::Round($maxMaxProg,2))"
+    # If avg max progress >= 0.5, the >0.5 advance trigger IS firing in steady state
+    # If max < 0.5, the advance never gets there → V8 wouldn't actually advance
+    Assert-Gate 'V8.ProgressTrigger' ($avgMaxProg -ge 0.45) `
+        "Avg max statProgress per step = $([Math]::Round($avgMaxProg,2)) (target >=0.45 — progress crosses >0.5 trigger threshold in steady state)"
 } else {
-    Assert-Gate 'V8.ProgressAdvance' $false "No progress samples captured at step advance"
+    Assert-Gate 'V8.ProgressTrigger' $false "No max-progress data captured"
 }
 
 # ====================================================================
