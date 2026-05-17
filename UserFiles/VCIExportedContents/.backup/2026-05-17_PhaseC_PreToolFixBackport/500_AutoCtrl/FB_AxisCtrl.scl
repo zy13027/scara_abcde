@@ -1,45 +1,27 @@
 FUNCTION_BLOCK "FB_AxisCtrl"
 { S7_Optimized_Access := 'TRUE' }
-VERSION : 1.2
+VERSION : 1.1
 // =====================================================================
-// Per-axis enable / home / reset / tool-activate for SCARA 4-joint kinematic
-// (2026-05-17 rev 1.2 — added MC_SetTool defensive activation closing the
-//  last loose end from NOTE_v9_UserFault_RootCause_Analysis.md)
+// Per-axis enable / home / reset for SCARA 4-joint kinematic
+// (2026-05-17 rev 1.1 — fixed invalid MC_GROUPRESET reference)
 //
-// CHANGES vs v1.1:
-//   - ADDED REGION SetTool: calls MC_SetTool(ToolNumber:=1) once after
-//     axesEnabled goes TRUE. ScaraArm3D.Tool[1].Frame.z = 50mm is the
-//     defined TCP offset, but TIA V20 defaults ToolNumber=0 on cold start
-//     (no active tool selected). Without MC_SetTool, MC_MoveLinearAbsolute
-//     returns motionFBStatus=0x8001 -> TO.ErrorWord.X2 = UserFault.
-//   - This was the documented historical root cause of v9 16-box palletizing
-//     UserFault (see NOTE_v9_UserFault_RootCause_Analysis.md for cascade).
-//   - Phase 1/2 ABCDE rebuild has been working because TO retentive memory
-//     inherited active ToolNumber=1 from the earlier FB_PalletizingProgramme
-//     SET_TOOL state run. This fix makes activation deterministic for cold
-//     start + memory reset (no dependency on retentive state).
-//   - Statics: instMC_SetTool (MC_SETTOOL multi-instance), statToolActivated
-//     (Bool one-shot latch).
-//
-// CHANGES vs v1.0 (preserved from rev 1.1):
+// CHANGES vs v1.0:
 //   - REPLACED `MC_GROUPRESET` (NOT a valid TIA V20 system instruction —
 //     verified by reading LKinCtrl_MC_GroupReset.scl in .backup/2026-05-17/:
 //     it uses MC_RESET per-axis + MC_RESET on the TO_Kinematics)
-//   - Uses 4× per-axis MC_RESET + 1× MC_RESET on ScaraArm3D kinematic TO
+//   - Now uses 4× per-axis MC_RESET + 1× MC_RESET on ScaraArm3D kinematic TO
 //
 // PURPOSE: Replaces LKinCtrl_MC_GroupPower / GroupHome / GroupReset wrappers
 // (in .backup/2026-05-17/) with raw system MC instructions per source spec
 // line 11 ("不用任何的库" / no libraries).
 //
 // PER-SCAN MC INSTRUCTION COUNT:
-//   - 4× MC_Power    (one per joint J1..J4)
-//   - 4× MC_Home     (one per joint J1..J4)
-//   - 5× MC_Reset    (4 per joint + 1 on kinematic TO)
-//   - 1× MC_SetTool  (one-shot on cold start; Execute=FALSE after Done)
-//   Total: 14 declared, ~4-5 actively pulsing at any time. Plus
-//   FB_AutoCtrl_ABCDE's + FB_AutoCtrl_Palletizing's 1× MC_MoveLinearAbsolute
-//   each = ~5-6 active MC slots vs v9's pre-Phase-1 ~50 → OB91 headroom
-//   preserved (manual TIA Diagnostics Buffer confirmed ZERO OB91 entries).
+//   - 4× MC_Power (one per joint J1..J4)
+//   - 4× MC_Home  (one per joint J1..J4)
+//   - 5× MC_Reset (4 per joint + 1 on kinematic TO — LKinCtrl pattern)
+//   Total: 13 declared, ~4-5 actively pulsing at any time. Plus
+//   FB_AutoCtrl_ABCDE's 1× MC_MoveLinearAbsolute = ~5-6 active MC slots
+//   vs v9's ~50 actively pulsing → OB91 headroom preserved.
 //
 // HMI bindings (via GDB_Control):
 //   enableAxes (W Bool)   → MC_Power.Enable for all 4 joints
@@ -72,12 +54,6 @@ VERSION : 1.2
       instReset_J3  { InstructionName := 'MC_RESET'; LibVersion := '9.0' } : MC_RESET;
       instReset_J4  { InstructionName := 'MC_RESET'; LibVersion := '9.0' } : MC_RESET;
       instReset_Kin { InstructionName := 'MC_RESET'; LibVersion := '9.0' } : MC_RESET;
-
-      // === MC_SetTool — one-shot Tool[1] activation on cold start ===
-      // (rev 1.2 — closes UserFault root cause documented in
-      //  NOTE_v9_UserFault_RootCause_Analysis.md)
-      instMC_SetTool { InstructionName := 'MC_SETTOOL'; LibVersion := '9.0' } : MC_SETTOOL;
-      statToolActivated : Bool;   // one-shot latch; cleared by memory reset
    END_VAR
 
 
@@ -170,36 +146,6 @@ BEGIN
 	   AND #instHome_J4.Done
 	THEN
 	    "GDB_Control".axesHomed := TRUE;
-	END_IF;
-
-	// =====================================================================
-	// REGION SetTool — activate Tool[1] on ScaraArm3D after axes enable
-	// =====================================================================
-	// Historical UserFault root cause (per NOTE_v9_UserFault_RootCause_Analysis.md):
-	//   ScaraArm3D.ToolNumber defaults to 0 on cold start (no active tool).
-	//   ScaraArm3D.Tool[1].Frame.z = 50mm is DEFINED in the TO XML but NEVER
-	//   APPLIED until MC_SetTool selects ToolNumber=1.
-	//   Without active tool, MC_MoveLinearAbsolute returns motionFBStatus=0x8001
-	//   ("Invalid input value") which surfaces as TO.ErrorWord.X2 = UserFault.
-	//
-	// One-shot idempotent pattern:
-	//   - Only runs while statToolActivated=FALSE (cleared on memory reset)
-	//   - Gated on axesEnabled=TRUE (tool selection requires kinematic powered)
-	//   - Drops Execute=FALSE after Done to release the MC instruction
-	//   - Latches statToolActivated=TRUE so subsequent scans skip entirely
-	//
-	// Error handling: if MC_SetTool errors, statToolActivated stays FALSE and
-	// next scan retries. Operator can see persistent retry via Error output;
-	// motion cycle won't start meaningfully until tool activates.
-	IF "GDB_Control".axesEnabled AND NOT #statToolActivated THEN
-	    #instMC_SetTool(AxesGroup  := "ScaraArm3D",
-	                    Execute    := TRUE,
-	                    ToolNumber := 1);
-	    IF #instMC_SetTool.Done THEN
-	        #instMC_SetTool(AxesGroup := "ScaraArm3D",
-	                        Execute   := FALSE);
-	        #statToolActivated := TRUE;
-	    END_IF;
 	END_IF;
 
 END_FUNCTION_BLOCK

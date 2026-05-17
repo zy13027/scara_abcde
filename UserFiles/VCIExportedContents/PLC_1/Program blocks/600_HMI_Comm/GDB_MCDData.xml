@@ -5,8 +5,56 @@
     <AttributeList>
       <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
   <Section Name="Static">
-    <Member Name="Velocity" Datatype="Array[1..4] of LReal" />
-    <Member Name="Position" Datatype="Array[1..4] of LReal" />
+    <Member Name="Velocity" Datatype="Array[1..4] of LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Kinematic-group view of per-axis velocity (from ScaraArm3D.AxesData.A[i].Velocity). Used by NX MCD via signal adapters.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="Position" Datatype="Array[1..4] of LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Kinematic-group view of per-axis position (from ScaraArm3D.AxesData.A[i].Position). Used by NX MCD via signal adapters.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="J1_ActualPosition" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Phase C.0 (2026-05-17): direct mirror of J1_SCARA_Arm3D.ActualPosition (TO_Axis attribute). Exists for PLCSIM-Adv API monitoring (TO_Axis tags not exposed via API directly; HMI runtime uses TIA S7 driver which can read them). DIAGNOSTIC MIRROR — HMI continues to bind to J1_SCARA_Arm3D.ActualPosition direct.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="J1_ActualVelocity" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Phase C.0 (2026-05-17): direct mirror of J1_SCARA_Arm3D.ActualVelocity. See J1_ActualPosition comment.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="J2_ActualPosition" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Phase C.0 (2026-05-17): direct mirror of J2_SCARA_Arm3D.ActualPosition. See J1_ActualPosition comment.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="J2_ActualVelocity" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Phase C.0 (2026-05-17): direct mirror of J2_SCARA_Arm3D.ActualVelocity. See J1_ActualPosition comment.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="J3_ActualPosition" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Phase C.0 (2026-05-17): direct mirror of J3_SCARA_Arm3D.ActualPosition. See J1_ActualPosition comment.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="J3_ActualVelocity" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Phase C.0 (2026-05-17): direct mirror of J3_SCARA_Arm3D.ActualVelocity. See J1_ActualPosition comment.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="J4_ActualPosition" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Phase C.0 (2026-05-17): direct mirror of J4_SCARA_Arm3D.ActualPosition. See J1_ActualPosition comment.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="J4_ActualVelocity" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Phase C.0 (2026-05-17): direct mirror of J4_SCARA_Arm3D.ActualVelocity. See J1_ActualPosition comment.</MultiLanguageText>
+      </Comment>
+    </Member>
   </Section>
 </Sections></Interface>
       <MemoryLayout>Optimized</MemoryLayout>

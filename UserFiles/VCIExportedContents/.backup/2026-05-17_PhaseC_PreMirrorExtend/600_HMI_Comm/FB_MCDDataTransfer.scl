@@ -1,0 +1,27 @@
+﻿FUNCTION_BLOCK "FB_MCDDataTransfer"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_TEMP 
+      tempIndex : Int;
+   END_VAR
+
+
+BEGIN
+	// "GDB_MCDData".Velocity[1] := "J1_SCARA_Arm3D".VelocitySetpoint;
+	// "GDB_MCDData".Velocity[2] := "J2_SCARA_Arm3D".VelocitySetpoint;
+	// "GDB_MCDData".Velocity[3] := "J3_SCARA_Arm3D".VelocitySetpoint;
+	// "GDB_MCDData".Velocity[4] := "J4_SCARA_Arm3D".VelocitySetpoint;
+	
+	// "GDB_MCDData".Position[1] := "J1_SCARA_Arm3D".Position;
+	// "GDB_MCDData".Position[2] := "J2_SCARA_Arm3D".Position;
+	// "GDB_MCDData".Position[3] := "J3_SCARA_Arm3D".Position;
+	// "GDB_MCDData".Position[4] := "J4_SCARA_Arm3D".Position;
+	
+	FOR #tempIndex := 1 TO 4 DO
+	    
+	    "GDB_MCDData".Position[#tempIndex] := "ScaraArm3D".AxesData.A[#tempIndex].Position;
+	    
+	    "GDB_MCDData".Velocity[#tempIndex] := "ScaraArm3D".AxesData.A[#tempIndex].Velocity;
+	END_FOR;
+END_FUNCTION_BLOCK
+

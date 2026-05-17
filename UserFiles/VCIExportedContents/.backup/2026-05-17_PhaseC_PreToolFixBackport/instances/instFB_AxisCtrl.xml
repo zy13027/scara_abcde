@@ -76,12 +76,6 @@
         <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
       </AttributeList>
     </Member>
-    <Member Name="instMC_SetTool" Datatype="MC_SETTOOL" Version="9.0">
-      <AttributeList>
-        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
-      </AttributeList>
-    </Member>
-    <Member Name="statToolActivated" Datatype="Bool" />
   </Section>
 </Sections></Interface>
       <Name>instFB_AxisCtrl</Name>
