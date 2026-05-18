@@ -3,8 +3,8 @@
 **Project:** SCARA ABCDE 5-point auto cycle (minimal rebuild from hmiDemoMomoryCapacity_v9)
 **Plan:** `C:\Users\Admin\.claude\plans\zazzy-mixing-hammock.md`
 **Source spec:** `UserFiles/VCIExportedContents/杨子楠5月17日周计划.md` (cross-mounted reference)
-**Last updated:** 2026-05-17 (PM catch-up after ~10-hour tracker gap)
-**Last action:** Phase A→F absorption + Phase C V6 8/8 VERIFIED + HMI Cycle 7_0 source-compile-green + 5 HMI handoffs migrated from v9 tree + Phase G manual-mode proposal filed. Plan Goal 2 (HMI shows target XYZA) DONE.
+**Last updated:** 2026-05-18 evening (PM catch-up #2: Phase 1 全 100% per 杨子楠 memo + Phase 2.x staged)
+**Last action:** Goal 3 (MCD auto-connect) VERIFIED 2026-05-18 ~15:18 via operator V7 visual on Phase E run #6 ("it moving now in nx mcd simulation"). **Phase 1 COMPLETE — all 3 杨子楠 memo deliverables ✅.** Phase G (Manual Ctrl, 16/16) + Phase 2.2 (Palletizing, 12/12 + post-L1-fix 11/12) pre-staged in-tree per memo §2 deferral list — do NOT activate until operator green-lights Phase 2. 6 new scara-PLC handoffs absorbed; PROJECT_STATUS already reflects E/G/2.2 rows (committing now).
 
 ---
 
@@ -33,7 +33,7 @@
 | A.7 | TIA Portal: HMI screen authoring (4 screens per UBP 5-control cap) | ✅ Confirmed — DUAL PATH: (a) operator manual specs at HMI_1/Screens/*.md for direct authoring; (b) HMI agent Cycle 7_0 programmatic — 14 UBP screens authored + TIA Compile 0E/0W |
 | A.8 | TIA Portal: compile entire project → expect 0W/0E | ✅ Confirmed (PLC 0W/0E pre-Phase-D + HMI Cycle 7_0 Phase E 0E/0W) |
 | A.9 | TIA Portal: download to PLCSIM-Adv instance `1511T_ABCDE` at 192.168.0.5 (NOT plan's prior .40 placeholder) | ✅ Confirmed (Phase D + F V8 + C V6 all PASS via PLCSIM @ .5) |
-| A.10 | Operator runtime smoke: V1–V7 + V9 + V-OB91 (10 sub-tasks per plan Phase D) | 🚧 PARTIAL — V1✅ V2✅ V3✅ V4✅ V5✅ V6✅ V7🚧partial V8✅ V9✅ V-OB91🚧inferred. Full V7 (NX MCD) deferred to Phase E; V-OB91 manual TIA Diagnostics confirmation deferred. |
+| A.10 | Operator runtime smoke: V1–V7 + V9 + V-OB91 (10 sub-tasks per plan Phase D) | ✅ V1-V9 all PASS — V1✅ V2✅ V3✅ V4✅ V5✅ V6✅ **V7✅** (operator visual 2026-05-18 ~15:18 on Phase E run #6) V8✅ V9✅. V-OB91 ℹ️ inferred from 60 wraps × 540s Phase E streaming with ZERO errors (manual TIA Diag Buffer confirmation optional). |
 
 ## B. Claude-Code-PM-tasks (PM agent owned)
 
@@ -44,15 +44,24 @@
 | B.3 | Author OPERATOR_PHASE_A_HANDOFF.md describing TIA Portal manual UI steps for operator | ✅ 2026-05-17 (in tree, plus follow-on OPERATOR_PHASE_C_HANDOFF.md + OPERATOR_PHASE_F_HANDOFF.md) |
 | B.4 | Git init + initial commit establishing baseline | ✅ 2026-05-17 (3 commits on master: `79cae9a` + `d20319a` + `c2d4f86`) |
 | B.5 | Once operator completes Phase A: write follow-up handoff confirming TO import + 0W/0E compile result | ✅ 2026-05-17 (THIS catch-up handoff PM_HANDOFF_2026-05-17_PhaseAtoF_Catchup.md serves as B.5 + B.6 rollup) |
-| B.6 | Once operator completes Phase D smoke: write PROJECT_STATUS.md update with V1–V7+V9 results | 🚧 PARTIAL — V1-V6+V8+V9 ✅ in PROJECT_STATUS; V7-partial + V-OB91-inferred 🚧; full Phase E owed |
-| B.7 | Absorb HMI agent Cycle 7_0 (5 handoffs migrated from v9 tree → SCARA) + scara-PLC C66 PhaseC_HMI_Verified + C66 HMI_ManualMode_TagProposal | ✅ This cycle |
-| B.8 | Author cross-team coordination protocol amendment to AGENT_CONTRACT.md (currently verbatim copy of v9's; needs SCARA adaptation: substitute paths, drop §1.1/§4.4 worktree-split, add §13 cross-team protocol) | 🆕 Next cycle (per scara-PM bootstrap brief) |
+| B.6 | Once operator completes Phase D smoke: write PROJECT_STATUS.md update with V1–V7+V9 results | ✅ V-suite complete — D + F + C V6 + E (V7 visual) + V8 all green; V-OB91 inferred from clean Phase E. PROJECT_STATUS Phase E/G/2.2 rows present (scara-PLC authored; committed this cycle). |
+| B.7 | Absorb HMI agent Cycle 7_0 (5 handoffs migrated from v9 tree → SCARA) + scara-PLC C66 PhaseC_HMI_Verified + C66 HMI_ManualMode_TagProposal | ✅ catch-up #1 (2026-05-17) |
+| B.8 | Author cross-team coordination protocol amendment to AGENT_CONTRACT.md (currently verbatim copy of v9's; needs SCARA adaptation: substitute paths, drop §1.1/§4.4 worktree-split, add §13 cross-team protocol) | 🆕 deferred (no urgency change; carry-over from catch-up #1) |
+| B.9 | Absorb scara-PLC Phase E/G/2.2 work + 6 new handoffs (BackColor, J2J3, C67 PhaseG, C68 PhaseE, C69 Phase 2.2, C70 Pallet HMI) into PM bundle handoff | ✅ This cycle (catch-up #2): `PM_HANDOFF_2026-05-18_Phase1Complete_Phase2Staged.md` |
+| B.10 | Surface C70 Palletizing HMI surface + BackColor proposals to scara-HMI when next HMI session activates | 🆕 Surfaced in catch-up #2 §4 [NEEDS_HMI_ACK] × 3; awaits scara-HMI response handoff |
 
 ## Recently completed
 
 | Date | Cycle | Handoff / Doc | Status |
 |---|---|---|---|
-| 2026-05-17 | PM catch-up | `PM_HANDOFF_2026-05-17_PhaseAtoF_Catchup.md` | ✅ landed |
+| 2026-05-18 | PM catch-up #2 | `PM_HANDOFF_2026-05-18_Phase1Complete_Phase2Staged.md` | ✅ landed; **Phase 1 全 100%** |
+| 2026-05-18 | C71 Phase 2.4 HMI Status Facade | `PLC_HANDOFF_2026-05-18_C71_HMIStatusFacade.md` + `hmiStatusFacade_20260518_220300.log` (9/9) | ✅ centralised read-side facade; INFORMATIONAL → scara-HMI for cycle-7.X+ incremental migration |
+| 2026-05-18 | C70 Pallet HMI Proposal | `PLC_HANDOFF_2026-05-18_C70_PalletizingHmiSurfaceProposal.md` (scara-PLC) | 🆕 [NEEDS_HMI_ACK] |
+| 2026-05-18 | C69 Phase 2.2 Palletizing | `PLC_HANDOFF_2026-05-18_C69_Phase2_PalletizingBackport.md` + `palletizing_20260518_161518.log` (12/12) + 20:53 post-L1 (11/12) | ✅ STAGED_FOR_PHASE_2 |
+| 2026-05-18 | C68 Phase E NX MCD | `PLC_HANDOFF_2026-05-18_C68_PhaseE_NxMcdIntegration.md` + 6 runs × 7/7 + V7 operator visual | ✅ **GOAL 3 / Phase 1 CLOSED** |
+| 2026-05-18 | C67 Phase G Manual | `PLC_HANDOFF_2026-05-18_C67_PhaseG_ManualCtrlImplemented.md` + `phaseG_20260518_124758.log` (16/16) | 🅿️ STAGED_FOR_PHASE_2 |
+| 2026-05-18 | C66 follow-ups | `PLC_HANDOFF_2026-05-18_BackColor_TagProposal.md` + `..._J2J3DeliberateMisorder.md` | ℹ️ INFORMATIONAL anchors |
+| 2026-05-17 | PM catch-up #1 | `PM_HANDOFF_2026-05-17_PhaseAtoF_Catchup.md` | ✅ landed (commit `8e2468f`) |
 | 2026-05-17 | Phase C HMI Verified | `PLC_HANDOFF_2026-05-17_C66_PhaseC_HMI_Verified.md` (scara-PLC) | ✅ V6 8/8 PASS, Goal 2 DONE |
 | 2026-05-17 | Phase G Proposal | `PLC_HANDOFF_2026-05-17_C66_HMI_ManualMode_TagProposal.md` (scara-PLC) | 🚧 [NEEDS_HMI_ACK] 6 open questions |
 | 2026-05-17 | HMI Cycle 7_0 Phase A→E | 5 handoffs migrated from v9 tree → SCARA tree | ✅ source compile-green (TIA HMI 0E/0W) |

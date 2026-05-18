@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Blocks.GlobalDB ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="Static">
+    <Member Name="bo_InitPallet" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI: rising edge -&gt; initialize 16-box 4-layer palletizing path (path runs from box 1 layer 1 through box 16 layer 4, 3 phases per box approach/place/retract)</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">HMI: 上升沿 -&gt; 初始化 16 箱 4 层码垛路径</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_Start" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI: rising edge -&gt; start palletizing cycle (i16_PalletStep := 1). Permissive checks: bo_Mode AND bo_ESTOP_LOCK AND bo_PalletInitialed AND NOT bo_Alarm AND NOT GDB_MachineCmd.bo_Mode (ABCDE mutex) AND NOT GDB_ManualCmd.bo_Mode (manual mutex).</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">HMI: 上升沿 -&gt; 启动码垛循环</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_Stop" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI: rising edge -&gt; stop palletizing cycle (i16_PalletStep := 0)</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">HMI: 上升沿 -&gt; 停止码垛循环</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_Mode" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI: Palletizing AUTO mode selector (TRUE = palletizing cycle enabled, FALSE = ignored). Mutually exclusive with GDB_MachineCmd.bo_Mode (ABCDE cycle) and GDB_ManualCmd.bo_Mode (manual). Operator must turn other modes off before enabling palletizing.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">HMI: 码垛自动模式开关 (与 ABCDE 和 手动模式互斥)</MultiLanguageText>
+      </Comment>
+      <StartValue>FALSE</StartValue>
+    </Member>
+    <Member Name="bo_ESTOP_LOCK" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Safety: E-Stop chain healthy (TRUE = OK, FALSE = E-Stop active). Mirrors GDB_MachineCmd.bo_ESTOP_LOCK convention.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">安全: 急停健康状态</MultiLanguageText>
+      </Comment>
+      <StartValue>TRUE</StartValue>
+    </Member>
+    <Member Name="bo_PalletInitialed" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Status: 16-box 4-layer palletizing path has been initialized (set after bo_InitPallet rising edge inside FB_AutoCtrl_Palletizing REGION 1)</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">状态: 码垛路径已初始化</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_Alarm" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Status: any palletizing-specific alarm (placeholder; always FALSE in C69 Phase 2.2 demo)</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">状态: 码垛报警</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="i16_PalletStep" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Main palletizing state machine. 0 = idle, 1..48 = active path point (16 boxes x 3 phases). Step encoding: box_index = ((step-1) DIV 3) + 1; phase = ((step-1) MOD 3) + 1 [1=approach, 2=place, 3=retract]. Cycle wraps 48 -&gt; 1. Layer = ((box_index-1) DIV 4) + 1 (4 layers, 4 boxes per layer).</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">码垛主状态: 0=空闲, 1..48=路径点 (16箱 x 3阶段 = 4层 x 4箱/层 x 3阶段). 循环 48-&gt;1</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="i16_TotalBoxes" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">C69 Phase 2.2 (2026-05-18): hardcoded 16-box pattern = 4 layers x 4 boxes/layer x 3 phases = 48 path points. Mirrors statActiveBoxes from FB_AutoCtrl_Palletizing iDB (snapshotted at last InitPallet pulse). V3.x recipe-driven would change this; for V2 hardcoded port, always 16.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">总箱数 (V2 硬编码 16): 4 层 x 4 箱/层 x 3 阶段 = 48 路径点</MultiLanguageText>
+      </Comment>
+      <StartValue>16</StartValue>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <MemoryLayout>Optimized</MemoryLayout>
+      <Name>GDB_PalletizingCmd</Name>
+      <Namespace />
+      <ProgrammingLanguage>DB</ProgrammingLanguage>
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text>Wang Shuo / Huashili-style command + status struct for C69 Phase 2.2 16-box 4-layer palletizing cycle. Sibling DB to GDB_MachineCmd (ABCDE 5-point) and GDB_ManualCmd (manual mode, STAGED_FOR_PHASE_2). HMI binds palletizing buttons here. Mode arbitration via 3-way mutex: GDB_MachineCmd.bo_Mode XOR GDB_PalletizingCmd.bo_Mode XOR GDB_ManualCmd.bo_Mode.</Text>
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text>Palletizing command/status DB (C69 Phase 2.2)</Text>
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Blocks.GlobalDB>
+</Document>

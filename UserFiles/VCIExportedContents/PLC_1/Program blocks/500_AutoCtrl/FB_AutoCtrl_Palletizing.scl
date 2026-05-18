@@ -1,0 +1,234 @@
+FUNCTION_BLOCK "FB_AutoCtrl_Palletizing"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 2.0
+// =====================================================================
+// C69 Phase 2.2 (2026-05-18) — 16-box 4-layer Palletizing (V2 hardcoded)
+//
+// Backport from v9 FB_AutoCtrl_Palletizing V2 + redesigned layout for
+// "Z direction movement + stack layer increasing" visual demo:
+//   - 4 stacked layers (place_z = 300, 350, 400, 450)
+//   - 4 boxes per layer in a 2x2 footprint
+//   - 3 phases per box: approach (z+100) -> place (z) -> retract (z+100)
+//   - Total path: 16 boxes x 3 phases = 48 steps
+//   - Cycle wraps 48 -> 1 continuously while bo_Mode active
+//
+// Mode mutex (REGION 2 START gate):
+//   GDB_PalletizingCmd.bo_Mode AND bo_ESTOP_LOCK AND bo_PalletInitialed
+//   AND NOT GDB_PalletizingCmd.bo_Alarm
+//   AND NOT GDB_MachineCmd.bo_Mode     (mutex with ABCDE 5-point)
+//   AND NOT GDB_ManualCmd.bo_Mode      (mutex with manual mode)
+//
+// Architecture matches FB_AutoCtrl_ABCDE pattern (Wang Shuo 4-REGION):
+//   REGION 1: 初始化路径 / INITIALIZE_PATH (48 path points computed)
+//   REGION 2: 启动 / START                — permissive AND -> step:=1
+//   REGION 3: 停止 / STOP                 — R_TRIG -> step:=0
+//   REGION 4: 自动 / AUTO main            — counter 1..48 + wrap, with
+//                                            V8 progress-based blending
+//
+// PER-SCAN MC INSTRUCTION COUNT: 1 (MC_MoveLinearAbsolute on ScaraArm3D).
+// Combined with FB_AutoCtrl_ABCDE (1) + FB_AxisCtrl (14) + FB_ManualCtrl (5)
+//   = 21 declared instances system-wide (V-OB91 budget remains safe).
+//
+// Important: MC_MoveLinearAbsolute uses the SAME AxesGroup as
+// FB_AutoCtrl_ABCDE's instMoveLinAbs. The bo_Mode mutex ensures only
+// one of them ever pulses Execute=TRUE at a time. BufferMode=5
+// (BM_BLENDING_HIGH) matches V8 pattern.
+//
+// HISTORY:
+//   V2.0 (2026-05-18): NEW for ABCDE Phase 2.2 — 4 layers x 4 boxes
+//                       hardcoded, after Phase 1 closure per 杨子楠 memo
+// =====================================================================
+
+   VAR
+      // Edge-detect instances
+      sRTRIGInitialPath { InstructionName := 'R_TRIG'; LibVersion := '1.0' } : R_TRIG;
+      sRTRIGStart       { InstructionName := 'R_TRIG'; LibVersion := '1.0' } : R_TRIG;
+      sRTRIGStop        { InstructionName := 'R_TRIG'; LibVersion := '1.0' } : R_TRIG;
+
+      // Single shared motion FB (KEY for OB91 health)
+      // S7_SetPoint='False' attribute is REQUIRED — without it, the iDB
+      // member is marked SetPoint=true and Execute pulse fails to reach
+      // the MC subsystem (lesson from Phase G C67 rev 0.1 -> 0.2 failure).
+      instMoveLinAbs { InstructionName := 'MC_MOVELINEARABSOLUTE'; LibVersion := '9.0'; S7_SetPoint := 'False' } : MC_MOVELINEARABSOLUTE;
+
+      // 48-point path table (16 boxes x 3 phases approach/place/retract)
+      pts : Array[1..48] of "UDT_typePoint5";
+
+      // Static state
+      statTargetPos    { S7_SetPoint := 'False' } : "UDT_typePoint5";
+      statOldStep      : Int;
+      statExecutePulse : Bool;
+      statMoveDoneOld  : Bool;
+
+      // V8 blending statics
+      statTotalDistance : LReal;
+      statProgress      : LReal;
+
+      // Active box count snapshot (always 16 for V2 hardcoded;
+      // kept as static for V3 recipe-driven forward compat).
+      statActiveBoxes   : Int;
+   END_VAR
+
+   VAR_TEMP
+      tempCurrentPtIdx : Int;
+      tempStepChanged  : Bool;
+      tempIsAutoStep   : Bool;
+      tempPosArray     : Array[1..6] of LReal;
+      tempRemaining    : LReal;
+      // REGION 1 computed-layout temps
+      tempBoxIdx       : Int;     // FOR loop index 1..16
+      tempLayerNum     : Int;     // 1..4
+      tempPosInLayer   : Int;     // 0..3
+      tempBaseIdx      : Int;     // (boxIdx - 1) * 3 — pts[] write offset
+      tempPlaceZ       : LReal;   // 300, 350, 400, 450 per layer
+      tempBoxX         : LReal;
+      tempBoxY         : LReal;
+   END_VAR
+
+BEGIN
+
+	// =====================================================================
+	// REGION 1 — INITIALIZE_PATH (V2 hardcoded 4-layer 2x2 footprint)
+	//
+	// Layer 1 (bottom, z=300): boxes 1-4
+	// Layer 2 (z=350): boxes 5-8
+	// Layer 3 (z=400, ABCDE plane): boxes 9-12
+	// Layer 4 (top, z=450): boxes 13-16
+	//
+	// Per-layer footprint (X-Y plane, 2x2 grid):
+	//   posInLayer 0: (x=1500, y=-150)  — front left
+	//   posInLayer 1: (x=1800, y=-150)  — front right
+	//   posInLayer 2: (x=1800, y= 150)  — back right
+	//   posInLayer 3: (x=1500, y= 150)  — back left  (counterclockwise from front-left)
+	//
+	// Each box -> 3 path-table rows (approach z+100, place z, retract z+100).
+	// =====================================================================
+	#sRTRIGInitialPath(CLK := "GDB_PalletizingCmd".bo_InitPallet);
+	IF #sRTRIGInitialPath.Q THEN
+	    #statActiveBoxes := 16;
+	    "GDB_PalletizingCmd".i16_TotalBoxes := 16;
+
+	    FOR #tempBoxIdx := 1 TO 16 DO
+	        #tempLayerNum := (#tempBoxIdx - 1) / 4 + 1;       // 1..4
+	        #tempPosInLayer := (#tempBoxIdx - 1) MOD 4;        // 0..3
+	        #tempPlaceZ := 300.0 + (#tempLayerNum - 1) * 50.0; // 300/350/400/450
+
+	        // 2x2 footprint
+	        IF #tempPosInLayer = 0 THEN
+	            #tempBoxX := 1500.0; #tempBoxY := -150.0;
+	        ELSIF #tempPosInLayer = 1 THEN
+	            #tempBoxX := 1800.0; #tempBoxY := -150.0;
+	        ELSIF #tempPosInLayer = 2 THEN
+	            #tempBoxX := 1800.0; #tempBoxY := 150.0;
+	        ELSE
+	            #tempBoxX := 1500.0; #tempBoxY := 150.0;
+	        END_IF;
+
+	        #tempBaseIdx := (#tempBoxIdx - 1) * 3;
+
+	        // Phase 1 — approach (z = place + 100)
+	        #pts[#tempBaseIdx + 1].x := #tempBoxX;
+	        #pts[#tempBaseIdx + 1].y := #tempBoxY;
+	        #pts[#tempBaseIdx + 1].z := #tempPlaceZ + 100.0;
+	        #pts[#tempBaseIdx + 1].a := 0.0;
+
+	        // Phase 2 — place (z = layer z)
+	        #pts[#tempBaseIdx + 2].x := #tempBoxX;
+	        #pts[#tempBaseIdx + 2].y := #tempBoxY;
+	        #pts[#tempBaseIdx + 2].z := #tempPlaceZ;
+	        #pts[#tempBaseIdx + 2].a := 0.0;
+
+	        // Phase 3 — retract (z = approach z)
+	        #pts[#tempBaseIdx + 3].x := #tempBoxX;
+	        #pts[#tempBaseIdx + 3].y := #tempBoxY;
+	        #pts[#tempBaseIdx + 3].z := #tempPlaceZ + 100.0;
+	        #pts[#tempBaseIdx + 3].a := 0.0;
+	    END_FOR;
+
+	    "GDB_PalletizingCmd".bo_PalletInitialed := TRUE;
+	END_IF;
+
+	// =====================================================================
+	// REGION 2 — START (permissive AND -> step:=1)
+	// 3-way mutex with ABCDE and Manual modes.
+	// =====================================================================
+	#sRTRIGStart(CLK := "GDB_PalletizingCmd".bo_Start);
+	IF "GDB_PalletizingCmd".bo_Mode
+	    AND "GDB_PalletizingCmd".bo_ESTOP_LOCK
+	    AND ("GDB_PalletizingCmd".i16_PalletStep = 0)
+	    AND #sRTRIGStart.Q
+	    AND "GDB_PalletizingCmd".bo_PalletInitialed
+	    AND NOT "GDB_PalletizingCmd".bo_Alarm
+	    AND NOT "GDB_MachineCmd".bo_Mode
+	    AND NOT "GDB_ManualCmd".bo_Mode
+	THEN
+	    "GDB_PalletizingCmd".i16_PalletStep := 1;
+	END_IF;
+
+	// =====================================================================
+	// REGION 3 — STOP (R_TRIG -> step:=0)
+	// =====================================================================
+	#sRTRIGStop(CLK := "GDB_PalletizingCmd".bo_Stop);
+	IF #sRTRIGStop.Q THEN
+	    "GDB_PalletizingCmd".i16_PalletStep := 0;
+	END_IF;
+
+	// =====================================================================
+	// REGION 4 — AUTO main case (counter-driven 1..48 + wrap)
+	// =====================================================================
+	#tempStepChanged := ("GDB_PalletizingCmd".i16_PalletStep <> #statOldStep);
+	#statOldStep := "GDB_PalletizingCmd".i16_PalletStep;
+
+	#tempIsAutoStep := ("GDB_PalletizingCmd".i16_PalletStep >= 1)
+	    AND ("GDB_PalletizingCmd".i16_PalletStep <= (#statActiveBoxes * 3));
+
+	IF #tempIsAutoStep THEN
+	    #tempCurrentPtIdx := "GDB_PalletizingCmd".i16_PalletStep;
+	    #statTargetPos := #pts[#tempCurrentPtIdx];
+	END_IF;
+
+	#statExecutePulse := #tempStepChanged AND #tempIsAutoStep;
+
+	#tempPosArray[1] := #statTargetPos.x;
+	#tempPosArray[2] := #statTargetPos.y;
+	#tempPosArray[3] := #statTargetPos.z;
+	#tempPosArray[4] := #statTargetPos.a;
+	#tempPosArray[5] := 0.0;
+	#tempPosArray[6] := 0.0;
+
+	#instMoveLinAbs(AxesGroup    := "ScaraArm3D",
+	                Execute      := #statExecutePulse,
+	                Position     := #tempPosArray,
+	                Velocity     := 300.0,
+	                Acceleration := 3000.0,
+	                Deceleration := 3000.0,
+	                Jerk         := 30000.0,
+	                BufferMode   := 5);   // BM_BLENDING_HIGH (V8 pattern)
+
+	// V8 progress-based advance
+	#tempRemaining := SQRT(SQR(#statTargetPos.x - "ScaraArm3D".Tcp.x)
+	                    + SQR(#statTargetPos.y - "ScaraArm3D".Tcp.y)
+	                    + SQR(#statTargetPos.z - "ScaraArm3D".Tcp.z));
+
+	IF #tempStepChanged AND #tempIsAutoStep THEN
+	    #statTotalDistance := #tempRemaining;
+	END_IF;
+
+	IF #statTotalDistance > 0.001 THEN
+	    #statProgress := 1.0 - #tempRemaining / #statTotalDistance;
+	ELSE
+	    #statProgress := 0.0;
+	END_IF;
+
+	IF #statProgress > 0.5 AND #tempIsAutoStep THEN
+	    IF "GDB_PalletizingCmd".i16_PalletStep = (#statActiveBoxes * 3) THEN
+	        "GDB_PalletizingCmd".i16_PalletStep := 1;     // wrap 48 -> 1
+	    ELSE
+	        "GDB_PalletizingCmd".i16_PalletStep :=
+	            "GDB_PalletizingCmd".i16_PalletStep + 1;
+	    END_IF;
+	END_IF;
+
+	#statMoveDoneOld := #instMoveLinAbs.Done;
+
+END_FUNCTION_BLOCK

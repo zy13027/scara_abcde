@@ -33,6 +33,9 @@
             <StartValue>10</StartValue>
           </Member>
           <Member Name="Parameter" Datatype="Array[1..32] of LReal">
+            <Subelement Path="1">
+              <StartValue>1028.48</StartValue>
+            </Subelement>
             <Subelement Path="2">
               <StartValue>1150.0</StartValue>
             </Subelement>

@@ -1,19 +1,10 @@
 FUNCTION_BLOCK "FB_AxisCtrl"
 { S7_Optimized_Access := 'TRUE' }
-VERSION : 1.3
+VERSION : 1.2
 // =====================================================================
 // Per-axis enable / home / reset / tool-activate for SCARA 4-joint kinematic
-// (2026-05-18 rev 1.3 — added REGION StatusDerived computing axesReady,
-//  per HMI cycle-7.1 BackColor Q2 ACK for lmpKinReady_Ubp Range-1:1 binding)
 // (2026-05-17 rev 1.2 — added MC_SetTool defensive activation closing the
 //  last loose end from NOTE_v9_UserFault_RootCause_Analysis.md)
-//
-// CHANGES vs v1.2:
-//   - ADDED REGION StatusDerived: writes GDB_Control.axesReady as
-//     axesEnabled AND axesHomed AND NOT axesError. Single derived Bool
-//     tag that HMI lmpKinReady_Ubp BackColor Range dyn binds to (per
-//     HMI agent cycle-7.1 §1 Q2 reply). Avoids HMI-side JS compute /
-//     Tag-Cycle handler on the 3 component Bools.
 //
 // CHANGES vs v1.1:
 //   - ADDED REGION SetTool: calls MC_SetTool(ToolNumber:=1) once after
@@ -210,14 +201,5 @@ BEGIN
 	        #statToolActivated := TRUE;
 	    END_IF;
 	END_IF;
-
-	// =====================================================================
-	// REGION StatusDerived — axesReady (rev 1.3, 2026-05-18)
-	// Single Bool tag for HMI BackColor binding (cycle-7.1 Q2 ACK).
-	// Reads the values written above in REGION Power / Reset / Home.
-	// =====================================================================
-	"GDB_Control".axesReady := "GDB_Control".axesEnabled
-	                           AND "GDB_Control".axesHomed
-	                           AND NOT "GDB_Control".axesError;
 
 END_FUNCTION_BLOCK

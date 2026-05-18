@@ -78,21 +78,6 @@ BEGIN
 	    "GDB_MachineCmd".bo_Alarm := FALSE;
 	END_REGION
 
-	REGION Clear_PalletizingCtrl_command_bits
-	    // C69 Phase 2.2 (2026-05-18): defensively clear all palletizing-mode
-	    // command bits + i16_PalletStep so warm-start can't replay a partial
-	    // cycle. bo_Mode + bo_ESTOP_LOCK keep their XML StartValues (FALSE + TRUE).
-	    // bo_PalletInitialed cleared - operator must re-pulse bo_InitPallet on
-	    // session start to repopulate pts[] (path table is in iDB statics, not
-	    // retain, so it would be all-zeros after memory reset anyway).
-	    "GDB_PalletizingCmd".bo_InitPallet := FALSE;
-	    "GDB_PalletizingCmd".bo_Start := FALSE;
-	    "GDB_PalletizingCmd".bo_Stop := FALSE;
-	    "GDB_PalletizingCmd".bo_PalletInitialed := FALSE;
-	    "GDB_PalletizingCmd".bo_Alarm := FALSE;
-	    "GDB_PalletizingCmd".i16_PalletStep := 0;
-	END_REGION
-
 	REGION Clear_ManualCtrl_command_bits
 	    // Phase G (C67, 2026-05-18): defensively clear all manual-mode
 	    // command bits so warm-start can't replay a held jog button or

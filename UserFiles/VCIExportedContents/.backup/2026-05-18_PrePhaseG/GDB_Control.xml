@@ -35,12 +35,6 @@
         <MultiLanguageText Lang="en-US">Status: all 4 joint TOs report StatusWord.X5 (Homed)</MultiLanguageText>
       </Comment>
     </Member>
-    <Member Name="axesReady" Datatype="Bool">
-      <Comment>
-        <MultiLanguageText Lang="en-US">Phase G (C67, 2026-05-18) — derived: axesEnabled AND axesHomed AND NOT axesError. Computed in FB_AxisCtrl REGION StatusDerived. Per HMI cycle-7.1 BackColor Q2 ACK: single Bool tag enables HMI lmpKinReady_Ubp BackColor Range "1:1" binding without multi-tag JS compute.</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">PLC 衍生: 运动学组就绪 (使能 AND 已回零 AND 无故障)</MultiLanguageText>
-      </Comment>
-    </Member>
     <Member Name="robotStandstill" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">Status: all 4 joint TOs report StatusWord.X7 (Standstill)</MultiLanguageText>

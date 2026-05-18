@@ -46,13 +46,6 @@ BEGIN
 	     // Wang Shuo 4-REGION pattern with single MC_MoveLinearAbsolute
 	     // re-pulsing Execute per ABCDE step (6-state per source spec Â§3.3).
 	   "instFB_AutoCtrl_ABCDE"();
-
-	   // C69 Phase 2.2 (2026-05-18): palletizing 16-box 4-layer stacking
-	   // demo. Same Wang Shuo 4-REGION pattern + same MC_MoveLinearAbsolute
-	   // on ScaraArm3D. Mutex with ABCDE + Manual via bo_Mode gate inside
-	   // FB_AutoCtrl_Palletizing REGION 2 (NOT GDB_MachineCmd.bo_Mode AND
-	   // NOT GDB_ManualCmd.bo_Mode) prevents dual-master Execute pulses.
-	   "instFB_AutoCtrl_Palletizing"();
 	   
 	     
 	 END_REGION
@@ -61,17 +54,6 @@ BEGIN
 	     // Publish ScaraArm3D.AxesData.A[i].{Position,Velocity} to GDB_MCDData
 	     // for NX MCD signal-adapter consumption (V7 + V-OB91 gates).
 	     "instFB_MCDDataTransfer"();
-	 END_REGION
-
-	 REGION HMI_Status_Mirror
-	     // Phase 2.4 (C71, 2026-05-18): consolidate ~35 display tags from
-	     // across the system into GDB_HMI_Status for HMI to bind to as a
-	     // single read-only facade. Active-mode arbitration routes step +
-	     // target XYZA from the correct cycle FB iDB. Placed LAST so all
-	     // upstream FBs (AxisCtrl, ManualCtrl, AutoCtrl_ABCDE,
-	     // AutoCtrl_Palletizing, MCDDataTransfer) have written their fresh
-	     // state by the time this FB reads + mirrors them.
-	     "instFB_HMIStatusMirror"();
 	 END_REGION
 	
 	

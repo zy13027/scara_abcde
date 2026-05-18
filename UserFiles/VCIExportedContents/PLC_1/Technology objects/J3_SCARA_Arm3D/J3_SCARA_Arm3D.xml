@@ -806,10 +806,10 @@
             <StartValue>true</StartValue>
           </Member>
           <Member Name="MinPosition" Datatype="LReal">
-            <StartValue>-134.0</StartValue>
+            <StartValue>-1850.0</StartValue>
           </Member>
           <Member Name="MaxPosition" Datatype="LReal">
-            <StartValue>134.0</StartValue>
+            <StartValue>100.0</StartValue>
           </Member>
         </Section>
       </Sections>

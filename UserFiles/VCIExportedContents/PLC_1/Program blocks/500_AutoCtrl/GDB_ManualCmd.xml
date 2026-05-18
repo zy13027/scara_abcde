@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Blocks.GlobalDB ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="Static">
+    <Member Name="bo_Mode" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI: Manual mode selector (TRUE = manual cmds active, FALSE = ignored). Mutex with GDB_MachineCmd.bo_Mode — operator must turn AUTO off before enabling MANUAL. FB_ManualCtrl REGION 1 gates all manual actions on (bo_Mode AND bo_ESTOP_LOCK AND NOT GDB_MachineCmd.bo_Mode).</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">HMI: 手动模式开关 (与 AUTO 模式互斥)</MultiLanguageText>
+      </Comment>
+      <StartValue>FALSE</StartValue>
+    </Member>
+    <Member Name="bo_ESTOP_LOCK" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Safety: E-Stop chain healthy (TRUE = OK, FALSE = E-Stop active). Mirrors GDB_MachineCmd.bo_ESTOP_LOCK convention.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">安全: 急停健康状态</MultiLanguageText>
+      </Comment>
+      <StartValue>TRUE</StartValue>
+    </Member>
+    <Member Name="bo_J1_Enable" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: J1 Enable button. Routes via FB_ManualCtrl REGION 2 to GDB_Control.enableAxes (group-level; enabling J1 enables all 4 joints together — see PLC_HANDOFF_2026-05-18_C67 §Risk-7).</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">HMI 手动: J1 使能 (实际为整组使能)</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_J2_Enable" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: J2 Enable button (routes to group). See bo_J1_Enable.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_J3_Enable" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: J3 Enable button (routes to group). See bo_J1_Enable.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_J4_Enable" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: J4 Enable button (routes to group). See bo_J1_Enable.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_J1_Home" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: J1 Home button. Routes via FB_ManualCtrl REGION 2 to GDB_Control.homeAxes (group-level; sets all 4 joint actuals to HomePos via MC_Home Mode=7).</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">HMI 手动: J1 回零 (实际为整组回零)</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_J2_Home" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: J2 Home button (routes to group).</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_J3_Home" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: J3 Home button (routes to group).</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_J4_Home" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: J4 Home button (routes to group).</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_J1_Reset" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: J1 Reset button. Routes via FB_ManualCtrl REGION 2 to GDB_Control.resetAxes (group-level; pulses MC_Reset on all 4 joints + kin TO).</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">HMI 手动: J1 复位 (实际为整组复位)</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_J2_Reset" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: J2 Reset button (routes to group).</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_J3_Reset" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: J3 Reset button (routes to group).</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_J4_Reset" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: J4 Reset button (routes to group).</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_J1_JogForward" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: J1 Jog-Forward HOLD button (level-triggered). FB_ManualCtrl REGION 3 routes via XOR safety to MC_MoveJog.JogForward on J1_SCARA_Arm3D at 10°/s default. Releasing the button decelerates to standstill.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">HMI 手动: J1 正向点动 (按住)</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_J1_JogBackward" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: J1 Jog-Backward HOLD button (level-triggered). See bo_J1_JogForward. If both forward + backward held simultaneously, XOR safety in REGION 3 makes neither direction win.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">HMI 手动: J1 反向点动 (按住)</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_J2_JogForward" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: J2 Jog-Forward HOLD button. See bo_J1_JogForward.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_J2_JogBackward" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: J2 Jog-Backward HOLD button. See bo_J1_JogBackward.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_J3_JogForward" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: J3 Jog-Forward HOLD button. See bo_J1_JogForward.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_J3_JogBackward" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: J3 Jog-Backward HOLD button. See bo_J1_JogBackward.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_J4_JogForward" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: J4 Jog-Forward HOLD button. See bo_J1_JogForward.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_J4_JogBackward" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: J4 Jog-Backward HOLD button. See bo_J1_JogBackward.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="cfgKinTargetX" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: operator-set Kin target X coordinate (mm in WCS). Consumed by FB_ManualCtrl REGION 4 on bo_KinGo rising edge, passed to MC_MoveLinearAbsolute on ScaraArm3D. StartValue 1500.0 = ABCDE A-point safe default.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">HMI 手动: 运动学目标 X 坐标 (mm)</MultiLanguageText>
+      </Comment>
+      <StartValue>1500.0</StartValue>
+    </Member>
+    <Member Name="cfgKinTargetY" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: operator-set Kin target Y coordinate (mm in WCS). See cfgKinTargetX.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">HMI 手动: 运动学目标 Y 坐标 (mm)</MultiLanguageText>
+      </Comment>
+      <StartValue>300.0</StartValue>
+    </Member>
+    <Member Name="cfgKinTargetZ" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: operator-set Kin target Z coordinate (mm in WCS). See cfgKinTargetX.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">HMI 手动: 运动学目标 Z 坐标 (mm)</MultiLanguageText>
+      </Comment>
+      <StartValue>400.0</StartValue>
+    </Member>
+    <Member Name="cfgKinTargetA" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: operator-set Kin target A orientation (degrees). See cfgKinTargetX.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">HMI 手动: 运动学目标 A 姿态 (度)</MultiLanguageText>
+      </Comment>
+      <StartValue>0.0</StartValue>
+    </Member>
+    <Member Name="bo_KinGo" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: rising-edge → trigger MC_MoveLinearAbsolute on ScaraArm3D to (cfgKinTargetX, Y, Z, A). FB_ManualCtrl REGION 4 uses BufferMode=0 (aborting) for clean handoff from any in-flight auto motion.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">HMI 手动: 上升沿 → 执行运动学绝对移动</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_KinEnable" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: Kin-group Enable button. Routes via FB_ManualCtrl REGION 2 to GDB_Control.enableAxes. Functionally equivalent to bo_J1_Enable (group-level wiring).</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">HMI 手动: 运动学组使能</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_KinHome" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: Kin-group Home button. Routes via FB_ManualCtrl REGION 2 to GDB_Control.homeAxes.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">HMI 手动: 运动学组回零</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_KinReset" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI manual: Kin-group Reset button. Routes via FB_ManualCtrl REGION 2 to GDB_Control.resetAxes.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">HMI 手动: 运动学组复位</MultiLanguageText>
+      </Comment>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <MemoryLayout>Optimized</MemoryLayout>
+      <Name>GDB_ManualCmd</Name>
+      <Namespace />
+      <ProgrammingLanguage>DB</ProgrammingLanguage>
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text>Phase G (C67, 2026-05-18) — Manual-mode command surface. Sibling to GDB_MachineCmd (auto) + GDB_Control (axis-group). HMI binds the 20 per-axis cmd buttons + 4 Kin target IOFields + 4 Kin group buttons here. FB_ManualCtrl on OB30 (10ms cyclic) consumes these and routes to MC_MoveJog / MC_MoveLinearAbsolute / GDB_Control flags.</Text>
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text>Manual-mode command DB (Phase G)</Text>
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Blocks.GlobalDB>
+</Document>

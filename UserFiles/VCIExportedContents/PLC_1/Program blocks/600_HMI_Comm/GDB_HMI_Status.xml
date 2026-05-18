@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Blocks.GlobalDB ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="Static">
+    <Member Name="activeMode" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Active cycle mode: 0=None, 1=ABCDE, 2=Palletizing, 3=Manual. Derived each scan from the 3 GDB_*Cmd.bo_Mode bits (set by HMI/operator). PLC mutex contract: only one mode may have Start succeed at a time. HMI may bind this to a banner text/lamp.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">当前激活模式: 0=无, 1=ABCDE, 2=码垛, 3=手动</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="currentStep" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Mode-routed current step. activeMode=1: mirrors GDB_MachineCmd.i16_AutoStep (0,10..50). activeMode=2: mirrors GDB_PalletizingCmd.i16_PalletStep (0..48). activeMode=3: 0 (manual has no step). activeMode=0: 0.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">当前步骤 (按模式路由)</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="totalSteps" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Total steps in active cycle: 5 (ABCDE), 48 (Palletizing), 0 (Manual/None). HMI uses for progress-bar / "Step N of M" display.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">总步数</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="target_x" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Current TCP target X (mm), mode-routed. ABCDE: instFB_AutoCtrl_ABCDE.statTargetPos.x. Palletizing: instFB_AutoCtrl_Palletizing.statTargetPos.x. Manual/None: holds last value (no overwrite, so HMI sees last commanded target).</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">当前目标 X 坐标 (mm, 按模式路由)</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="target_y" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Current TCP target Y (mm), mode-routed. See target_x.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="target_z" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Current TCP target Z (mm), mode-routed. See target_x.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="target_a" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Current TCP target A wrist (deg), mode-routed. See target_x.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="axesEnabled" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Group: all 4 joints powered. Mirror of GDB_Control.axesEnabled.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">轴组使能</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="axesHomed" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Group: all 4 joints homed. Mirror of GDB_Control.axesHomed.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="axesError" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Group: any joint error. Mirror of GDB_Control.axesError.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="axesReady" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Group: enabled AND homed AND NOT error. Mirror of GDB_Control.axesReady (derived in FB_AxisCtrl rev 1.3).</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="j1_enabled" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">J1 base shoulder: ready / powered. Mirror of GDB_ManualStatus.bo_J1_Enabled (which mirrors instFB_AxisCtrl.instPower_J1.Status).</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="j1_homed" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">J1: homed (mirror of J1_SCARA_Arm3D.StatusWord.%X5 via GDB_ManualStatus).</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="j1_error" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">J1: fault active.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="j1_jogActive" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">J1: motion in progress (NOT standstill).</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="j1_actualPos" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">J1 actual position (degrees, base shoulder rotation). Read direct from J1_SCARA_Arm3D.ActualPosition.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="j1_actualVel" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">J1 actual velocity (deg/s).</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="j2_enabled" Datatype="Bool" />
+    <Member Name="j2_homed" Datatype="Bool" />
+    <Member Name="j2_error" Datatype="Bool" />
+    <Member Name="j2_jogActive" Datatype="Bool" />
+    <Member Name="j2_actualPos" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">J2 elbow actual rotation (degrees). NOTE: J2 is at kinematic-group index A[3] per the deliberate misorder — see PLC_HANDOFF_2026-05-18_J2J3DeliberateMisorder.md. This field reads from J2_SCARA_Arm3D.ActualPosition directly (joint-name convention, no swap needed here).</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="j2_actualVel" Datatype="LReal" />
+    <Member Name="j3_enabled" Datatype="Bool" />
+    <Member Name="j3_homed" Datatype="Bool" />
+    <Member Name="j3_error" Datatype="Bool" />
+    <Member Name="j3_jogActive" Datatype="Bool" />
+    <Member Name="j3_actualPos" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">J3 Z prismatic actual position (mm). NOTE: J3 is at kinematic-group index A[2] per the deliberate misorder. This field reads from J3_SCARA_Arm3D.ActualPosition (joint-name convention).</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="j3_actualVel" Datatype="LReal" />
+    <Member Name="j4_enabled" Datatype="Bool" />
+    <Member Name="j4_homed" Datatype="Bool" />
+    <Member Name="j4_error" Datatype="Bool" />
+    <Member Name="j4_jogActive" Datatype="Bool" />
+    <Member Name="j4_actualPos" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">J4 wrist actual rotation (degrees).</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="j4_actualVel" Datatype="LReal" />
+    <Member Name="estopLock" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Safety: E-Stop chain healthy (mirror of GDB_MachineCmd.bo_ESTOP_LOCK). TRUE=OK, FALSE=E-Stop active.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="alarm" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Aggregate alarm: GDB_MachineCmd.bo_Alarm OR GDB_PalletizingCmd.bo_Alarm. HMI binds a single lamp to this for "any alarm" indication.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="pathInitialed" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">ABCDE 5-point path is initialized (mirror of GDB_MachineCmd.bo_PathInitialed). Required gate before ABCDE Start.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="palletInitialed" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Palletizing 16-box 4-layer path is initialized (mirror of GDB_PalletizingCmd.bo_PalletInitialed). Required gate before Palletizing Start.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="toolActive" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Diagnostic: MC_SetTool(ToolNumber=1) has been activated on ScaraArm3D (mirror of instFB_AxisCtrl.statToolActivated). FALSE → MC_MoveLinearAbsolute returns UserFault (motionFBStatus=0x8001). FB_AxisCtrl rev 1.2+ auto-fires SetTool once after axesEnabled goes TRUE.</MultiLanguageText>
+      </Comment>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <MemoryLayout>Optimized</MemoryLayout>
+      <Name>GDB_HMI_Status</Name>
+      <Namespace />
+      <ProgrammingLanguage>DB</ProgrammingLanguage>
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text>Phase 2.4 (C71, 2026-05-18) — Read-only HMI facade. Consolidates ~35 display tags from across the system (GDB_Control, GDB_ManualStatus, GDB_MachineCmd, GDB_PalletizingCmd, instFB_AutoCtrl_ABCDE iDB, instFB_AutoCtrl_Palletizing iDB, J{n}_SCARA_Arm3D TOs, instFB_AxisCtrl iDB) into a single GDB for HMI to bind to. FB_HMIStatusMirror updates this each OB1 scan via active-mode routing logic. Writes (HMI → bo_Mode/bo_Start/etc.) stay direct to the per-mode cmd DBs — this GDB is read-only from HMI's perspective.</Text>
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text>HMI status facade DB (read-only, Phase 2.4)</Text>
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Blocks.GlobalDB>
+</Document>
