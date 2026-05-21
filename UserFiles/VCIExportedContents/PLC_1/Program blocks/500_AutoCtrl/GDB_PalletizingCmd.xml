@@ -62,6 +62,124 @@
       </Comment>
       <StartValue>16</StartValue>
     </Member>
+    <Member Name="bo_PalletDone" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0 (2026-05-19): Status — pulses TRUE when all 16 boxes have been placed (statBoxesPlaced = statActiveBoxes). HMI lamp / cycle-complete indicator. Cleared on next bo_InitPallet rising edge.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">V3.0 状态: 16箱码垛完成</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_RequireSensorGate" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0 (2026-05-19): if TRUE the cycle waits for PalletizingSensor rising edge before each pick (real container-arrival gating); if FALSE the cycle proceeds without sensor (phantom mode for PLC-only smoke testing). Default TRUE.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">V3.0 配置: 是否需要传感器触发</MultiLanguageText>
+      </Comment>
+      <StartValue>TRUE</StartValue>
+    </Member>
+    <Member Name="lr_PickX" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Pick position WCS X (mm) where the cup grabs the box. Corrected 2026-05-21 to 1269.07: the box rests at COM X=1269.07 (NX Runtime Inspector Trace1.csv); the previous 1170.44 (probed sensor-centre) was ~99 mm off, giving an off-centre grab.</MultiLanguageText>
+      </Comment>
+      <StartValue>1269.07</StartValue>
+    </Member>
+    <Member Name="lr_PickY" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0 (Brief 33, 2026-05-19): Pick position WCS Y (mm). Default -468.24 from latest nx_open_probe (conveyor migrated -1000 in Y since Brief 32; csContainerBeltPalletizing sensor now at Y=-468.24). Was 531.76 in Brief 31/32.</MultiLanguageText>
+      </Comment>
+      <StartValue>-468.24</StartValue>
+    </Member>
+    <Member Name="lr_PickZ" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Pick position WCS Z (mm) -- suction cup contact target = box TOP. Corrected 2026-05-21 to -919.86: the box rests at COM Z=-973.61 (NX Trace1.csv) and the container collision body is 107.5 mm tall, so box top = -973.61 + 53.75 = -919.86. The previous -699.0 sat 221 mm above the box top, so the cup never reached the box.</MultiLanguageText>
+      </Comment>
+      <StartValue>-919.86</StartValue>
+    </Member>
+    <Member Name="lr_PickApproachZOffset" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0 (2026-05-19): Z offset above pick (mm) for safe approach + retract. Default 220.0 matches PICK_APPROACH_Z = -800.0 from nx_open_probe (-1018.85 + 218.85 ≈ 220).</MultiLanguageText>
+      </Comment>
+      <StartValue>220.0</StartValue>
+    </Member>
+    <Member Name="lr_PalletTopX" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0 (Brief 33, 2026-05-19): Pallet 1 North top centre WCS X (mm). Default -1100.48 from latest nx_open_probe (pallets migrated -1100 in X since Brief 32). Was -0.48 in Brief 31/32.</MultiLanguageText>
+      </Comment>
+      <StartValue>-1100.48</StartValue>
+    </Member>
+    <Member Name="lr_PalletTopY" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0 (2026-05-19): Pallet 1 North top centre WCS Y (mm). Default 1500.31 from nx_open_probe.</MultiLanguageText>
+      </Comment>
+      <StartValue>1500.31</StartValue>
+    </Member>
+    <Member Name="lr_PalletTopZ" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0 (2026-05-19): Pallet 1 North top WCS Z (mm) — bottom layer place target. Default -866.73 from nx_open_probe.</MultiLanguageText>
+      </Comment>
+      <StartValue>-866.73</StartValue>
+    </Member>
+    <Member Name="lr_PlaceApproachZOffset" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0 (2026-05-19): Z offset above each box's place target (mm) for approach + retract phases. Default 100.0.</MultiLanguageText>
+      </Comment>
+      <StartValue>100.0</StartValue>
+    </Member>
+    <Member Name="lr_BoxHeight" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0 (2026-05-19, Brief 32 corrected): Box height (mm) — layer-to-layer Z spacing for the 4-layer stack + cup-tip offset above pallet surface. Default 200.0 (small carton in current NX scene). Tune to 300 for the bigger box variant.</MultiLanguageText>
+      </Comment>
+      <StartValue>200.0</StartValue>
+    </Member>
+    <Member Name="lr_BeltVelocityNormal" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0 (2026-05-19): Conveyor belt velocity (mm/s) when running between picks. Default 100.0. Belt stops to 0 during pick (auto by FB).</MultiLanguageText>
+      </Comment>
+      <StartValue>100.0</StartValue>
+    </Member>
+    <Member Name="lr_ArrivalSettleMs" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0 (2026-05-19): Settle time (ms) after PalletizingSensor TRUE + belt stopped before SCARA descends to pick. Default 300.0.</MultiLanguageText>
+      </Comment>
+      <StartValue>300.0</StartValue>
+    </Member>
+    <Member Name="lr_GripperCloseMs" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0 (2026-05-19): Suction cup grip hold time (ms) after bo_gripperGrip:=TRUE before raising. Default 300.0.</MultiLanguageText>
+      </Comment>
+      <StartValue>300.0</StartValue>
+    </Member>
+    <Member Name="lr_GripperOpenMs" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0 (2026-05-19): Suction cup release time (ms) after bo_gripperGrip:=FALSE and bo_gripperRelease:=TRUE before retract. Default 200.0.</MultiLanguageText>
+      </Comment>
+      <StartValue>200.0</StartValue>
+    </Member>
+    <Member Name="lr_SpawnDelayMs" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0 DEPRECATED (2026-05-19, Brief 33 adaptive): No longer referenced by FB_AutoCtrl_Palletizing.scl after the spawn-delay logic was rewritten to fire spawn immediately at Phase 6 PLACE_RETRACT done. The cycle now self-paces via belt-transit + sensor-arrival in Phase 7, with no fixed inter-box delay. Member retained for shape backward compatibility; value ignored. To re-introduce a fixed delay, reference this Member in a new IF-timer block in the FB.</MultiLanguageText>
+      </Comment>
+      <StartValue>0.0</StartValue>
+    </Member>
+    <Member Name="lr_WristOffsetX" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0 (Brief 33, 2026-05-19): SCARA suction-cup wrist-to-TCP X offset for SCL compensation. Default 0.0 — Brief 33 revealed the gripper is an 8-cup symmetric array (4x2) whose centroid is directly below the wrist axis, so X offset is 0. (Brief 31's +336 was a single-corner-cup measurement, since superseded.) Kept as a tunable Member for operator overrides; normally leave at 0.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">V3.0 吸盘-腕部X偏移 (Brief 33: 阵列质心 = 0)</MultiLanguageText>
+      </Comment>
+      <StartValue>0.0</StartValue>
+    </Member>
+    <Member Name="lr_WristOffsetY" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0 (Brief 33, 2026-05-19): Y component, default 0.0. See lr_WristOffsetX comment — cup array centroid is on wrist axis, so X/Y offsets are 0.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">V3.0 吸盘-腕部Y偏移 (Brief 33: 阵列质心 = 0)</MultiLanguageText>
+      </Comment>
+      <StartValue>0.0</StartValue>
+    </Member>
+    <Member Name="lr_WristOffsetZ" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0 (Brief 33, 2026-05-19): Z component, default 0.0. The 135.7 mm cup-tip-below-wrist offset is now handled by ScaraArm3D.Tool[1].Frame.z = 135.7 in the TIA TO (operator updated). MC_MoveLinearAbsolute commands TCP (cup tip) directly; kinematic group computes wrist position via Tool[1]. (Brief 31's +135.7 SCL compensation is no longer needed since Tool[1] now carries the full vertical offset.) Operator may set this Member non-zero if a different tool is loaded.</MultiLanguageText>
+        <MultiLanguageText Lang="zh-CN">V3.0 吸盘-腕部Z偏移 (Brief 33: Tool[1].Frame.z=135.7 已承担, SCL此项=0)</MultiLanguageText>
+      </Comment>
+      <StartValue>0.0</StartValue>
+    </Member>
   </Section>
 </Sections></Interface>
       <MemoryLayout>Optimized</MemoryLayout>

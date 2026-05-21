@@ -784,9 +784,6 @@
       </AttributeList>
       <Sections>
         <Section Name="None">
-          <Member Name="Enable" Datatype="Bool">
-            <StartValue>false</StartValue>
-          </Member>
           <Member Name="Length" Datatype="LReal">
             <StartValue>360.0</StartValue>
           </Member>

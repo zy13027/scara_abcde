@@ -1,21 +1,16 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Document>
   <Engineering version="V20" />
   <SW.Blocks.InstanceDB ID="0">
     <AttributeList>
       <HeaderVersion>1.1</HeaderVersion>
-      <InstanceOfName>FB_AutoCtrl_Palletizing</InstanceOfName>
+      <InstanceOfName>FB_ConveyorCtrl</InstanceOfName>
       <InstanceOfType>FB</InstanceOfType>
       <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
   <Section Name="Input" />
   <Section Name="Output" />
   <Section Name="InOut" />
   <Section Name="Static">
-    <Member Name="sRTRIGInitialPath" Datatype="R_TRIG" Version="1.0">
-      <AttributeList>
-        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
-      </AttributeList>
-    </Member>
     <Member Name="sRTRIGStart" Datatype="R_TRIG" Version="1.0">
       <AttributeList>
         <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
@@ -26,40 +21,40 @@
         <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
       </AttributeList>
     </Member>
-    <Member Name="sRTRIGPalletizingSensor" Datatype="R_TRIG" Version="1.0">
+    <Member Name="sRTRIGPacking" Datatype="R_TRIG" Version="1.0">
       <AttributeList>
         <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
       </AttributeList>
     </Member>
-    <Member Name="sRTRIGAlarm" Datatype="R_TRIG" Version="1.0">
+    <Member Name="sRTRIGPalletizing" Datatype="R_TRIG" Version="1.0">
       <AttributeList>
         <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
       </AttributeList>
     </Member>
-    <Member Name="instMoveLinAbs" Datatype="MC_MOVELINEARABSOLUTE" Version="9.0" />
-    <Member Name="statTargetPos" Datatype="&quot;UDT_typePoint5&quot;" />
-    <Member Name="statCmdPtr" Datatype="Int" />
-    <Member Name="statExecState" Datatype="Int" />
-    <Member Name="statPhase" Datatype="Int" />
-    <Member Name="statBoxesPlaced" Datatype="Int" />
-    <Member Name="statActiveBoxes" Datatype="Int" />
-    <Member Name="statTotalDistance" Datatype="LReal" />
-    <Member Name="statProgress" Datatype="LReal" />
-    <Member Name="instGripperTimer" Datatype="TON_TIME" Version="1.0">
+    <Member Name="sFTRIGPalletizing" Datatype="F_TRIG" Version="1.0">
       <AttributeList>
         <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
       </AttributeList>
     </Member>
-    <Member Name="instArrivalSettleTimer" Datatype="TON_TIME" Version="1.0">
+    <Member Name="sRTRIGSpawnFire" Datatype="R_TRIG" Version="1.0">
       <AttributeList>
         <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
       </AttributeList>
     </Member>
+    <Member Name="instSpawnTimer" Datatype="TON_TIME" Version="1.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+    </Member>
+    <Member Name="statRunning" Datatype="Bool" />
+    <Member Name="statSpawnFire" Datatype="Bool" />
+    <Member Name="statSpawnActive" Datatype="Bool" />
+    <Member Name="statBeltRun" Datatype="Bool" />
+    <Member Name="statSpawnCount" Datatype="Int" />
   </Section>
 </Sections></Interface>
-      <Name>instFB_AutoCtrl_Palletizing</Name>
+      <Name>instFB_ConveyorCtrl</Name>
       <Namespace />
-      <Number>12</Number>
       <ProgrammingLanguage>DB</ProgrammingLanguage>
     </AttributeList>
     <ObjectList>
@@ -68,7 +63,7 @@
           <MultilingualTextItem ID="2" CompositionName="Items">
             <AttributeList>
               <Culture>en-US</Culture>
-              <Text>C69 Phase 2.2 (2026-05-18) — instance DB for FB_AutoCtrl_Palletizing. 48-element pts[] holds 16 boxes x 3 phases (approach/place/retract) for the 4-layer stacking pattern. instMoveLinAbs has NO AttributeList so SetPoint defaults to FALSE (required for MC_MoveLinearAbsolute Execute pulse to reach MC subsystem; lesson from Phase G C67 rev 0.1 failure).</Text>
+              <Text>Instance DB for FB_ConveyorCtrl (2026-05-20). Owns the palletizing infeed -- SpawnContainerCmd pulse + BeltVelocity belt latch. No MC instances, so zero OB91 (MC-Servo) impact. DB number omitted -- TIA auto-assigns.</Text>
             </AttributeList>
           </MultilingualTextItem>
         </ObjectList>
@@ -78,7 +73,7 @@
           <MultilingualTextItem ID="4" CompositionName="Items">
             <AttributeList>
               <Culture>en-US</Culture>
-              <Text>instFB_AutoCtrl_Palletizing (C69 Phase 2.2)</Text>
+              <Text>instFB_ConveyorCtrl (infeed modularisation, 2026-05-20)</Text>
             </AttributeList>
           </MultilingualTextItem>
         </ObjectList>

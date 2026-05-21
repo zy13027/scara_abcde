@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Blocks.GlobalDB ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="Static">
+    <Member Name="aCmd" Datatype="Array[1..200] of &quot;UDT_PathCmd&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Buffered-path command list -- built by FB_AutoCtrl_Palletizing REGION 1 (9 commands per box x 16 boxes + 1 END_OF_PATH ~= 145 used) and walked by the REGION 4 executor. [1..200] gives headroom.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="i16_CmdCount" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Number of valid commands in aCmd, set by REGION 1 after building the list. The END_OF_PATH command sits at aCmd[i16_CmdCount].</MultiLanguageText>
+      </Comment>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <MemoryLayout>Optimized</MemoryLayout>
+      <Name>GDB_PalletizingPath</Name>
+      <Namespace />
+      <ProgrammingLanguage>DB</ProgrammingLanguage>
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text>Buffered-path command list for the V4.0 palletizing executor. Array of UDT_PathCmd, built once per bo_InitPallet rising edge and executed by FB_AutoCtrl_Palletizing REGION 4. Kept as a separate global DB (not an instance-DB stat array) so the PowerShell smoke harness can probe aCmd[n] directly.</Text>
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text>Palletizing buffered-path command list (V4.0)</Text>
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Blocks.GlobalDB>
+</Document>

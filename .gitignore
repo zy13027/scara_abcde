@@ -12,3 +12,17 @@ XRef/
 # Don't commit results logs into the repo by default — keep harness scripts only
 UserFiles/harness/results/*.log
 !UserFiles/harness/results/.gitkeep
+
+# Trace / recording artifacts — regenerable test data, kept out of repo
+PLC_1_Trace_*.csv
+OneBox_Joints_*.csv
+*.ttrecx
+
+# Smoke / co-driver run logs
+UserFiles/VCIExportedContents/smoke_logs/
+
+# Pre-edit source backup snapshots (git history is the real backup)
+UserFiles/VCIExportedContents/.backup/
+
+# Operator-local TIA project metadata
+hmiDemoSCARA_ABCDE.info

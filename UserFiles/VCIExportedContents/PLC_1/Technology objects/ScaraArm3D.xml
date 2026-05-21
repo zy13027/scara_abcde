@@ -235,7 +235,7 @@
                 </Member>
                 <Member Name="z" Datatype="LReal">
                   <Subelement Path="1">
-                    <StartValue>50.0</StartValue>
+                    <StartValue>135.7</StartValue>
                   </Subelement>
                   <Subelement Path="2">
                     <StartValue>0.0</StartValue>
@@ -414,9 +414,6 @@
       <Sections>
         <Section Name="None">
           <Member Name="Active" Datatype="Bool">
-            <Subelement Path="1">
-              <StartValue>true</StartValue>
-            </Subelement>
             <Subelement Path="2">
               <StartValue>false</StartValue>
             </Subelement>
@@ -446,9 +443,6 @@
             </Subelement>
           </Member>
           <Member Name="Valid" Datatype="Bool">
-            <Subelement Path="1">
-              <StartValue>true</StartValue>
-            </Subelement>
             <Subelement Path="2">
               <StartValue>false</StartValue>
             </Subelement>
@@ -601,7 +595,7 @@
                 </Member>
                 <Member Name="z" Datatype="LReal">
                   <Subelement Path="1">
-                    <StartValue>-100.0</StartValue>
+                    <StartValue>-1500.0</StartValue>
                   </Subelement>
                   <Subelement Path="2">
                     <StartValue>0.0</StartValue>
@@ -767,10 +761,10 @@
                 </Member>
                 <Member Name="Parameter" Datatype="Array[1..3] of LReal">
                   <Subelement Path="1,1">
-                    <StartValue>2500.0</StartValue>
+                    <StartValue>3500.0</StartValue>
                   </Subelement>
                   <Subelement Path="1,2">
-                    <StartValue>2000.0</StartValue>
+                    <StartValue>3000.0</StartValue>
                   </Subelement>
                   <Subelement Path="1,3">
                     <StartValue>500.0</StartValue>

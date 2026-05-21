@@ -33,6 +33,15 @@ BEGIN
 	     "instFB_AxisCtrl"();
 	 END_REGION
 
+	 REGION Conveyor_Infeed
+	     // 2026-05-20: palletizing infeed split out of FB_AutoCtrl_Palletizing
+	     // (V4.0 -> V4.1). FB_ConveyorCtrl owns the box-spawn request
+	     // (SpawnContainerCmd) and the conveyor belt (BeltVelocity). Active only
+	     // in real mode (GDB_PalletizingCmd.bo_RequireSensorGate=TRUE); inert in
+	     // phantom mode. Raw R_TRIG/F_TRIG/TON_TIME only -> zero OB91 impact.
+	     "instFB_ConveyorCtrl"();
+	 END_REGION
+
 	 REGION Manual_Control
 	     // Phase G (C67, 2026-05-18): manual-mode command routing.
 	     // Gated internally on (GDB_ManualCmd.bo_Mode AND NOT

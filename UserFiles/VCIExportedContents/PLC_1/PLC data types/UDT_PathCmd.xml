@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="i16_CmdType" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Command type: 0 = END_OF_PATH, 1 = MOVE, 2 = GRIPPER, 3 = WAIT_ARRIVAL</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="x" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">MOVE: target Cartesian X [mm]</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="y" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">MOVE: target Cartesian Y [mm]</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="z" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">MOVE: target Cartesian Z [mm]</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="a" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">MOVE: target wrist orientation A [deg]</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="lr_Velocity" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">MOVE: path velocity [mm/s]</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="i16_BufferMode" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">MOVE: MC_MoveLinearAbsolute BufferMode for this command -- 1 = stop at this point (BM_BUFFERED), 5 = blend through it (BM_BLENDING_HIGH). Never 0 (MC_Aborting is invalid for a kinematic path -&gt; 16#80B2).</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="lr_DwellMs" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">GRIPPER: grip/release settle hold time [ms]</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_GripperGrip" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">GRIPPER: level value written to GDB_Control.bo_gripperGrip</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_GripperRelease" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">GRIPPER: if TRUE, pulse GDB_Control.bo_gripperRelease for the dwell then drop it</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_IsBoxEnd" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">MOVE: TRUE on the PLACE_RETRACT move that completes a box -- increments statBoxesPlaced and re-arms the spawn request</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="i16_HmiStep" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Value published to GDB_PalletizingCmd.i16_PalletStep when this command becomes active -- preserves the HMI 1..48 step display</MultiLanguageText>
+      </Comment>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>UDT_PathCmd</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text>One command in the buffered-path command list (GDB_PalletizingPath.aCmd). Authored by FB_AutoCtrl_Palletizing REGION 1, executed by REGION 4.</Text>
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text>Buffered-path command element (V4.0 palletizing)</Text>
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

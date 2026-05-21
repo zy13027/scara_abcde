@@ -1,4 +1,4 @@
-**Status:** VERIFIED — **`SmokeTest_Phase2_Palletizing.ps1` 12/12 PASS at 2026-05-18 16:15:18** (`harness/results/palletizing_20260518_161518.log`). 46/48 unique steps visited in 120s, 2 cycle wraps, PLC commands correct Z trajectories per box (approach 100mm above place, layers 300/350/400/450 ascending), 3-way mutex with ABCDE + Manual modes working, no ABCDE regression.
+**Status:** VERIFIED — **`SmokeTest_Phase2_Palletizing.ps1` 12/12 PASS at 2026-05-18 23:30:34** (`harness/results/palletizing_20260518_233034.log`, re-verification after SW-limit revert per §11). Previous 12/12 PASS at 16:15:18 (`palletizing_20260518_161518.log`). 48/48 unique steps visited in 120s, 2 cycle wraps, PLC commands correct Z trajectories per box (approach 100mm above place, layers 300/350/400/450 ascending), 3-way mutex with ABCDE + Manual modes working, no ABCDE regression.
 
 Run history (3 iterations):
 - Run 1 @ 15:55:02 — 10/12 PASS (Z gates failed; original gates measured workspace-clamped `Position[2]`)
@@ -259,3 +259,39 @@ Diagnostic signature for "L1 mismatch":
 - TCP visually reaches commanded position but rigid-body kinematic chain looks "wrong" in NX MCD viewport
 
 Use the `nx_open_probe` journal pattern (this project: `journal_v4.py`) for definitive measurements.
+
+---
+
+## 11. SW Limit Tightening Attempt + Revert (2026-05-18 23:30)
+
+**Trigger:** operator asked "what should J3 SW limit?" The PLC agent recommended tightening **J2 from -1060/+800° to ±150° (then ±160°)** and **J3 from -1850/+600 to -1850/+100mm** to match the NX MCD physical slider stroke envelope. Reasoning at the time: SW limit's job is to fault BEFORE the physical limit; SW narrower than physical = safe; SW wider than physical = unsafe.
+
+**Operator implemented** the recommendation via TIA GUI → Export TO → Compile → Download.
+
+**Result: palletizing broke.** Re-running `SmokeTest_Phase2_Palletizing.ps1`:
+- 8/12 PASS (was 12/12)
+- Visited 1/48 steps (was 48/48)
+- 0 cycle wraps (was 2)
+- Diagnostic poll caught J2 hitting **exactly -160.00°** at t=3s of step 1, `instMoveLinAbs.Busy=False` but `Done=False, Error=False, CommandAborted=False` — motion silently halted, FB state machine never advances
+
+**Root cause: TIA SCARA-3D joint coordinates ≠ NX MCD slider coordinates.** Two separate effects:
+
+1. **J2 rotational unwrap.** TIA's SCARA-3D IK does NOT wrap joint angles to ±180°. For a smooth TCP trajectory the IK may compute J2 absolute angles outside ±360°, accumulating revolutions over long cycles. The pre-revert C71 smoke read `j2_actualPos = 528.48°` and at one point during diagnostic cycle `33017.926°` — proof of cumulative angle. The original ±1060/+800° was empirically sized for this. ±160° is too tight even though "the elbow physically only swings 80° at any instant."
+
+2. **J3 column-height offset.** With L1=1028.48 mm column height, TCP_z=400 (workspace) maps to a J3 joint coordinate that's offset by column/flange geometry — NOT directly equal to MCD slider Z. Empirically J3 joint values reach +600 mm during palletizing TCP_z=300-450 range. The MCD slider physical stroke (-1850 to +100) operates in a different coordinate frame. The +600 J3 SW positive was sized for the joint trajectory, not the MCD slider.
+
+**Revert:** J2 back to -1060/+800°, J3 back to -1850/+600 mm. Re-deploy → `SmokeTest_Phase2_Palletizing.ps1` 12/12 PASS at 23:30:34 (`palletizing_20260518_233034.log`).
+
+**Lesson:** TIA TO_PositioningAxis SW limits must be set against the **joint trajectory range** the kinematic transformation actually demands, not against the visible physical envelope of the MCD viewport. For SCARA elbows specifically:
+- Default to **wide SW range** (±360° or wider) during bring-up
+- Profile actual joint motion under longest commanded TCP trajectory (use `j*_actualPos` facade)
+- Set SW limits to **observed_max ± reasonable_margin** (e.g., 2× the observed range)
+- Production option: configure J2 as a **Modulo rotary axis** (TIA → Basic parameters → "Modulo") so axis wraps automatically and SW limits constrain only the modulo position; this is the standard pattern for SCARA elbows in production code
+
+**Diagnostic signature for "SW limit too tight":**
+- Single joint actual pinned exactly at SW limit value (e.g., -160.000)
+- `instMoveLinAbs.Busy` goes False but `Done`, `Error`, `CommandAborted` all stay False
+- FB state machine stuck at current step (no statProgress advance, no error)
+- The kinematic group enters a half-completed motion where one axis hit limit, halting all coordinated axes
+
+**MCD physical limit ≠ TIA SW limit purpose recheck:** TIA SW limits protect the AXIS from over-travel in its OWN coordinate space. The MCD viewport's physical sliders/hinges are a SEPARATE constraint enforced by NX MCD itself (collision detection, joint range). They happen to relate via the kinematic transformation but aren't the same number. Use MCD physical limits as MCD-side constraints; use TIA SW limits as PLC-side constraints; set each in its own coordinate frame.
