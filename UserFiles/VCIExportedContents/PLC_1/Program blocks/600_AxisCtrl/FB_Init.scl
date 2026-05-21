@@ -1,0 +1,60 @@
+FUNCTION_BLOCK "FB_Init"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 1.0
+// =====================================================================
+// SCARA ABCDE — Initialization / Homing  (Phase 3, 2026-05-21)
+//
+// Dedicated init/homing block per the 2026-05-21 TIA programming review
+// (§1.4): homing must NOT live inside FB_AutoCtrl. Belongs to the 600
+// axis/kinematics layer and runs in OB30 (10 ms cyclic interrupt),
+// alongside FB_AxisCtrl.
+//
+// Homes the SCARA kinematics group via the library FB
+// LKinCtrl_MC_GroupHome, which fires MC_HOME on every axis of ScaraArm3D
+// from a per-axis mode[] + position[] array — read straight from the
+// consolidated GDB_AxisCtrl.LKinCtrl.input.configuration.home struct.
+//
+// Two home types (review item E) — selected by the i16_mode[] value
+// (the HMI / Startup OB sets it; FB_Init is mode-agnostic):
+//   mode = 5  "go to zero position" — MC_Home active homing: each axis
+//             runs its configured homing movement and ends at the TO
+//             <TO>.Homing.HomePosition.
+//   mode = 7  "set current as home" — MC_Home absolute-encoder
+//             adjustment (absolute): current position set to
+//             position[i], offset stored retentively. Correct for the
+//             SCARA's absolute encoders (Sensor[1].Type = 2); no motion.
+//
+// Trigger: rising edge of GDB_AxisCtrl.LKinCtrl.input.bo_home (the HMI
+// Home button). LKinCtrl_MC_GroupHome edge-detects 'execute' internally.
+//
+// TODO (Phase 3 refinement): for mode = 5 active homing, sequence the
+// per-axis homing order + speeds (the review asks for an explicit axis
+// order). LKinCtrl_MC_GroupHome homes all axes concurrently; for the
+// no-motion mode = 7 case (the SCARA default) concurrent is correct.
+// =====================================================================
+   VAR
+      instGroupHome : "LKinCtrl_MC_GroupHome";
+   END_VAR
+
+
+BEGIN
+
+    REGION Group_Homing
+        // Home all kinematic axes. position[]/mode[] come from the
+        // consolidated GDB_AxisCtrl config; the HMI sets mode = 5 or 7
+        // to choose the home type before pulsing bo_home.
+        #instGroupHome(execute   := "GDB_AxisCtrl".LKinCtrl.input.bo_home,
+                       position  := "GDB_AxisCtrl".LKinCtrl.input.configuration.home.r64_homeposition,
+                       mode      := "GDB_AxisCtrl".LKinCtrl.input.configuration.home.i16_mode,
+                       axesGroup := "ScaraArm3D");
+
+        // Homed status: cleared while homing runs, latched TRUE on done.
+        IF #instGroupHome.busy THEN
+            "GDB_AxisCtrl".LKinCtrl.output.bo_homed := FALSE;
+        END_IF;
+        IF #instGroupHome.done THEN
+            "GDB_AxisCtrl".LKinCtrl.output.bo_homed := TRUE;
+        END_IF;
+    END_REGION
+
+END_FUNCTION_BLOCK
