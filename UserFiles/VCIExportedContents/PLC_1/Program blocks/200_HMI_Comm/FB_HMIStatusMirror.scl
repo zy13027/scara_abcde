@@ -92,10 +92,10 @@ BEGIN
 	 // =====================================================================
 	 // REGION 3 â€” Group axis status
 	 // =====================================================================
-	 "GDB_HMI_Status".axesEnabled := "GDB_Control".axesEnabled;
-	 "GDB_HMI_Status".axesHomed := "GDB_Control".axesHomed;
-	 "GDB_HMI_Status".axesError := "GDB_Control".axesError;
-	 "GDB_HMI_Status".axesReady := "GDB_Control".axesReady;
+	 "GDB_HMI_Status".axesEnabled := "GDB_AxisCtrl".LKinCtrl.output.bo_enabled;
+	 "GDB_HMI_Status".axesHomed := "GDB_AxisCtrl".LKinCtrl.output.bo_homed;
+	 "GDB_HMI_Status".axesError := "GDB_AxisCtrl".LKinCtrl.output.bo_fault;
+	 "GDB_HMI_Status".axesReady := "GDB_AxisCtrl".LKinCtrl.output.bo_ready;
 	
 	 // =====================================================================
 	 // REGION 4 â€” Per-joint status (4 joints Ã— 6 fields = 24 assignments)

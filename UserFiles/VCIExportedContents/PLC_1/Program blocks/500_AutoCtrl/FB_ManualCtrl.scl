@@ -127,9 +127,9 @@ BEGIN
 	                       OR "GDB_ManualCmd".bo_J4_Reset
 	                       OR "GDB_ManualCmd".bo_KinReset;
 	
-	     "GDB_Control".enableAxes := #tempEnableAxes;
-	     "GDB_Control".homeAxes   := #tempHomeAxes;
-	     "GDB_Control".resetAxes  := #tempResetAxes;
+	     "GDB_AxisCtrl".LKinCtrl.input.bo_enable := #tempEnableAxes;
+	     "GDB_AxisCtrl".LKinCtrl.input.bo_home   := #tempHomeAxes;
+	     "GDB_AxisCtrl".LKinCtrl.input.bo_reset  := #tempResetAxes;
 	 END_IF;
 	
 	 // =====================================================================
@@ -279,10 +279,10 @@ BEGIN
 	
 	 // Kin-group status: mirror GDB_Control fields (already written by FB_AxisCtrl
 	 // in same scan when called BEFORE this FB in Main.scl)
-	 "GDB_ManualStatus".bo_KinEnabled := "GDB_Control".axesEnabled;
-	 "GDB_ManualStatus".bo_KinHomed   := "GDB_Control".axesHomed;
-	 "GDB_ManualStatus".bo_KinError   := "GDB_Control".axesError;
-	 "GDB_ManualStatus".bo_KinReady   := "GDB_Control".axesReady;
+	 "GDB_ManualStatus".bo_KinEnabled := "GDB_AxisCtrl".LKinCtrl.output.bo_enabled;
+	 "GDB_ManualStatus".bo_KinHomed   := "GDB_AxisCtrl".LKinCtrl.output.bo_homed;
+	 "GDB_ManualStatus".bo_KinError   := "GDB_AxisCtrl".LKinCtrl.output.bo_fault;
+	 "GDB_ManualStatus".bo_KinReady   := "GDB_AxisCtrl".LKinCtrl.output.bo_ready;
 	 "GDB_ManualStatus".bo_KinManualBusy := #instMoveLinAbs.Busy;
 	
 	

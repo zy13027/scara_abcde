@@ -29,8 +29,8 @@ BEGIN
 	     // Set all 6 elements of both arrays to 1 (position-controlled enable /
 	     // standard immediate-stop) on every PLC startup.
 	     FOR #i := 1 TO 6 DO
-	         "GDB_Control".StartMode[#i] := 1;   // 1 = enable position-controlled
-	         "GDB_Control".StopMode[#i]  := 1;   // 1 = immediate stop
+	         "GDB_AxisCtrl".LKinCtrl.input.configuration.power.startMode[#i] := 1;   // 1 = enable position-controlled
+	         "GDB_AxisCtrl".LKinCtrl.input.configuration.power.stopMode[#i]  := 1;   // 1 = immediate stop
 	     END_FOR;
 	 END_REGION
 	
@@ -43,14 +43,14 @@ BEGIN
 	     // HomePos values per kinematic-axis index (A1=J1 base, A2=J3 z,
 	     // A3=J2 elbow, A4=J4 wrist) match the SCARA3D zero pose. Indexes
 	     // 5/6 (B/C orientation) unused in this 4-DOF kinematic.
-	     "GDB_Control".HomePos[1] := 0.0;   // A1 = J1 base shoulder
-	     "GDB_Control".HomePos[2] := 0.0;   // A2 = J3 prismatic z
-	     "GDB_Control".HomePos[3] := 0.0;   // A3 = J2 elbow
-	     "GDB_Control".HomePos[4] := 0.0;   // A4 = J4 wrist
-	     "GDB_Control".HomePos[5] := 0.0;   // unused
-	     "GDB_Control".HomePos[6] := 0.0;   // unused
+	     "GDB_AxisCtrl".LKinCtrl.input.configuration.home.r64_homeposition[1] := 0.0;   // A1 = J1 base shoulder
+	     "GDB_AxisCtrl".LKinCtrl.input.configuration.home.r64_homeposition[2] := 0.0;   // A2 = J3 prismatic z
+	     "GDB_AxisCtrl".LKinCtrl.input.configuration.home.r64_homeposition[3] := 0.0;   // A3 = J2 elbow
+	     "GDB_AxisCtrl".LKinCtrl.input.configuration.home.r64_homeposition[4] := 0.0;   // A4 = J4 wrist
+	     "GDB_AxisCtrl".LKinCtrl.input.configuration.home.r64_homeposition[5] := 0.0;   // unused
+	     "GDB_AxisCtrl".LKinCtrl.input.configuration.home.r64_homeposition[6] := 0.0;   // unused
 	     FOR #i := 1 TO 6 DO
-	         "GDB_Control".HomeMode[#i] := 7;   // 7 = set actual position (no motion)
+	         "GDB_AxisCtrl".LKinCtrl.input.configuration.home.i16_mode[#i] := 7;   // 7 = set actual position (no motion)
 	     END_FOR;
 	 END_REGION
 	
@@ -58,16 +58,16 @@ BEGIN
 	     // LKinCtrl_MC_GroupReset reads GDB_Control.RestartMode[1..7] of Bool.
 	     // All FALSE = standard reset (clear axis error, do not re-initialize TO).
 	     FOR #i := 1 TO 7 DO
-	         "GDB_Control".RestartMode[#i] := FALSE;
+	         "GDB_AxisCtrl".LKinCtrl.input.configuration.reset.restart[#i] := FALSE;
 	     END_FOR;
 	 END_REGION
 	
 	 REGION Clear_group_motion_command_bits
 	     // Defensive: clear group enable/home/reset bits so warm-start can't
 	     // replay an in-flight command. Operator must re-click Enable on HMI.
-	     "GDB_Control".enableAxes := FALSE;
-	     "GDB_Control".resetAxes  := FALSE;
-	     "GDB_Control".homeAxes   := FALSE;
+	     "GDB_AxisCtrl".LKinCtrl.input.bo_enable := FALSE;
+	     "GDB_AxisCtrl".LKinCtrl.input.bo_reset  := FALSE;
+	     "GDB_AxisCtrl".LKinCtrl.input.bo_home   := FALSE;
 	 END_REGION
 	
 	 REGION Clear_AutoCtrl_command_bits
