@@ -1,0 +1,124 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="pathDataName" Datatype="String[&quot;LKINCTRL_LENGTH_OF_PATHDATA_NAME&quot;]">
+      <Comment>
+        <MultiLanguageText Lang="en-US">name of PathData</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="pathDataIdentifier" Datatype="USInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">identifier of PathData</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="isIntermediateCmd" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">TRUE: command is intermediate command</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="cmdID" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">to be set to PathDataOperate[list position] by PreBuffer for identification in ExecuteBuffer</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="cmdType" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">1: MoveLinAbs; 2: MoveLinRel; 3: MoveCircAbs; 4: MoveCircRel; 5: MoveDirectAbs; 6: MoveDirectRel; 10: TrackConveyorBelt; 100: WaitTime; 40/41/42: ContourOffset; 0: FlagOnlyCmd; -1: End of List; 20-23: Frame cmds; 30-35: Zone cmds</MultiLanguageText>
+      </Comment>
+      <StartValue>-1</StartValue>
+    </Member>
+    <Member Name="cmdName" Datatype="String[&quot;LKINCTRL_LENGTH_OF_CMDPOINT_NAME&quot;]">
+      <Comment>
+        <MultiLanguageText Lang="en-US">command name</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="measurementCmd" Datatype="USInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">0: deactivated; 1: without acknowledge; 2: with acknowledge</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="cmdCoordinates" Datatype="&quot;LKinCtrl_typePointCoordinates_PreBuf&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">command coordinates</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="cmdParameters" Datatype="&quot;LKinCtrl_typePointParameter&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">command parameters</MultiLanguageText>
+      </Comment>
+      <Sections>
+        <Section Name="None">
+          <Member Name="transitionParameters" Datatype="Array[1..5] of LReal">
+            <Subelement Path="1">
+              <StartValue>-1.0</StartValue>
+            </Subelement>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="setFlags" Datatype="Array[1..&quot;LKINCTRL_NO_OF_CMD_SETFLAGS&quot;] of &quot;LKinCtrl_typeSetFlagElement_Bool&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">flags to control actuators</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="valueFlags" Datatype="Array[1..&quot;LKINCTRL_NO_OF_CMD_VALUEFLAGS&quot;] of &quot;LKinCtrl_typeSetFlagElement_LReal&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">value flags to control actuators</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="parameterValid" Datatype="Array[1..&quot;LKINCTRL_NO_OF_VALID_BITS&quot;] of Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">valid bit for cartesian position parameters</MultiLanguageText>
+      </Comment>
+      <Subelement Path="1">
+        <StartValue>TRUE</StartValue>
+      </Subelement>
+      <Subelement Path="2">
+        <StartValue>TRUE</StartValue>
+      </Subelement>
+      <Subelement Path="3">
+        <StartValue>TRUE</StartValue>
+      </Subelement>
+      <Subelement Path="4">
+        <StartValue>TRUE</StartValue>
+      </Subelement>
+      <Subelement Path="5">
+        <StartValue>TRUE</StartValue>
+      </Subelement>
+      <Subelement Path="6">
+        <StartValue>TRUE</StartValue>
+      </Subelement>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>LKinCtrl_typePathDataElement_PreBuf</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

@@ -1,0 +1,68 @@
+﻿FUNCTION "LKinCtrl_CalcToolLengthCompensation" : Word
+TITLE = LKinCtrl_CalcToolLengthCompensation
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculate tool length compensation according to path plane and absolute / relative
+   VAR_INPUT 
+      toolLength : LReal;   // Tool length
+      pathPlane : Int;   // Path plane: XZ= 0, YZ=1, XY= 2
+   END_VAR
+
+   VAR_IN_OUT 
+      point : "LKinCtrl_typeCOff3DPoint";   // PositioningAxis to get data from
+   END_VAR
+
+   VAR CONSTANT 
+      ERR_COFF_INVALID_PATH_PLANE : Word := 16#8303;   // Error - invalid path plane
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library: - 
+	// Tested with: S7-1516T-3 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.5
+	// Functionality: Calculate tool length compensation according to path plane and absolute / relative
+	// Result ist the compensated coordinate
+	// and end point
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 2019-02-11 AW               created
+	//=============================================================================
+	
+	REGION PLAUSIBILITY_CHECK
+	// Check path plane
+	IF ((#pathPlane >= "CP_XZ") AND (#pathPlane <= "CP_XY"))
+	THEN
+	  ;
+	ELSE
+	  #LKinCtrl_CalcToolLengthCompensation := #ERR_COFF_INVALID_PATH_PLANE; // Invalid path plane
+	  RETURN;
+	END_IF;
+	END_REGION PLAUSIBILITY_CHECK
+	
+	REGION CALCULATION
+	  
+	  CASE #pathPlane OF
+	    "CP_XY":
+	      #point.z += #toolLength;
+	    "CP_XZ":
+	      #point.y += #toolLength;
+	    "CP_YZ":
+	      #point.x += #toolLength;
+	  END_CASE;
+	  
+	
+	END_REGION CALCULATION
+	
+	#LKinCtrl_CalcToolLengthCompensation := 0; // o.k.
+END_FUNCTION
+

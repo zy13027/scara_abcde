@@ -1,0 +1,250 @@
+﻿FUNCTION "LKinCtrl_ConvCircMode3To1" : Word
+TITLE = LKinCtrl_ConvCircMode3To1
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//The FC converts a circular motion command programmed with circMode 3 (GCode) to a circular command programmed with circMode 1 (center point and arc given)
+   VAR_INPUT 
+      coordinates : Array[1..6] of LReal;   // endPoint from path data element
+      startPosition : Array[1..6] of LReal;
+   END_VAR
+
+   VAR_IN_OUT 
+      cmdType : Int;   // cmdType of path data element
+      circleParameters : "LKinCtrl_typeCircleParameters";   // circle parameters of path data element
+   END_VAR
+
+   VAR_TEMP 
+      tempAuxPoint : Array[1..3] of LReal;   // resulting auxPoint
+      tempEndPointResult : Array[1..6] of LReal;   // resulting endPoint
+      tempOM : Array[1..2] of LReal;   // temporary math variable
+      tempMS : Array[1..2] of LReal;   // temporary math variable
+      tempME : Array[1..2] of LReal;   // temporary math variable
+      tempAxisVector : Array[1..2] of LReal;   // temporary math variable
+      tempScalarProd_ME_Axis : LReal;   // temporary math variable
+      tempScalarProd_MS_Axis : LReal;   // temporary math variable
+      tempLength_ME : LReal;   // temporary math variable
+      tempLength_MS : LReal;   // temporary math variable
+      tempAngleME_rad : LReal;   // temporary math variable
+      tempAngleMS_rad : LReal;   // temporary math variable
+      tempAngleME_deg : LReal;   // temporary math variable
+      tempAngleMS_deg : LReal;   // temporary math variable
+      tempAngleDiff_deg : LReal;   // temporary math variable
+      tempCtr : Int;   // temporary counter
+      tempCoordinates : Array[1..6] of LReal;   // temporary array for input end point
+   END_VAR
+
+   VAR CONSTANT 
+      ARC_TOLERANCE : LReal := 1.0E-09;   // Tolerance when deciding arc
+      RADIUS_TOLERANCE : LReal := 0.1;   // Tolerance when comparing calculated radius
+      ERR_INVALID_RADIUS : Word := 16#8201;   // Error calculated radius is invalid
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2020 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN/DP
+	// Engineering: TIA Portal V15
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 2.5
+	// Functionality: LKinCtrl_ConvCircMode3To1
+	// The FC converts a circular motion command programmed with circMode 3 (GCode) to a circular
+	// command programmed with circMode 1 (center point and arc given)
+	//
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   03.07.2019    JR                  First release version v1.0
+	// 02.00.00   06.04.2020    FR                  Changed interface to fit PathDataPreBuf and normal element
+	// 02.00.01   14.01.2021    FR                  Added tolerance when calculating arc
+	// 02.00.02   19.10.2021    FR                  Changed check for ACOS to allow 0.0
+	// 03.00.00   18.01.2022    FR                  Update to 6 axis; Check radius for plausability
+	//===========================================================================================
+	
+	// Init retrun value
+	#LKinCtrl_ConvCircMode3To1 := 16#0;
+	
+	// add conversion of circMode CM: 3 circular cmds -> CM: 1
+	IF (#cmdType = "LKINCTRL_MC_MOVECIRCULARABS" OR #cmdType = "LKINCTRL_MC_MOVECIRCULARREL")
+	  AND #circleParameters.circMode = "LKINCTRL_CIRCMODE_GCODE"
+	THEN
+	  // Copy input
+	  #tempCoordinates := #coordinates;
+	  
+	  // conversion relative to absoulte for auxPoint (and EndPoint)
+	  FOR #tempCtr := 1 TO 3 DO
+	    // always convert auxPoint ==> always relative in this circle definition
+	    #tempAuxPoint[#tempCtr] := #startPosition[#tempCtr] + #circleParameters.auxPoint[#tempCtr];// add new auxPoint as incremental value to last position
+	    #circleParameters.auxPoint[#tempCtr] := #tempAuxPoint[#tempCtr]; // copy edited auxPoint to command for later use
+	  END_FOR;
+	  
+	  // only convert endPoint in case of relative command
+	  IF #cmdType = "LKINCTRL_MC_MOVECIRCULARREL" THEN
+	    #tempEndPointResult[1] := #startPosition[1] + #tempCoordinates[1];
+	    #tempEndPointResult[2] := #startPosition[2] + #tempCoordinates[2];
+	    #tempEndPointResult[3] := #startPosition[3] + #tempCoordinates[3];
+	    #tempEndPointResult[4] := #startPosition[4] + #tempCoordinates[4];
+	    #tempEndPointResult[5] := #startPosition[5] + #tempCoordinates[5];
+	    #tempEndPointResult[6] := #startPosition[6] + #tempCoordinates[6];
+	    #cmdType := "LKINCTRL_MC_MOVECIRCULARABS";
+	  ELSE
+	    #tempEndPointResult := #tempCoordinates;
+	  END_IF;
+	  
+	  // change circMode = 3 (define center and endPoint) to circMode = 1 (define center and arc)
+	  #circleParameters.circMode := "CM_CENTER";
+	  
+	  // ----------------------------------------------------------------
+	  // different behavior for different circlePlanes - write input vectors to calc variables 2D
+	  // ----------------------------------------------------------------
+	  // 0: ciclePlane XZ
+	  IF #circleParameters.circlePlane = "CP_XZ" THEN
+	    
+	    // vector origin to circle center point 
+	    #tempOM[1] := #tempAuxPoint[1];
+	    #tempOM[2] := #tempAuxPoint[3];
+	    
+	    // unit vector x axis
+	    #tempAxisVector[1] := 1;
+	    #tempAxisVector[2] := 0;
+	    
+	    // vector circle center point to start point
+	    #tempMS[1] := #startPosition[1] - #tempOM[1];
+	    #tempMS[2] := #tempOM[2] - #startPosition[3];
+	    
+	    // vector circle center point to end point
+	    #tempME[1] := #tempEndPointResult[1] - #tempOM[1];
+	    #tempME[2] := #tempOM[2] - #tempEndPointResult[3];
+	    
+	    // 1: ciclePlane YZ
+	  ELSIF #circleParameters.circlePlane = "CP_YZ" THEN
+	    
+	    // vector origin to circle center point 
+	    #tempOM[1] := #tempAuxPoint[2];
+	    #tempOM[2] := #tempAuxPoint[3];
+	    
+	    // unit vector x axis ==> simulating y axis here due to moved commands
+	    #tempAxisVector[1] := 1;
+	    #tempAxisVector[2] := 0;
+	    
+	    // vector circle center point to start point
+	    #tempMS[1] := #startPosition[2] - #tempOM[1];
+	    #tempMS[2] := #startPosition[3] - #tempOM[2];
+	    
+	    // vector circle center point to end point
+	    #tempME[1] := #tempEndPointResult[2] - #tempOM[1];
+	    #tempME[2] := #tempEndPointResult[3] - #tempOM[2];
+	    
+	    // 2: ciclePlane XY
+	  ELSIF #circleParameters.circlePlane = "CP_XY" THEN
+	    
+	    // vector origin to circle center point 
+	    #tempOM[1] := #tempAuxPoint[1];
+	    #tempOM[2] := #tempAuxPoint[2];
+	    
+	    // unit vector x axis
+	    #tempAxisVector[1] := 1;
+	    #tempAxisVector[2] := 0;
+	    
+	    
+	    // vector circle center point to start point
+	    #tempMS[1] := #startPosition[1] - #tempOM[1];
+	    #tempMS[2] := #startPosition[2] - #tempOM[2];
+	    
+	    // vector circle center point to end point
+	    #tempME[1] := #tempEndPointResult[1] - #tempOM[1];
+	    #tempME[2] := #tempEndPointResult[2] - #tempOM[2];
+	    
+	  ELSE
+	    // error ==> wrong circlePlane
+	    ;
+	  END_IF;
+	  
+	  // ----------------------------------------------------------------
+	  // VECTOR CALCULATIONS
+	  // ----------------------------------------------------------------
+	  // calc scalar product of ME (circle center point to end point) with x axis
+	  #tempScalarProd_ME_Axis := "LKinCtrl_VecScalarProd_2D"(vIn1 := #tempME, vIn2 := #tempAxisVector);
+	  // calc scalar product of MS (circle center point to start point / LastPos) with x axis
+	  #tempScalarProd_MS_Axis := "LKinCtrl_VecScalarProd_2D"(vIn1 := #tempMS, vIn2 := #tempAxisVector);
+	  
+	  // calc vector length ME
+	  #tempLength_ME := "LKinCtrl_VecAbs_2D"(#tempME);
+	  // calc vector length MS
+	  #tempLength_MS := "LKinCtrl_VecAbs_2D"(#tempMS);
+	  
+	  // Check if both radius are equal
+	  IF ABS(#tempLength_ME - #tempLength_MS) > #RADIUS_TOLERANCE THEN
+	    #LKinCtrl_ConvCircMode3To1 := #ERR_INVALID_RADIUS;
+	    RETURN;
+	  END_IF;
+	  
+	  // calc angle ME to axis
+	  #tempAngleME_rad := ACOS(#tempScalarProd_ME_Axis / (#tempLength_ME * 1));
+	  
+	  IF #tempME[2] < 0 THEN
+	    // invert angle due to ACOS range (only 0..PI)
+	    #tempAngleME_rad := 2 * "LKINCTRL_PI" - #tempAngleME_rad;
+	  ELSE
+	    ;
+	  END_IF;
+	  // convert to degrees
+	  #tempAngleME_deg := #tempAngleME_rad * 180 / "LKINCTRL_PI";
+	  
+	  // calc angle MS to axis
+	  #tempAngleMS_rad := ACOS(#tempScalarProd_MS_Axis / (#tempLength_MS * 1));
+	  // check for vector Ms to point downwards (below ! (x) axis)
+	  IF #tempMS[2] < 0 THEN
+	    // invert angle due to ACOS range
+	    #tempAngleMS_rad := 2 * "LKINCTRL_PI" - #tempAngleMS_rad;
+	  ELSE
+	    ;
+	  END_IF;
+	  // convert to degrees
+	  #tempAngleMS_deg := #tempAngleMS_rad * 180 / "LKINCTRL_PI";
+	  
+	  
+	  // ----------------------------------------------------------------
+	  // separation of path choice for angle calculation
+	  // ----------------------------------------------------------------
+	  // 0: CCW - counterclockwise / mathematical positive angle
+	  IF #circleParameters.pathChoice = "PC_POSITIVE" THEN
+	    // calculate difference angle
+	    #tempAngleDiff_deg := #tempAngleME_deg - #tempAngleMS_deg;
+	    IF #tempAngleDiff_deg > #ARC_TOLERANCE THEN
+	      // write caclulated angle
+	      #circleParameters.arc := #tempAngleDiff_deg;
+	    ELSE
+	      // write caclulated angle ==> add 360 degrees to get positive angle value
+	      #circleParameters.arc := #tempAngleDiff_deg + 360;
+	    END_IF;
+	    
+	    // 1: CW - clockwise / mathematical negative angle
+	  ELSIF #circleParameters.pathChoice = "PC_NEGATIVE" THEN
+	    // calculate difference angle
+	    #tempAngleDiff_deg := #tempAngleMS_deg - #tempAngleME_deg;
+	    IF #tempAngleDiff_deg > #ARC_TOLERANCE THEN
+	      // write caclulated angle
+	      #circleParameters.arc := #tempAngleDiff_deg;
+	    ELSE
+	      // write caclulated angle ==> add 360 degrees to get positive angle value
+	      #circleParameters.arc := #tempAngleDiff_deg + 360;
+	    END_IF;
+	    
+	  ELSE
+	    // wrong input for pathChoice
+	    ;
+	  END_IF;
+	  
+	ELSE
+	  ;// nothing to do
+	END_IF;
+END_FUNCTION
+

@@ -1,0 +1,133 @@
+﻿FUNCTION "LKinCtrl_CalcTransProfileDist" : "LKinCtrl_typeRetProfileDist"
+TITLE = LKinCtrl_CalcTransProfileDist
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculate distance needed to change dynamics
+   VAR_INPUT 
+      actVelocity : LReal;   // Start velocity
+      setVelocity : LReal;   // End velocity
+      actAcceleration : LReal;   // Start acceleration
+      setAcceleration : LReal;   // Acceleration limit
+      setDeceleration : LReal;   // Deceleration limit
+      setJerk : LReal;   // Jerk limit
+      mode : DInt;   // Mode
+   END_VAR
+
+   VAR_TEMP 
+      tempDistPartA : "LKinCtrl_typeRetProfileDist";
+      tempDistPartB : "LKinCtrl_typeRetProfileDist";
+   END_VAR
+
+   VAR CONSTANT 
+      LCM_MODE_STATE_RELATED : DInt := 91;
+      LCM_MODE_DIRECTION_RELATED : DInt := 173;
+      LCM_ERR_WRONG_JERK_ARGUMENT : DInt := 104;
+      LCM_ERR_WRONG_ACCEL_LIMIT_ARGUMENT : DInt := 101;
+      LCM_ERR_WRONG_MODE_ARGUMENT : DInt := 118;
+   END_VAR
+
+
+BEGIN
+	//================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2016 All Rights Reserved
+	//--------------------------------------------------------------------------------
+	// Library:  
+	// Tested with: 
+	// Engineering: TIA Portal V16
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.8
+	// Functionality:
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//--------------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date        Expert in charge  Changes applied
+	//
+	//================================================================================
+	
+	REGION CHECK_INPUTS
+	    // Check input values
+	    IF (#setJerk < 0.0 OR #setJerk > 1.0e12) THEN
+	        #LKinCtrl_CalcTransProfileDist.dist := 0.0;
+	        #LKinCtrl_CalcTransProfileDist.functionResult := #LCM_ERR_WRONG_JERK_ARGUMENT;
+	        RETURN;
+	    ELSIF (#setAcceleration <= 0.0) THEN
+	        #LKinCtrl_CalcTransProfileDist.dist := 0.0;
+	        #LKinCtrl_CalcTransProfileDist.functionResult := #LCM_ERR_WRONG_ACCEL_LIMIT_ARGUMENT;
+	        RETURN;
+	    ELSIF (#setDeceleration <= 0.0) THEN
+	        #LKinCtrl_CalcTransProfileDist.dist := 0.0;
+	        #LKinCtrl_CalcTransProfileDist.functionResult := #LCM_ERR_WRONG_ACCEL_LIMIT_ARGUMENT;
+	        RETURN;
+	    ELSIF (#mode <> #LCM_MODE_STATE_RELATED AND #mode <> #LCM_MODE_DIRECTION_RELATED) THEN
+	        #LKinCtrl_CalcTransProfileDist.dist := 0.0;
+	        #LKinCtrl_CalcTransProfileDist.functionResult := #LCM_ERR_WRONG_MODE_ARGUMENT;
+	        RETURN;
+	    END_IF;
+	END_REGION
+	
+	REGION CALCULATION
+	    // Test if motion is reversing
+	    IF ((#actVelocity > 0.0 AND #setVelocity >= 0.0) OR
+	        (#actVelocity < 0.0 AND #setVelocity <= 0.0) OR
+	        (#actVelocity = 0.0 AND #setVelocity = 0.0) OR
+	        (#actVelocity = 0.0 AND #setVelocity > 0.0 AND #actAcceleration >= 0.0) OR
+	        (#actVelocity = 0.0 AND #setVelocity < 0.0 AND #actAcceleration <= 0.0))
+	    THEN
+	        REGION NO_REVERSING
+	            // no reversing - calc distance
+	            #tempDistPartA :=
+	            "LKinCtrl_SubCalcTransProfileDist"(
+	                                               actVelocity := #actVelocity,
+	                                               setVelocity := #setVelocity,
+	                                               actAcceleration := #actAcceleration,
+	                                               setAcceleration := #setAcceleration,
+	                                               setDeceleration := #setDeceleration,
+	                                               setJerk := #setJerk,
+	                                               mode := #mode
+	            );
+	            #LKinCtrl_CalcTransProfileDist.dist := #tempDistPartA.dist;
+	        END_REGION
+	    ELSE
+	        REGION REVERSING
+	            // reversing - two motion parts needed
+	            #tempDistPartA :=
+	            "LKinCtrl_SubCalcTransProfileDist"(
+	                                               actVelocity := #actVelocity,
+	                                               setVelocity := 0.0, // first part - stop from act velocity
+	                                               actAcceleration := #actAcceleration,
+	                                               setAcceleration := #setAcceleration,
+	                                               setDeceleration := #setDeceleration,
+	                                               setJerk := #setJerk,
+	                                               mode := #mode
+	            );
+	            #tempDistPartB :=
+	            "LKinCtrl_SubCalcTransProfileDist"(
+	                                               actVelocity := 0.0, // second part - from stop to set velocity
+	                                               setVelocity := #setVelocity,
+	                                               actAcceleration := 0.0,
+	                                               setAcceleration := #setAcceleration,
+	                                               setDeceleration := #setDeceleration,
+	                                               setJerk := #setJerk,
+	                                               mode := #mode
+	            );
+	            #LKinCtrl_CalcTransProfileDist.dist := #tempDistPartA.dist + #tempDistPartB.dist;
+	        END_REGION
+	    END_IF;
+	    
+	    REGION ERROR_EVAL
+	        // detect error on calculation
+	        IF (#tempDistPartA.functionResult <> 0 OR #tempDistPartB.functionResult <> 0) THEN
+	            #LKinCtrl_CalcTransProfileDist.functionResult := #tempDistPartA.functionResult + #tempDistPartB.functionResult;
+	            #LKinCtrl_CalcTransProfileDist.dist := 0.0;
+	        END_IF;
+	    END_REGION
+	END_REGION
+	
+	
+	
+END_FUNCTION
+

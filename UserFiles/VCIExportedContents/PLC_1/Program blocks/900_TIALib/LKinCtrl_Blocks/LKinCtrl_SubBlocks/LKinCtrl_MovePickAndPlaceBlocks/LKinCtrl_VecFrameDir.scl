@@ -1,0 +1,70 @@
+﻿FUNCTION "LKinCtrl_VecFrameDir" : Word
+TITLE = LKinCtrl_VecFrameDir
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculates a unit vector which represents the X-direction of a frame
+   VAR_INPUT 
+      frame : "LKinCtrl_typeFrame";   // Input frame
+   END_VAR
+
+   VAR_OUTPUT 
+      directionVector : "LKinCtrl_typeCOff3DPoint";   // Direction vector
+   END_VAR
+
+   VAR_TEMP 
+      tempRotMatrix : Array[1..3, 1..3] of LReal;
+      tempRetError : Bool;
+      tempRetStatus : Word;
+      tempUnitVecIn : Array[1..3, 1..1] of LReal;
+      tempUnitVecOut : Array[1..3, 1..1] of LReal;
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2023
+	//-----------------------------------------------------------------------------
+	// Library:       LKinCtrl
+	// Tested with:   S7-1518TF-4 PN/DP, FW V3.1
+	// Engineering:   TIA Portal V19
+	// Restrictions:  ---
+	// Requirements:  S7-1500T, FW V3.0
+	// Functionality: Calculates a unit vector which represents the X-direction of a frame
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 21.09.2023 SF               First released version
+	//=============================================================================
+	
+	#tempRetStatus := 16#0;
+	
+	//create rotation matrix
+	"LKinCtrl_RotXYZ"(angleA := #frame.a,
+	                  angleB := #frame.b,
+	                  angleC := #frame.c,
+	                  resultMatrix := #tempRotMatrix);
+	
+	//create unit vector (in x direction)
+	#tempUnitVecIn[1, 1] := 1.0;
+	#tempUnitVecIn[2, 1] := 0.0;
+	#tempUnitVecIn[3, 1] := 0.0;
+	
+	//Rotate unit vector around rotation matrix
+	"LKinCtrl_MatrixMultiplication"(error => #tempRetError,
+	                                status => #tempRetStatus,
+	                                matrix1 := #tempRotMatrix,
+	                                matrix2 := #tempUnitVecIn,
+	                                matrixResult := #tempUnitVecOut);
+	
+	//set outputs
+	#directionVector.x := #tempUnitVecOut[1, 1];
+	#directionVector.y := #tempUnitVecOut[2, 1];
+	#directionVector.z := #tempUnitVecOut[3, 1];
+	#LKinCtrl_VecFrameDir := #tempRetStatus;
+END_FUNCTION
+

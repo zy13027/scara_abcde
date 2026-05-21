@@ -1,0 +1,166 @@
+﻿FUNCTION "LKinCtrl_CalcCircTangOrthPathPlane" : Word
+TITLE = LKinCtrl_CalcCircTangOrthPathPlane
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculate orthogonal and tangential vector of a circle point with respect ot the path plane
+   VAR_INPUT 
+      circlePoint : "LKinCtrl_typeCOff3DPoint";   // Circle point
+      circleCenterPoint : "LKinCtrl_typeCOff3DPoint";   // Circle center point
+      pathPlane : Int;   // Path plane: XZ= 0, YZ=1, XY= 2
+      compDirection : Int;   // Tool radius compensation direction: left=1, right = 0
+      pathChoice : DInt;   // Circle path choice: positive= 0, negative= 1
+   END_VAR
+
+   VAR_OUTPUT 
+      vUnitTangentialPathPlane : "LKinCtrl_typeCOff3DPoint";   // Output tangential vector - path plane - unit vector
+      vUnitOrthogonalPathPlane : "LKinCtrl_typeCOff3DPoint";   // Output othogonal vector - path plane - unit vector
+   END_VAR
+
+   VAR_TEMP 
+      tempDiffVec : "LKinCtrl_typeCOff3DPoint";   // Difference vector
+      tempVOrthogonal : "LKinCtrl_typeCOff3DPoint";   // Othogonal vector
+      tempVTangential : "LKinCtrl_typeCOff3DPoint";   // Tangential vector
+   END_VAR
+
+   VAR CONSTANT 
+      ERR_COFF_INVALID_PATH_PLANE : Word := 16#8303;   // Error - invalid path plane
+      ERR_COFF_INVALID_PATH_CHOICE_OF_CIRCULAR_CMD : Word := 16#8308;   // Error - invalid circle path choice
+      ERR_COFF_INVALID_COMPENSATION_DIRECTION : Word := 16#8304;   // Error - invalid compensation direction
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library: - 
+	// Tested with: S7-1516T-3 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.5
+	// Functionality: Calculate orthogonal and tangential vector of a circle point
+	// with respect ot the path plane
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 2019-02-05 AW               created
+	//=============================================================================
+	
+	REGION PLAUSIBILITY_CHECK
+	  // Check path plane
+	  IF ((#pathPlane >= "CP_XZ") AND (#pathPlane <= "CP_XY"))
+	  THEN
+	    // Check compensation direction
+	    IF ((#compDirection >= "LKINCTRL_COMP_LEFT") AND (#compDirection <= "LKINCTRL_COMP_RIGHT"))
+	    THEN
+	      // Check compensation direction
+	      IF ((#pathChoice >= 0) AND (#pathChoice <= 1))
+	      THEN
+	        ;
+	      ELSE
+	        #LKinCtrl_CalcCircTangOrthPathPlane := #ERR_COFF_INVALID_PATH_CHOICE_OF_CIRCULAR_CMD; // Invalid compensation direction
+	        RETURN;
+	      END_IF;
+	    ELSE
+	      #LKinCtrl_CalcCircTangOrthPathPlane := #ERR_COFF_INVALID_COMPENSATION_DIRECTION; // Invalid compensation direction
+	      RETURN;
+	    END_IF;
+	  ELSE
+	    #LKinCtrl_CalcCircTangOrthPathPlane := #ERR_COFF_INVALID_PATH_PLANE; // Invalid path plane
+	    RETURN;
+	  END_IF;
+	END_REGION PLAUSIBILITY_CHECK
+	
+	REGION CALCULATION
+	 
+	  
+	  
+	  (*
+	  IF (#compDirection = "LKINCTRL_COMP_LEFT") THEN
+	    #tempVOrthogonal := "LKinCtrl_VecSub"(vIn1 := #circlePoint, vIn2 := #circleCenterPoint);
+	  ELSE
+	    #tempVOrthogonal := "LKinCtrl_VecSub"(vIn1 := #circleCenterPoint, vIn2 := #circlePoint);
+	  END_IF;
+	  *)
+	  
+	  // Take care of path plane
+	  CASE #pathPlane OF
+	    "CP_XY":
+	      // Calc radius vector circle center to start point
+	      IF (#compDirection = "LKINCTRL_COMP_LEFT") THEN
+	        IF (#pathChoice = 0) THEN
+	          #tempVOrthogonal := "LKinCtrl_VecSub"(vIn1 := #circleCenterPoint, vIn2 := #circlePoint);
+	        ELSE
+	          #tempVOrthogonal := "LKinCtrl_VecSub"(vIn1 := #circlePoint, vIn2 := #circleCenterPoint);
+	        END_IF;
+	      ELSE
+	        IF (#pathChoice = 0) THEN
+	          #tempVOrthogonal := "LKinCtrl_VecSub"(vIn1 := #circlePoint, vIn2 := #circleCenterPoint);
+	        ELSE
+	          #tempVOrthogonal := "LKinCtrl_VecSub"(vIn1 := #circleCenterPoint, vIn2 := #circlePoint);
+	        END_IF;
+	      END_IF;
+	      #tempVOrthogonal.z := 0.0;
+	      
+	    "CP_XZ":
+	      // Calc radius vector circle center to start point
+	      IF (#compDirection = "LKINCTRL_COMP_LEFT") THEN
+	        IF (#pathChoice = 0) THEN
+	          #tempVOrthogonal := "LKinCtrl_VecSub"(vIn1 := #circlePoint, vIn2 := #circleCenterPoint);
+	        ELSE
+	          #tempVOrthogonal := "LKinCtrl_VecSub"(vIn1 := #circleCenterPoint, vIn2 := #circlePoint);
+	        END_IF;
+	      ELSE
+	        IF (#pathChoice = 0) THEN
+	          #tempVOrthogonal := "LKinCtrl_VecSub"(vIn1 := #circleCenterPoint, vIn2 := #circlePoint);
+	        ELSE
+	          #tempVOrthogonal := "LKinCtrl_VecSub"(vIn1 := #circlePoint, vIn2 := #circleCenterPoint);
+	        END_IF;
+	      END_IF;
+	      #tempVOrthogonal.y := 0.0;
+	      
+	    "CP_YZ":
+	      // Calc radius vector circle center to start point
+	      IF (#compDirection = "LKINCTRL_COMP_LEFT") THEN
+	        IF (#pathChoice = 0) THEN
+	          #tempVOrthogonal := "LKinCtrl_VecSub"(vIn1 := #circleCenterPoint, vIn2 := #circlePoint);
+	        ELSE
+	          #tempVOrthogonal := "LKinCtrl_VecSub"(vIn1 := #circlePoint, vIn2 := #circleCenterPoint);
+	        END_IF;
+	      ELSE
+	        IF (#pathChoice = 0) THEN
+	          #tempVOrthogonal := "LKinCtrl_VecSub"(vIn1 := #circlePoint, vIn2 := #circleCenterPoint);
+	        ELSE
+	          #tempVOrthogonal := "LKinCtrl_VecSub"(vIn1 := #circleCenterPoint, vIn2 := #circlePoint);
+	        END_IF;
+	      END_IF;
+	      #tempVOrthogonal.x := 0.0;
+	  END_CASE;
+	  
+	  #tempVOrthogonal := "LKinCtrl_VecUnit"(#tempVOrthogonal);
+	  
+	  // Check path plane
+	  IF (#pathPlane = "CP_XY") THEN
+	    #tempVTangential.x := - #tempVOrthogonal.y;
+	    #tempVTangential.y := #tempVOrthogonal.x;
+	    #tempVTangential.z := 0.0;
+	  ELSIF (#pathPlane = "CP_XZ") THEN
+	    #tempVTangential.x := #tempVOrthogonal.z;
+	    #tempVTangential.y := 0.0;
+	    #tempVTangential.z := - #tempVOrthogonal.x;
+	  ELSIF (#pathPlane = "CP_YZ") THEN
+	    #tempVTangential.x := 0.0;
+	    #tempVTangential.y := - #tempVOrthogonal.z;
+	    #tempVTangential.z := #tempVOrthogonal.y;
+	  END_IF;
+	END_REGION CALCULATION
+	
+	#vUnitTangentialPathPlane := #tempVTangential;
+	#vUnitOrthogonalPathPlane := #tempVOrthogonal;
+	
+	#LKinCtrl_CalcCircTangOrthPathPlane := 0; // o.k.
+END_FUNCTION
+

@@ -1,4 +1,4 @@
-FUNCTION_BLOCK "FB_ConveyorCtrl"
+﻿FUNCTION_BLOCK "FB_ConveyorCtrl"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 1.3
 // =====================================================================
@@ -36,140 +36,139 @@ VERSION : 1.3
 // independent counts (conveyor spawns 16, palletizer places 16) stay in
 // lockstep through the physical one-box-at-a-time flow.
 // =====================================================================
-
-   VAR
-      // Edge-detect instances
-      sRTRIGStart       { InstructionName := 'R_TRIG'; LibVersion := '1.0' } : R_TRIG;
-      sRTRIGStop        { InstructionName := 'R_TRIG'; LibVersion := '1.0' } : R_TRIG;
-      sRTRIGPacking     { InstructionName := 'R_TRIG'; LibVersion := '1.0' } : R_TRIG;
-      sRTRIGPalletizing { InstructionName := 'R_TRIG'; LibVersion := '1.0' } : R_TRIG;
-      sFTRIGPalletizing { InstructionName := 'F_TRIG'; LibVersion := '1.0' } : F_TRIG;
-      sRTRIGSpawnFire   { InstructionName := 'R_TRIG'; LibVersion := '1.0' } : R_TRIG;
-
-      // Spawn-pulse timer
-      instSpawnTimer    { InstructionName := 'TON_TIME'; LibVersion := '1.0' } : TON_TIME;
-
-      // State
-      statRunning     : Bool;   // TRUE between Start and Stop (real mode only)
-      statSpawnFire   : Bool;   // one-shot spawn request (rising edge -> one pulse)
+// Edge-detect instances
+   VAR 
+      sRTRIGStart {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+      sRTRIGStop {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+      sRTRIGPacking {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+      sRTRIGPalletizing {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+      sFTRIGPalletizing {InstructionName := 'F_TRIG'; LibVersion := '1.0'} : F_TRIG;
+      sRTRIGSpawnFire {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;   // Spawn-pulse timer
+      instSpawnTimer {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;   // State
+      statRunning : Bool;   // TRUE between Start and Stop (real mode only)
+      statSpawnFire : Bool;   // one-shot spawn request (rising edge -> one pulse)
       statSpawnActive : Bool;   // TRUE while the spawn pulse is in flight
-      statBeltRun     : Bool;   // belt latch: SET by PackingSensor, RESET by PalletizingSensor
-      statSpawnCount  : Int;    // boxes requested so far this run (capped at i16_TotalBoxes)
+      statBeltRun : Bool;   // belt latch: SET by PackingSensor, RESET by PalletizingSensor
+      statSpawnCount : Int;   // boxes requested so far this run (capped at i16_TotalBoxes)
    END_VAR
 
+
 BEGIN
-
-	// =====================================================================
-	// REGION 1 -- EDGE DETECTORS
-	// =====================================================================
-	#sRTRIGStart(CLK := "GDB_PalletizingCmd".bo_Start);
-	#sRTRIGStop(CLK := "GDB_PalletizingCmd".bo_Stop);
-	#sRTRIGPacking(CLK := "GDB_MCDData".PackingSensor);
-	#sRTRIGPalletizing(CLK := "GDB_MCDData".PalletizingSensor);
-	#sFTRIGPalletizing(CLK := "GDB_MCDData".PalletizingSensor);
-
-	// =====================================================================
-	// REGION 2 -- START
-	// Lockstep with FB_AutoCtrl_Palletizing REGION 2: the conveyor starts
-	// under exactly the conditions the palletizer starts, plus
-	// bo_RequireSensorGate (conveyor is real-mode only) and NOT statRunning
-	// (idle guard -- the conveyor analog of the palletizer i16_PalletStep=0).
-	// =====================================================================
-	IF #sRTRIGStart.Q
-	    AND "GDB_PalletizingCmd".bo_Mode
-	    AND "GDB_PalletizingCmd".bo_RequireSensorGate
-	    AND "GDB_PalletizingCmd".bo_ESTOP_LOCK
-	    AND "GDB_PalletizingCmd".bo_PalletInitialed
-	    AND NOT "GDB_PalletizingCmd".bo_Alarm
-	    AND NOT "GDB_MachineCmd".bo_Mode
-	    AND NOT "GDB_ManualCmd".bo_Mode
-	    AND NOT #statRunning
-	THEN
-	    #statRunning    := TRUE;
-	    #statSpawnCount := 0;
-	    #statBeltRun    := FALSE;
-	    #statSpawnFire  := TRUE;     // request box 1
-	END_IF;
-
-	// =====================================================================
-	// REGION 3 -- STOP  (bo_Stop edge, alarm latched, or left real mode)
-	// =====================================================================
-	IF #sRTRIGStop.Q
-	    OR "GDB_PalletizingCmd".bo_Alarm
-	    OR NOT "GDB_PalletizingCmd".bo_RequireSensorGate
-	THEN
-	    #statRunning     := FALSE;
-	    #statBeltRun     := FALSE;
-	    #statSpawnFire   := FALSE;
-	    #statSpawnActive := FALSE;
-	END_IF;
-
-	// =====================================================================
-	// REGION 4 -- SPAWN PACING
-	// One box at a time: request the next only once the previous has been
-	// picked away (PalletizingSensor falling edge). statSpawnCount caps the
-	// run at i16_TotalBoxes total spawns -- a stray sensor drop can mistime
-	// a spawn but can never spawn more than i16_TotalBoxes boxes.
-	// =====================================================================
-	IF #sFTRIGPalletizing.Q
-	    AND #statRunning
-	    AND (#statSpawnCount < "GDB_PalletizingCmd".i16_TotalBoxes)
-	THEN
-	    #statSpawnFire := TRUE;
-	END_IF;
-
-	// =====================================================================
-	// REGION 5 -- SPAWN-PULSE GENERATOR  (SOLE writer of SpawnContainerCmd)
-	// sRTRIGSpawnFire arms a pulse on the RISING EDGE of statSpawnFire, so a
-	// stuck-TRUE request still yields at most one pulse, never a train.
-	// Pulse width 2 s -- long enough for the NX MCD co-sim to reliably
-	// catch the rising edge. objsrcContainer "Once per Activation" spawns
-	// exactly one box per rising edge regardless of how long active is
-	// held (trace-confirmed). statSpawnCount += 1 per armed pulse.
-	// The belt is ALSO started here -- the box spawns upstream of
-	// PackingSensor, so the belt must run from the spawn to carry the box
-	// onto the sensor; waiting for PackingSensor to start it deadlocks.
-	// =====================================================================
-	#sRTRIGSpawnFire(CLK := #statSpawnFire);
-	IF #sRTRIGSpawnFire.Q THEN
-	    #statSpawnActive := TRUE;
-	    #statSpawnCount  := #statSpawnCount + 1;
-	    #statBeltRun     := TRUE;
-	END_IF;
-
-	IF #statSpawnActive THEN
-	    "GDB_MCDData".SpawnContainerCmd := TRUE;
-	    #instSpawnTimer(IN := TRUE, PT := T#2S);
-	    IF #instSpawnTimer.Q THEN
-	        "GDB_MCDData".SpawnContainerCmd := FALSE;
-	        #instSpawnTimer(IN := FALSE, PT := T#0MS);
-	        #statSpawnActive := FALSE;
-	        #statSpawnFire   := FALSE;
-	    END_IF;
-	ELSE
-	    "GDB_MCDData".SpawnContainerCmd := FALSE;
-	    #instSpawnTimer(IN := FALSE, PT := T#0MS);
-	END_IF;
-
-	// =====================================================================
-	// REGION 6 -- BELT LATCH + OUTPUT  (SOLE writer of BeltVelocity)
-	// statBeltRun is SET at spawn (REGION 5); PackingSensor rising re-SETs
-	// it as redundant confirmation. It is RESET on the LEVEL of
-	// PalletizingSensor -- the belt stops whenever a box is at the pick
-	// end, even if that box was already there before the cycle began. An
-	// edge-RESET missed an already-TRUE sensor and the belt never stopped.
-	// =====================================================================
-	IF #sRTRIGPacking.Q THEN
-	    #statBeltRun := TRUE;
-	END_IF;
-	IF "GDB_MCDData".PalletizingSensor THEN
-	    #statBeltRun := FALSE;
-	END_IF;
-
-	IF #statRunning AND #statBeltRun THEN
-	    "GDB_MCDData".BeltVelocity := "GDB_PalletizingCmd".lr_BeltVelocityNormal;
-	ELSE
-	    "GDB_MCDData".BeltVelocity := 0.0;
-	END_IF;
-
+	
+	
+	 // =====================================================================
+	 // REGION 1 -- EDGE DETECTORS
+	 // =====================================================================
+	 #sRTRIGStart(CLK := "GDB_PalletizingCmd".bo_Start);
+	 #sRTRIGStop(CLK := "GDB_PalletizingCmd".bo_Stop);
+	 #sRTRIGPacking(CLK := "GDB_MCDData".PackingSensor);
+	 #sRTRIGPalletizing(CLK := "GDB_MCDData".PalletizingSensor);
+	 #sFTRIGPalletizing(CLK := "GDB_MCDData".PalletizingSensor);
+	
+	 // =====================================================================
+	 // REGION 2 -- START
+	 // Lockstep with FB_AutoCtrl_Palletizing REGION 2: the conveyor starts
+	 // under exactly the conditions the palletizer starts, plus
+	 // bo_RequireSensorGate (conveyor is real-mode only) and NOT statRunning
+	 // (idle guard -- the conveyor analog of the palletizer i16_PalletStep=0).
+	 // =====================================================================
+	 IF #sRTRIGStart.Q
+	     AND "GDB_PalletizingCmd".bo_Mode
+	     AND "GDB_PalletizingCmd".bo_RequireSensorGate
+	     AND "GDB_PalletizingCmd".bo_ESTOP_LOCK
+	     AND "GDB_PalletizingCmd".bo_PalletInitialed
+	     AND NOT "GDB_PalletizingCmd".bo_Alarm
+	     AND NOT "GDB_MachineCmd".bo_Mode
+	     AND NOT "GDB_ManualCmd".bo_Mode
+	     AND NOT #statRunning
+	 THEN
+	     #statRunning    := TRUE;
+	     #statSpawnCount := 0;
+	     #statBeltRun    := FALSE;
+	     #statSpawnFire  := TRUE;     // request box 1
+	 END_IF;
+	
+	 // =====================================================================
+	 // REGION 3 -- STOP  (bo_Stop edge, alarm latched, or left real mode)
+	 // =====================================================================
+	 IF #sRTRIGStop.Q
+	     OR "GDB_PalletizingCmd".bo_Alarm
+	     OR NOT "GDB_PalletizingCmd".bo_RequireSensorGate
+	 THEN
+	     #statRunning     := FALSE;
+	     #statBeltRun     := FALSE;
+	     #statSpawnFire   := FALSE;
+	     #statSpawnActive := FALSE;
+	 END_IF;
+	
+	 // =====================================================================
+	 // REGION 4 -- SPAWN PACING
+	 // One box at a time: request the next only once the previous has been
+	 // picked away (PalletizingSensor falling edge). statSpawnCount caps the
+	 // run at i16_TotalBoxes total spawns -- a stray sensor drop can mistime
+	 // a spawn but can never spawn more than i16_TotalBoxes boxes.
+	 // =====================================================================
+	 IF #sFTRIGPalletizing.Q
+	     AND #statRunning
+	     AND (#statSpawnCount < "GDB_PalletizingCmd".i16_TotalBoxes)
+	 THEN
+	     #statSpawnFire := TRUE;
+	 END_IF;
+	
+	 // =====================================================================
+	 // REGION 5 -- SPAWN-PULSE GENERATOR  (SOLE writer of SpawnContainerCmd)
+	 // sRTRIGSpawnFire arms a pulse on the RISING EDGE of statSpawnFire, so a
+	 // stuck-TRUE request still yields at most one pulse, never a train.
+	 // Pulse width 2 s -- long enough for the NX MCD co-sim to reliably
+	 // catch the rising edge. objsrcContainer "Once per Activation" spawns
+	 // exactly one box per rising edge regardless of how long active is
+	 // held (trace-confirmed). statSpawnCount += 1 per armed pulse.
+	 // The belt is ALSO started here -- the box spawns upstream of
+	 // PackingSensor, so the belt must run from the spawn to carry the box
+	 // onto the sensor; waiting for PackingSensor to start it deadlocks.
+	 // =====================================================================
+	 #sRTRIGSpawnFire(CLK := #statSpawnFire);
+	 IF #sRTRIGSpawnFire.Q THEN
+	     #statSpawnActive := TRUE;
+	     #statSpawnCount  := #statSpawnCount + 1;
+	     #statBeltRun     := TRUE;
+	 END_IF;
+	
+	 IF #statSpawnActive THEN
+	     "GDB_MCDData".SpawnContainerCmd := TRUE;
+	     #instSpawnTimer(IN := TRUE, PT := T#2S);
+	     IF #instSpawnTimer.Q THEN
+	         "GDB_MCDData".SpawnContainerCmd := FALSE;
+	         #instSpawnTimer(IN := FALSE, PT := T#0MS);
+	         #statSpawnActive := FALSE;
+	         #statSpawnFire   := FALSE;
+	     END_IF;
+	 ELSE
+	     "GDB_MCDData".SpawnContainerCmd := FALSE;
+	     #instSpawnTimer(IN := FALSE, PT := T#0MS);
+	 END_IF;
+	
+	 // =====================================================================
+	 // REGION 6 -- BELT LATCH + OUTPUT  (SOLE writer of BeltVelocity)
+	 // statBeltRun is SET at spawn (REGION 5); PackingSensor rising re-SETs
+	 // it as redundant confirmation. It is RESET on the LEVEL of
+	 // PalletizingSensor -- the belt stops whenever a box is at the pick
+	 // end, even if that box was already there before the cycle began. An
+	 // edge-RESET missed an already-TRUE sensor and the belt never stopped.
+	 // =====================================================================
+	 IF #sRTRIGPacking.Q THEN
+	     #statBeltRun := TRUE;
+	 END_IF;
+	 IF "GDB_MCDData".PalletizingSensor THEN
+	     #statBeltRun := FALSE;
+	 END_IF;
+	
+	 IF #statRunning AND #statBeltRun THEN
+	     "GDB_MCDData".BeltVelocity := "GDB_PalletizingCmd".lr_BeltVelocityNormal;
+	 ELSE
+	     "GDB_MCDData".BeltVelocity := 0.0;
+	 END_IF;
+	
+	
 END_FUNCTION_BLOCK
+

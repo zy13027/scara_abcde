@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Document>
   <Engineering version="V20" />
   <SW.Blocks.InstanceDB ID="0">
@@ -14,6 +14,7 @@
 </Sections></Interface>
       <Name>instFB_HMIStatusMirror</Name>
       <Namespace />
+      <Number>14</Number>
       <ProgrammingLanguage>DB</ProgrammingLanguage>
     </AttributeList>
     <ObjectList>

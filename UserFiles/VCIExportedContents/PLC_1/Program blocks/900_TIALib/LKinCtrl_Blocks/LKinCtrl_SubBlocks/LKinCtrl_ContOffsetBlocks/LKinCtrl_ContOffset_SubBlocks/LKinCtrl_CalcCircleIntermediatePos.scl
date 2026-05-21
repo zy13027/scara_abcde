@@ -1,0 +1,58 @@
+﻿FUNCTION "LKinCtrl_CalcCircleIntermediatePos" : Void
+TITLE = LKinCtrl_CalcCircleIntermediatePos
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculate intermediate point of circle with given initial end point, calculated end point and tool radius
+   VAR_INPUT 
+      initialEndPoint : "LKinCtrl_typeCOff3DPoint";   // Initial end point
+      newEndPoint : "LKinCtrl_typeCOff3DPoint";   // New calculated end point
+      toolRadius : LReal;   // Tool radius
+   END_VAR
+
+   VAR_OUTPUT 
+      circIntermediatePoint : "LKinCtrl_typeCOff3DPoint";   // circle intermediate point
+   END_VAR
+
+   VAR_TEMP 
+      tempVecDiff : "LKinCtrl_typeCOff3DPoint";
+      tempUnitVecDiff : "LKinCtrl_typeCOff3DPoint";
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library: - 
+	// Tested with: S7-1516T-3 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.5
+	// Functionality: Calculate intermediate point of circle
+	// with given initial end point, calculated end point and tool radius
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 2019-02-05 AW               created
+	//=============================================================================
+	
+	REGION PLAUSIBILITY_CHECK
+	END_REGION PLAUSIBILITY_CHECK
+	
+	REGION CALCULATION
+	// Difference vector between new end point and initial end point
+	#tempVecDiff := "LKinCtrl_VecSub"(vIn1 := #newEndPoint,
+	                               vIn2 := #initialEndPoint);
+	 
+	// Calculate direction vetor to intermediate point
+	#tempUnitVecDiff := "LKinCtrl_VecUnit"(#tempVecDiff);
+	
+	// Calculate intermediate point: initialEndPoint + lambda * radius
+	#circIntermediatePoint := "LKinCtrl_VecAdd"(vIn1:= #initialEndPoint, vIn2:= "LKinCtrl_VecScale"(vIn := #tempUnitVecDiff, factor := #toolRadius));
+	
+	END_REGION CALCULATION
+END_FUNCTION
+

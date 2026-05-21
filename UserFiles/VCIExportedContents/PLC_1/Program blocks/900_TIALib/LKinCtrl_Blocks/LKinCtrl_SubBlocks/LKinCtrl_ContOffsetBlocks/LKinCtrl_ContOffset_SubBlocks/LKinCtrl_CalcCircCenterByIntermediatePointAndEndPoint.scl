@@ -1,0 +1,156 @@
+﻿FUNCTION "LKinCtrl_CalcCircCenterByIntermediatePointAndEndPoint" : Word
+TITLE = LKinCtrl_CalcCircCenterByIntermediatePointAndEndPoint
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculate circle center point with given intermediate point
+   VAR_INPUT 
+      circleStartPoint : "LKinCtrl_typeCOff3DPoint";   // Circle start point
+      circleEndPoint : "LKinCtrl_typeCOff3DPoint";   // Circle end point
+      circleIntermediatePoint : "LKinCtrl_typeCOff3DPoint";   // Circle intermediate point
+      pathPlane : Int;   // Path plane: XZ= 0, YZ=1, XY= 2
+   END_VAR
+
+   VAR_OUTPUT 
+      circleCenterPoint : "LKinCtrl_typeCOff3DPoint";   // Circle center point
+   END_VAR
+
+   VAR_TEMP 
+      tempVecL : "LKinCtrl_typeCOff3DPoint";
+      tempVecP1P2 : "LKinCtrl_typeCOff3DPoint";
+      tempVecP3P4 : "LKinCtrl_typeCOff3DPoint";
+      tempLengthVecP1P2 : LReal;
+      tempLengthVecP3P4 : LReal;
+      tempUnitVecP1P2 : "LKinCtrl_typeCOff3DPoint";
+      tempUnitVecP3P4 : "LKinCtrl_typeCOff3DPoint";
+      tempP12 : "LKinCtrl_typeCOff3DPoint";
+      tempP34 : "LKinCtrl_typeCOff3DPoint";
+      tempP123 : "LKinCtrl_typeCOff3DPoint";
+      tempP341 : "LKinCtrl_typeCOff3DPoint";
+      tempOrthVecP1P2 : "LKinCtrl_typeCOff3DPoint";
+      tempOrthVecP3P4 : "LKinCtrl_typeCOff3DPoint";
+      tempRetValue : Word;
+      tempPa : "LKinCtrl_typeCOff3DPoint";
+      tempPb : "LKinCtrl_typeCOff3DPoint";
+      tempMua : LReal;
+      tempMub : LReal;
+   END_VAR
+
+   VAR CONSTANT 
+      ERR_COFF_INVALID_PATH_PLANE : Word := 16#8303;   // Error - invalid path plane
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library: - 
+	// Tested with: S7-1516T-3 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.5
+	// Functionality: Calculate circle center point with given intermediate point
+	// and end point
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 2019-02-05 AW               created
+	//=============================================================================
+	
+	
+	REGION PLAUSIBILITY_CHECK
+	// Check path plane
+	  IF ((#pathPlane >= "CP_XZ") AND (#pathPlane <= "CP_XY"))
+	THEN
+	  ;
+	ELSE
+	  #LKinCtrl_CalcCircCenterByIntermediatePointAndEndPoint := #ERR_COFF_INVALID_PATH_PLANE; // Invalid path plane
+	  RETURN;
+	END_IF;
+	END_REGION PLAUSIBILITY_CHECK
+	
+	REGION CALCULATION
+	
+	  // Intermediate point - start point
+	  #tempVecP1P2 := "LKinCtrl_VecSub"(vIn1:= #circleIntermediatePoint, vIn2:= #circleStartPoint);
+	  // Intermediate point - end point
+	  #tempVecP3P4 := "LKinCtrl_VecSub"(vIn1 := #circleIntermediatePoint, vIn2 := #circleEndPoint);
+	  
+	  // Length of vectors
+	  #tempLengthVecP1P2 := "LKinCtrl_VecAbs"(#tempVecP1P2);
+	  #tempLengthVecP3P4 := "LKinCtrl_VecAbs"(#tempVecP3P4);
+	
+	  // Direction of vectors
+	  #tempUnitVecP1P2 := "LKinCtrl_VecUnit"(#tempVecP1P2);
+	  #tempUnitVecP3P4 := "LKinCtrl_VecUnit"(#tempVecP3P4);
+	
+	  // Perpendicular bisector
+	  #tempP12 := "LKinCtrl_VecAdd"(vIn1:= #circleStartPoint, vIn2:= "LKinCtrl_VecScale"(vIn:= #tempUnitVecP1P2, factor:= (#tempLengthVecP1P2 / 2.0)));
+	  #tempP34 := "LKinCtrl_VecAdd"(vIn1:= #circleEndPoint, vIn2:="LKinCtrl_VecScale"(vIn:= #tempUnitVecP3P4, factor:=(#tempLengthVecP3P4 / 2.0)));
+	  
+	  // Rotate vector according to path plane
+	  // Calc complete shift
+	  CASE #pathPlane OF
+	    "CP_XY":
+	        // Orthogonal end point - intermediate point
+	        #tempOrthVecP1P2.x := - #tempUnitVecP1P2.y;
+	        #tempOrthVecP1P2.y := #tempUnitVecP1P2.x;
+	        #tempOrthVecP1P2.z := 0.0;
+	        
+	        // Orthogonal end point - intermediate point
+	        #tempOrthVecP3P4.x := #tempUnitVecP3P4.y;
+	        #tempOrthVecP3P4.y := - #tempUnitVecP3P4.x;
+	        #tempOrthVecP3P4.z := 0.0;
+	        
+	      "CP_XZ":
+	        // Orthogonal end point - intermediate point
+	        #tempOrthVecP1P2.x := #tempUnitVecP1P2.z;
+	        #tempOrthVecP1P2.y := 0.0;
+	        #tempOrthVecP1P2.z := - #tempUnitVecP1P2.x;
+	        
+	        // Orthogonal end point - intermediate point
+	        #tempOrthVecP3P4.x := - #tempUnitVecP3P4.z;
+	        #tempOrthVecP3P4.y := 0.0;
+	        #tempOrthVecP3P4.z := #tempUnitVecP3P4.x;
+	        
+	      "CP_YZ":
+	        // Orthogonal end point - intermediate point
+	        #tempOrthVecP1P2.x := 0.0;
+	        #tempOrthVecP1P2.y := - #tempUnitVecP1P2.z;
+	        #tempOrthVecP1P2.z := #tempUnitVecP1P2.y;
+	        
+	        // Orthogonal end point - intermediate point
+	        #tempOrthVecP3P4.x := 0.0;
+	        #tempOrthVecP3P4.y := #tempUnitVecP3P4.z;
+	        #tempOrthVecP3P4.z := - #tempUnitVecP3P4.y;
+	  END_CASE;
+	  
+	  #tempOrthVecP1P2 := "LKinCtrl_VecScale"(vIn:= #tempOrthVecP1P2, factor:= #tempLengthVecP1P2);
+	  #tempOrthVecP3P4 := "LKinCtrl_VecScale"(vIn:= #tempOrthVecP3P4, factor:= #tempLengthVecP3P4);
+	  
+	  #tempP123 := "LKinCtrl_VecAdd"(vIn1:= #tempP12, vIn2:= #tempOrthVecP1P2);
+	  #tempP341 := "LKinCtrl_VecAdd"(vIn1:= #tempP34, vIn2:= #tempOrthVecP3P4);
+	  
+	  #tempRetValue := "LKinCtrl_CalcLineLineIntersectionPoint"(startPointFirstLine := #tempP12,
+	                                                   endPointFirstLine := #tempP123,
+	                                                   startPointSecondLine := #tempP34,
+	                                                   endPointSecondLine := #tempP341,
+	                                                   intersectionPointA => #tempPa,
+	                                                   intersectionPointB => #tempPb,
+	                                                   muA => #tempMua,
+	                                                   muB => #tempMub);
+	  IF (#tempRetValue <> 0) THEN
+	    #LKinCtrl_CalcCircCenterByIntermediatePointAndEndPoint := #tempRetValue;
+	    RETURN;
+	  END_IF;
+	
+	END_REGION CALCULATION
+	
+	#circleCenterPoint := #tempPa;
+	
+	#LKinCtrl_CalcCircCenterByIntermediatePointAndEndPoint := 0; // o.k.
+END_FUNCTION
+

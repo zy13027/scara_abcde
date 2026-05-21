@@ -1,0 +1,57 @@
+﻿FUNCTION "LKinCtrl_GetValueInRange" : LReal
+TITLE = LKinCtrl_GetValueInRange
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Get value in range -180°...179.999° (Modulo 360°)
+   VAR_INPUT 
+      value : LReal;   // Value
+   END_VAR
+
+   VAR_TEMP 
+      tempValue : LReal;
+   END_VAR
+
+   VAR CONSTANT 
+      VAL_MIN : LReal := -180.0;   // Range minimum
+      VAL_MAX : LReal := 179.999;   // Range maximum
+      VAL_RANGE : LReal := 360.0;   // Range
+      ERR_NO_ERR : Word := 16#0000;   // No error
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2023
+	//-----------------------------------------------------------------------------
+	// Library:       LKinCtrl
+	// Tested with:   S7-1518TF-4 PN/DP, FW V3.1
+	// Engineering:   TIA Portal V19
+	// Restrictions:  ---
+	// Requirements:  S7-1500T, FW V3.0
+	// Functionality: Return input value in range -180°...179.999° (modulo 360°)
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 21.09.2023 SF               First released version
+	//=============================================================================
+	
+	#tempValue := #value;
+	IF (#tempValue > #VAL_MAX) THEN //above range?
+	  WHILE (#tempValue > #VAL_MAX) DO
+	    #tempValue := #tempValue - #VAL_RANGE;
+	  END_WHILE;
+	ELSIF (#tempValue < #VAL_MIN) THEN
+	  WHILE (#tempValue < #VAL_MIN) DO //below range?
+	    #tempValue := #tempValue + #VAL_RANGE;
+	  END_WHILE;
+	ELSE
+	  ;//in range
+	END_IF;
+	#LKinCtrl_GetValueInRange := #tempValue;
+END_FUNCTION
+

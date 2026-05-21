@@ -1,0 +1,1377 @@
+﻿FUNCTION_BLOCK "LKinCtrl_PreBuffer"
+TITLE = LKinCtrl_PreBuffer
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//The FB is copying the commands of the user defined PathData structure to an internal structure to be used for parametrizing motion commands later. 
+   VAR_INPUT 
+      enable : Bool;   // TRUE: Enable functionality of FB
+      initPathTransition : DInt := 0;   // parameter from MC_MovePath interface
+      initBufferMode : DInt := 1;   // parameter from MC_MovePath interface
+      initTransitionParameter : Array[1..5] of LReal;   // parameter from MC_MovePath interface
+      initStartPosition : Bool;   // initialize start position when starting from standstill
+      configuration : "LKinCtrl_typeConfiguration";   // configuration structure
+      flagLimits : Struct
+         firstFlag : DInt;
+         lastFlag : DInt;
+         firstValueFlag : DInt;
+         lastValueFlag : DInt;
+      END_STRUCT;
+   END_VAR
+
+   VAR_OUTPUT 
+      valid { ExternalWritable := 'False'} : Bool;   // TRUE: Valid set of output values available at the FB
+      busy { ExternalWritable := 'False'} : Bool;   // TRUE: FB is not finished and new output values can be expected
+      error { ExternalWritable := 'False'} : Bool;   // TRUE: An error occurred during the execution of the FB
+      status { ExternalWritable := 'False'} : Word := #STATUS_NO_CALL;   // 16#0000 - 16#7FFF: Status of the FB, 16#8000 - 16#FFFF: Error identification
+      preBufferLockDueToConfigCmd { ExternalWritable := 'False'} : Bool;   // TRUE: lock of PreBuffer due to config command ==> no continue for MC execution, lock GET_CMD
+      lastCmdIdPathData { ExternalWritable := 'False'} : DInt;   // last command ID found in PathData
+      pathDataRetrievePointer { ExternalWritable := 'False'} : DInt;   // actual value of the retrieve pointer from PathData
+   END_VAR
+
+   VAR_IN_OUT 
+      preprocessingStop { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // preprocessing stop output to halt MC execution
+      pathData : "LKinCtrl_typePathData";   // connected PathData
+      pointTable : Array[*] of "LKinCtrl_typePoint";   // point table reference
+      pathDataPreBuf : "LKinCtrl_typePathData_PreBuf";   // pre buffered exertion of PathData to be executed
+      to_Kinematics {InstructionName := 'TO_Kinematics'; LibVersion := '9.0'} : TO_Kinematics;   // reference to the axesGroup
+   END_VAR
+
+   VAR 
+      statEnableOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // old value of 'enable' input for edge detection
+      statValid { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static value for output 'valid'
+      statBusy { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static value for output 'busy'
+      statError { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static value for output 'error'
+      statErrorUserCleared { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // error occurred that can only be solved by user; rising edge at enable input necessary
+      statErrorAutoCleared { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // error occurred that can be acknowledged by FB
+      statStatus { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Word := #STATUS_NO_CALL;   // static value for output 'status'
+      statStateMachine { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt := #NO_PROCESSING;   // state in the state machine of the FB
+      statDebugState { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static variable to enable stepwise debugging of state machine
+      statDisablingCompleted { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // TRUE: Disabling has been completed
+      statNumberOfPathDataElements { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int;   // static storing PathData elements (counted internally)
+      statNoRestarts { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // static storing count of restarts of pointer
+      statPathDataType { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : USInt;   // static storing of PathData type (reduced/normal/advanced)
+      statPathDataName { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : String["LKINCTRL_LENGTH_OF_PATHDATA_NAME"];   // static storing of PathData name
+      statCmdIsMotionCmd { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static to signalize command is motion command
+      statLastCmdIdPathdata { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // static storing of the last cmd id in PathData
+      statCmdAdded { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static to signalize if at least one cmd was added to preBuffer
+      statInitPathTransition { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // static for path transition (is set to 0 after first command)
+      statOCSFrames { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : Array[1..3] of "LKinCtrl_typeFrame";   // OCS frames from TO_Kinematics
+      statUserFrames { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : Array["LKINCTRL_CS_NO_OF_FIRST_USER_FRAME".."LKINCTRL_CS_NO_OF_LAST_USER_FRAME"] of "LKinCtrl_typeFrame";   // static for user frames
+      statPathDataPointers { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typeAdvPointers";   // static storing of actual PathData pointers
+      statPathDataCommand { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typePathDataElement" := ((), (), (), (), (), (((), (), (), (), (), ()), ()), (((), (), (), ()), ((), (), (), ()), (), (), [-1.0], (), (), ((), (), [()]), ((), ()), (()), ((), (), [()], (), (), (), ()), ((), (), ()), (([()], (), (), ()), ([()], (), (), ()))), [((), (), ()), ((), (), ()), ((), (), ())], [((), (), (), ()), ((), (), (), ()), ((), (), (), ()), ((), (), (), ())], [6(TRUE)]);   // static storing of actual PathData command
+      statParameterValid { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1.."LKINCTRL_NO_OF_VALID_BITS"] of Bool := [4(TRUE)];   // static storing for parameter valid bits from pathData advanced
+      statStartPos { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..6] of LReal;   // static storing for start position of movement
+      statStartCoordSystem { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // static storing of the last coordinate system
+      statStartLinkConstellation { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // static storing of first link constellation
+      statResultingPos { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..6] of LReal;   // static array storing resulting position of path motion
+      statResultingDistance { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..6] of LReal;   // static array storing resulting distance of command
+      statResultingAuxPoint { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..3] of LReal;   // static array storing lastAuxPoint of path motion
+      statResultingLinkConstellation { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // static storing the link constellation
+      statRelativeShift { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typeRelShift";   // relative shift coordinates
+      statLastPosOffsetComp { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..6] of LReal;   // static array storing lastPos of compensated path motion
+      statAuxPointOffsetComp { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..3] of LReal;   // static array storing lastAuxPoint of compensated path motion
+      statOffsetCompActivated { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static storing if offset compensation is active
+      statOffsetCompActivatedOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static storing of last compensation active
+      statOffsetCompFirstCmd { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // bit to signalize first cmd of offset compensation
+      statToolLength { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : LReal;   // static storing for the tool length
+      statToolRadius { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : LReal;   // static storing for the tool radius
+      statPathPlane { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int;   // static storing for the working plane of the tool
+      statCompDirection { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int;   // static storing for the compensation direction (left/right)
+      statRetrievePointerIncCtr { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // counter to search in path data
+      statNBOSearchAborted { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static bit to signalize abortion of search
+      statNBOCoordSystemOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // static value for old coord system when searching NBO
+      statNBOLinkConstellation { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // static value for link constellation when searching NBO
+      statNBOParameterValid { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1.."LKINCTRL_NO_OF_VALID_BITS"] of Bool;   // static storing for parameter valid bits from pathData advanced
+      statNBOLastPos { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..6] of LReal;   // storage variable lastPos for offset compensation
+      statNBOAuxPoint { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..3] of LReal;   // storage variable auxPoint for offset compensation
+      statNBOPathCmdCheck { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typePathDataElement" := ((), (), (), (), (), (((), (), (), (), (), ()), ()), (((), (), (), ()), ((), (), (), ()), (), (), [-1.0], (), (), ((), (), [()]), ((), ()), (()), ((), (), [()], (), (), (), ()), ((), (), ()), (([()], (), (), ()), ([()], (), (), ()))), [((), (), ()), ((), (), ()), ((), (), ())], [((), (), (), ()), ((), (), (), ()), ((), (), (), ()), ((), (), (), ())], [6(TRUE)]);   // static for path command when searching NBO command
+      statCurrentPosIn { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typeCOffInCurrentPos";   // static variable for contour offset
+      statNextCommandIn { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typePathDataElement" := ((), (), (), (), (), (((), (), (), (), (), ()), ()), (((), (), (), ()), ((), (), (), ()), (), (), [-1.0], (), (), ((), (), [()]), ((), ()), (()), ((), (), [()], (), (), (), ()), ((), (), ()), (([()], (), (), ()), ([()], (), (), ()))), [((), (), ()), ((), (), ()), ((), (), ())], [((), (), (), ()), ((), (), (), ()), ((), (), (), ()), ((), (), (), ())], [6(TRUE)]);   // static variable for contour offset
+      statNextButOneCommandIn { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typePathDataElement" := ((), (), (), (), (), (((), (), (), (), (), ()), ()), (((), (), (), ()), ((), (), (), ()), (), (), [-1.0], (), (), ((), (), [()]), ((), ()), (()), ((), (), [()], (), (), (), ()), ((), (), ()), (([()], (), (), ()), ([()], (), (), ()))), [((), (), ()), ((), (), ()), ((), (), ())], [((), (), (), ()), ((), (), (), ()), ((), (), (), ()), ((), (), (), ())], [6(TRUE)]);   // static variable for contour offset
+      statNextCommandOut { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typePathDataElement" := ((), (), (), (), (), (((), (), (), (), (), ()), ()), (((), (), (), ()), ((), (), (), ()), (), (), [-1.0], (), (), ((), (), [()]), ((), ()), (()), ((), (), [()], (), (), (), ()), ((), (), ()), (([()], (), (), ()), ([()], (), (), ()))), [((), (), ()), ((), (), ()), ((), (), ())], [((), (), (), ()), ((), (), (), ()), ((), (), (), ()), ((), (), (), ())], [6(TRUE)]);   // static variable for contour offset
+      statIntermediateCommandOut { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typePathDataElement" := ((), (), (), (), (), (((), (), (), (), (), ()), ()), (((), (), (), ()), ((), (), (), ()), (), (), [-1.0], (), (), ((), (), [()]), ((), ()), (()), ((), (), [()], (), (), (), ()), ((), (), ()), (([()], (), (), ()), ([()], (), (), ()))), [((), (), ()), ((), (), ()), ((), (), ())], [((), (), (), ()), ((), (), (), ()), ((), (), (), ()), ((), (), (), ())], [6(TRUE)]);   // static variable for contour offset
+      statNextButOneCommandOut { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typeCOffOutNextButOneCmd";   // static variable for contour offset
+      statNextPositionAbsoluteOut { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typeCartesianPosition";   // static variable for contour offset
+      statNextPositionAbsoluteRadCompOut { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typeCartesianPosition";   // static variable for contour offset
+      statRetValOffsetComp { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typeCOffReturn";   // return value of the offset calculation
+      statDebugNextCmdFound { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // debug variable to show index of next command
+      statDebugNextButOneCmdFound { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // debug variable to show index of next but one command
+      instMC_KinematicsTransformation {InstructionName := 'MC_KINEMATICSTRANSFORMATION'; LibVersion := '9.0'; ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : MC_KINEMATICSTRANSFORMATION;   // multi instance FB MC_KinematicsTransformation
+      instMC_InverseKinematicsTransformation {InstructionName := 'MC_INVERSEKINEMATICSTRANSFORMATION'; LibVersion := '9.0'; ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : MC_INVERSEKINEMATICSTRANSFORMATION;   // multi instance FB MC_InverseKinematicsTransformation
+      instLKinCtrlPrepareCommand { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_PrepareCommand";
+   END_VAR
+
+   VAR_TEMP 
+      tempEnable : Bool;   // Temporary value for input 'enable'
+      tempCtr : Int;   // Temporary counter
+      tempFlagCtr : Int;   // Temporary counter
+      tempCmdLengthIsZero : Bool;   // Temporary bit to signalize a command with no length
+      tempValidNextCmdFound : Bool;   // Temporary bit to signalize valid next command for contour offset
+      tempValidNextButOneCmdFound : Bool;   // Temporary bit to signalize valid next but one command for contour offset
+      tempIndexOk : Bool;   // Temporary bit to signalize index is ok
+      tempPreBufferPtrOk : Bool;   // Temporary bit to signalize preBuffer pointer are ok
+      tempPathDataPtrOk : Bool;   // Temporary bit to signalize pathData pointer are ok
+      tempRetVal : Word;   // Temporary return value
+      tempPreBufferCmd : "LKinCtrl_typePathDataElement_PreBuf" := ((), (), (), (), (), (), (), ([()], [()], [()], ()), (((), (), (), ()), ((), (), (), ()), (), (), [-1.0], (), (), ((), (), [()]), ((), ()), (()), ((), (), [()], (), (), (), ()), ((), (), ()), (([()], (), (), ()), ([()], (), (), ()))), [((), (), ()), ((), (), ()), ((), (), ())], [((), (), (), ()), ((), (), (), ()), ((), (), (), ()), ((), (), (), ())], [6(TRUE)]);   // Temporay PreBuffer element
+   END_VAR
+
+   VAR CONSTANT 
+      NO_PROCESSING : DInt := 0;   // FB_PreBuffer state machine constant
+      GET_CMD : DInt := 20;   // FB_PreBuffer state machine constant
+      OFFSET_CALC : DInt := 22;   // FB_PreBuffer state machine constant
+      CHECK_CMD : DInt := 23;   // FB_PreBuffer state machine constant
+      CHECK_NEXT_CMD : DInt := 25;   // FB_PreBuffer state machine constant
+      SEARCH_NBO : DInt := 26;   // FB_PreBuffer state machine constant
+      COPY_CMD : DInt := 30;   // FB_PreBuffer state machine constant
+      PATHDATA_PREBUFFERED_COMPLETELY : DInt := 40;   // FB_PreBuffer state machine constant
+      DISABLE_STATE : DInt := 100;   // FB state: Disabling
+      STATUS_NO_ERROR_IN_COMMAND : Word := 16#0000;   // command parameters correct, no error
+      STATUS_NO_CALL : Word := 16#7000;   // no job being currently processed
+      STATUS_FIRST_CALL : Word := 16#7001;   // first call after incoming new job (rising edge 'execute')
+      STATUS_SUBSEQUENT_CALL : Word := 16#7002;   // Subsequent call during active processing without further details
+      STATUS_PATHDATA_PREBUF_FULL : Word := 16#7010;   // PathData_preBuffered full with new commands
+      STATUS_ALL_CMDS_BUFFERED : Word := 16#7100;   // all cmds buffered into PathData_preBuffered
+      ERR_UNDEFINED_STATE : Word := 16#8600;   // error due to an undefined state in state machine
+      ERR_OFFSET_COMPENSATION : Word := 16#8261;   // error during offset calculation
+      ERR_LASTPOS_CALCULATION : Word := 16#8262;   // error during calculation of previous target position
+      ERR_INVALID_PATHDATA_TYPE : Word := 16#8263;   // error due to an unsupported pathdata type
+      ERR_CIRC_CMD_USER_FRAME : Word := 16#8264;   // error due to invalid circular command in user frame
+      ERR_INVALID_POINT : Word := 16#8265;   // error due to invalid point
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2020 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN/DP
+	// Engineering: TIA Portal V16
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 2.8
+	// Functionality: LKinCtrl_PreBuffer
+	// The FB is copying the commands of the user defined PathData structure
+	// to an internal structure (PathDataPreBuffered) to be used for parametrizing
+	// the motion commands later. 
+	//
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   06.02.2018    JR                  First release version V1.0
+	// 02.00.00   18.04.2019    JR / FR             V2.0
+	// 02.01.00   28.05.2019    JR / FR             V2.1 for LKinLang
+	// 02.01.01   03.07.2019    JR                  BugFix for circMode 3 in offset compensation
+	// 02.01.02   08.07.2019    JR                  BugFix for contour offset parameterValid Bits (PreBuffer)
+	// 02.01.03   15.07.2019    JR                  Fixes for Contour Offset & parameter valid bits (PreBuffer)
+	// 02.01.04   09.08.2019    JR                  Removal of code duplicates by functions
+	// 02.02.00   28.01.2020    JR / FR             V2.2: Added valueFlags and flagOnlyCmd 
+	// 02.02.01   07.02.2020    FR / DF             V2.2.1: Reset retrieve pointer when PreBuffer is disabled
+	// 02.03.00   14.04.2020    FR                  Added preprocessing stop for LKinLang; Partial FB rework; Added "OCSFrames" input
+	// 02.03.01   16.07.2020    FR                  Initialize preprocessing stop
+	// 02.04.00   04.08.2020    FR                  Added MoveDirect and ConveyorTracking
+	// 02.04.01   26.01.2021    FR                  Code cleanup and added FB PrepareCommand
+	// 02.04.02   16.11.2021    FR                  Fix for contourOffset
+	// 03.00.00   18.01.2022    FR                  Update to 6 axis
+	// 03.01.00   04.07.2023    FR                  Resolve commands for MC_ExecuteKinMotionCmd
+	// 04.01.00   20.12.2023    AH                  Added relative shift of coordinate systems; Added reset for relative shift
+	// 04.01.01   09.02.2024    FR                  Fix missing update of start position
+	// 04.01.02   08.04.2024    FR                  Fix missing update of start coordinate system and link constellation
+	// 05.00.00   09.09.2024    FR                  Changed pathData from Variant to "LKinCtrl_typePathData"
+	//===========================================================================================
+	
+	#tempEnable := #enable; // Work with temporary value / create process image
+	
+	REGION ENABLING/DISABLING
+	  IF (#tempEnable = TRUE) AND (#statStatus = #STATUS_NO_CALL) THEN // Enable FB
+	    // First call; initialize FB
+	    #statValid := TRUE;
+	    #statBusy := TRUE;
+	    #statError := FALSE;
+	    #statErrorUserCleared := FALSE;
+	    #statErrorAutoCleared := FALSE;
+	    #statDisablingCompleted := FALSE;
+	    #statStatus := #STATUS_FIRST_CALL;
+	    #statStateMachine := #GET_CMD; // State machine - start functionality
+	    
+	    
+	    // initialize functionality: reset of variables, diagnostics, etc.
+	    #statCmdAdded := FALSE;
+	    // #pathDataPreBuf.addPointer := 1;    // Initialize add pointer in PathData_PreBuffered is done in MovePath
+	    // #pathDataPreBuf.addPointerRestarted := FALSE; // Initialize add pointer restart in PathData_PreBuffered is done in MovePath
+	    #preBufferLockDueToConfigCmd := FALSE;
+	    #statNBOSearchAborted := FALSE;
+	    #statOffsetCompActivated := FALSE;
+	    #statOffsetCompFirstCmd := FALSE;
+	    #statInitPathTransition := #initPathTransition;
+	    #statLastCmdIdPathdata := -1;    // initialize lastCmdId in PathData with non-reachable value
+	    #statNoRestarts := 0;
+	    #statRetValOffsetComp.returnValue := 16#0;
+	    #statRetValOffsetComp."region" := 0;
+	    #statRetValOffsetComp.subBlockNumber := 0;
+	    #statRetValOffsetComp.internalNumber := 0;
+	    
+	    IF #initStartPosition THEN
+	      // Init current TCP position as start position
+	      #statStartPos[1] := #to_Kinematics.Tcp.x;
+	      #statStartPos[2] := #to_Kinematics.Tcp.y;
+	      #statStartPos[3] := #to_Kinematics.Tcp.z;
+	      #statStartPos[4] := #to_Kinematics.Tcp.a;
+	      #statStartPos[5] := #to_Kinematics.Tcp.b;
+	      #statStartPos[6] := #to_Kinematics.Tcp.c;
+	      #statStartCoordSystem := "CS_WCS";
+	      #statStartLinkConstellation := DWORD_TO_DINT(#to_Kinematics.StatusKinematics.LinkConstellation);
+	      // Init frames
+	      FOR #tempCtr := 1 TO 3 DO
+	        #statOCSFrames[#tempCtr].x := #to_Kinematics.StatusOcsFrame[#tempCtr].x;
+	        #statOCSFrames[#tempCtr].y := #to_Kinematics.StatusOcsFrame[#tempCtr].y;
+	        #statOCSFrames[#tempCtr].z := #to_Kinematics.StatusOcsFrame[#tempCtr].z;
+	        #statOCSFrames[#tempCtr].a := #to_Kinematics.StatusOcsFrame[#tempCtr].a;
+	        #statOCSFrames[#tempCtr].b := #to_Kinematics.StatusOcsFrame[#tempCtr].b;
+	        #statOCSFrames[#tempCtr].c := #to_Kinematics.StatusOcsFrame[#tempCtr].c;
+	      END_FOR;
+	      
+	      // Initialize user frames
+	      #statUserFrames := #configuration.userFrames;
+	    END_IF;
+	    
+	    // Initialize relative shift
+	    #statRelativeShift.shiftActive := FALSE;     // Reset active shift
+	    #statRelativeShift.coordinateSystem := "CS_WCS"; // Reset coordinate system
+	    FOR #tempCtr := 1 TO 6 DO
+	      #statRelativeShift.coordinates[#tempCtr] := 0.0;
+	    END_FOR;
+	    
+	    // Reset instances
+	    #instMC_InverseKinematicsTransformation(AxesGroup := #to_Kinematics,
+	                                            Enable    := FALSE);
+	    #instMC_KinematicsTransformation(AxesGroup := #to_Kinematics,
+	                                     Enable    := FALSE);
+	    
+	    // Get last cmdID
+	    #statNumberOfPathDataElements := "LKINCTRL_NO_OF_PATHDATA_ELEMENTS";
+	    
+	    // Initialize retrieve pointer in PathData
+	    #pathData.LKinLangInterface.retrievePointer := 0;
+	    #statPathDataPointers := #pathData.LKinLangInterface;
+	          
+	    // Init preprocessing stop
+	    #preprocessingStop := #statPathDataPointers.preprocessingStop;
+	    
+	    // Copy actual path data element where retrievePointer is pointing at
+	    #statPathDataName := #pathData.pathDataName;
+	    
+	    
+	(*    // Added FR 2019.03.27
+	    // PathData conversion (reduced, regular(no suffix), advanced)
+	    //===========================================================================================
+	    // Reset path data type
+	    #statPathDataType := 0;
+	    
+	    REGION PATHDATA_TYPE
+	      // Reduced PathData (no circular commands, no pointers)
+	      IF TypeOf(#pathData) = LKinCtrl_typePathData_reduced THEN
+	        #tempPathData_reduced ?= #pathData;
+	        #statPathDataType := "LKINCTRL_PATHDATA_TYPE_REDUCED";
+	        // Get last cmdID & number of PathData elements
+	        #statNumberOfPathDataElements := "LKINCTRL_NO_OF_PATHDATA_ELEMENTS_REDUCED";
+	        
+	        // Initialize retrieve pointer in PathData (if no pointers available, only set local static pointer variable)
+	        #statPathDataPointers.addPointer := 0;
+	        #statPathDataPointers.retrievePointer := 0;
+	        #statPathDataPointers.addPointerRestarted := FALSE;
+	        #statPathDataPointers.bufferLocked := FALSE;
+	        #statPathDataPointers.ignoreAddPointer := TRUE;
+	        #statPathDataPointers.preprocessingStop := FALSE;
+	        
+	        // Regular PathData (no pointers)
+	      ELSIF TypeOf(#pathData) = LKinCtrl_typePathData THEN
+	        #tempPathData ?= #pathData;
+	        #statPathDataType := "LKINCTRL_PATHDATA_TYPE_NORMAL";
+	        // Get last cmdID
+	        #statNumberOfPathDataElements := "LKINCTRL_NO_OF_PATHDATA_ELEMENTS";
+	        
+	        // Initialize retrieve pointer in PathData (if no pointers available, only set local static pointer variable)
+	        // #statPathDataPointers.addPointer := 0;
+	        // #statPathDataPointers.retrievePointer := 0;
+	        // #statPathDataPointers.addPointerRestarted := FALSE;
+	        // #statPathDataPointers.bufferLocked := FALSE;
+	        // #statPathDataPointers.ignoreAddPointer := TRUE;
+	        // #statPathDataPointers.preprocessingStop := FALSE;
+	
+	        // Initialize retrieve pointer in PathData
+	        #tempPathData^.LKinLangInterface.retrievePointer := 0;
+	        #statPathDataPointers := #tempPathData_advanced^.pointers;
+	        
+	        // Advanced PathData (all elements)
+	      ELSIF TypeOf(#pathData) = LKinCtrl_typePathData_advanced THEN
+	        #tempPathData_advanced ?= #pathData;
+	        #statPathDataType := "LKINCTRL_PATHDATA_TYPE_ADVANCED";
+	        #statNumberOfPathDataElements := "LKINCTRL_NO_OF_PATHDATA_ELEMENTS_ADVANCED";
+	        
+	        // Initialize retrieve pointer in PathData
+	        #tempPathData_advanced^.pointers.retrievePointer := 0;
+	        //#tempPathData_advanced^.pointers.addPointerRestarted := FALSE; // To be tested
+	        #statPathDataPointers := #tempPathData_advanced^.pointers;
+	      ELSE
+	        // Error wrong path data type 
+	        #statStatus := #ERR_INVALID_PATHDATA_TYPE;
+	        #statErrorAutoCleared := TRUE;
+	        // Set state machine to no processing
+	        #statStateMachine := #NO_PROCESSING;
+	      END_IF; *)
+	
+	    
+	
+	    
+	  ELSIF (#tempEnable = FALSE) AND (#statEnableOld = TRUE) THEN // Disable FB 
+	    #statStateMachine := #DISABLE_STATE;
+	    
+	  ELSIF (#statStatus = #STATUS_FIRST_CALL) THEN // Set status identifier of subsequent call
+	    #statStatus := #STATUS_SUBSEQUENT_CALL;
+	  END_IF;
+	  
+	  // Edge detection 'enable' input
+	  #statEnableOld := #tempEnable;
+	  
+	  // Save old variables
+	  IF #statOffsetCompActivatedOld = TRUE
+	    AND #statOffsetCompActivated = FALSE
+	  THEN
+	    #preBufferLockDueToConfigCmd := FALSE;
+	  END_IF;
+	  #statOffsetCompActivatedOld := #statOffsetCompActivated;
+	END_REGION ENABLING/DISABLING
+	
+	IF (#statStatus = #STATUS_NO_CALL) THEN // Nothing to do -> End here to reduce "system load"
+	  RETURN;
+	END_IF;
+	
+	REGION CYCLIC_INPUT
+	    // Reset stopre in pathdata
+	    IF #statPathDataPointers.preprocessingStop = TRUE
+	      AND #preprocessingStop = FALSE
+	      AND #statPathDataPointers.addPointer = #statPathDataPointers.retrievePointer // Added FR 30.06.2022
+	      AND #pathDataPreBuf.addPointer = #pathDataPreBuf.retrievePointer
+	    THEN
+	      #statPathDataPointers.preprocessingStop := FALSE;
+	      #pathData.LKinLangInterface.preprocessingStop := FALSE;
+	    END_IF;
+	    
+	    // Get pointers in every cycle
+	    #statPathDataPointers := #pathData.LKinLangInterface;
+	END_REGION CYCLIC_INPUT
+	
+	REGION STATE_MACHINE
+	  // STATE: FB_STATE_NO_PROCESSING
+	  // =======================================================================================================
+	  // FB_STATE_NO_PROCESSING: // No processing active (Note: this state must always be present and left empty)
+	  IF #statStateMachine = #NO_PROCESSING THEN
+	    // do nothing, wait here
+	    ;
+	  END_IF;
+	  
+	  REGION PATHDATA_PREBUFFERING
+	    
+	    //------------------------------------------------------------------------------------------
+	    // Copy command from pathData into internal static
+	    //------------------------------------------------------------------------------------------
+	    REGION GET_CMD
+	      IF #statStateMachine = #GET_CMD
+	        // AND #statDebugState = TRUE
+	      THEN
+	        // reset  variable for single step debugging of states
+	        #statDebugState := FALSE;
+	        
+	        // Initialize temp
+	        #tempPreBufferPtrOk := FALSE;
+	        #tempPathDataPtrOk := FALSE;
+	        //------------------------------------------------------------------------------------------
+	        // Check preBuffer pointers
+	        //------------------------------------------------------------------------------------------
+	        // Check if addPointer was restarted 
+	        IF #pathDataPreBuf.addPointerRestarted THEN
+	          // addPointer must not pass retrievePointer (no overwriting not read slots) ==> addPointer may not catch up
+	          #tempPreBufferPtrOk := #pathDataPreBuf.retrievePointer > #pathDataPreBuf.addPointer + 1;
+	        ELSE
+	          // retrievePointer must not pass addPointer (no reading of empty slots), retrievePointer may catch up but not pass
+	          #tempPreBufferPtrOk := #pathDataPreBuf.retrievePointer <= #pathDataPreBuf.addPointer;
+	          
+	          // Avoid addPointer to restart in next cycle (addPointer at end of list) if retreivePointer is at 1st element of PathDataPreBuffered
+	          IF #pathDataPreBuf.addPointer = "LKINCTRL_NO_OF_PATHDATA_PREBUFFER_ELEMENTS" AND #pathDataPreBuf.retrievePointer = 1 THEN
+	            #tempPreBufferPtrOk := FALSE;
+	          END_IF;
+	        END_IF;
+	        
+	        //------------------------------------------------------------------------------------------
+	        // Check pathData pointers
+	        //------------------------------------------------------------------------------------------
+	        IF #statPathDataPointers.ignoreAddPointer THEN // Check if addPointer shall be ignored
+	          #tempPathDataPtrOk := TRUE;
+	        ELSIF #statPathDataPointers.bufferLocked THEN // Check if buffer is locked
+	          #tempPathDataPtrOk := FALSE;
+	        ELSE // Regular ring buffer mechanism
+	          IF #statPathDataPointers.addPointerRestarted THEN
+	            // addPointer must not pass retrievePointer (no overwriting of not read slots)
+	            #tempPathDataPtrOk := #statPathDataPointers.retrievePointer > #statPathDataPointers.addPointer;
+	          ELSE
+	            // retrievePointer must not pass addPointer (no reading of empty slots)
+	            #tempPathDataPtrOk := #statPathDataPointers.retrievePointer < #statPathDataPointers.addPointer;
+	          END_IF;
+	        END_IF;
+	        
+	        // Check if both pointers are ok
+	        IF #tempPreBufferPtrOk AND #tempPathDataPtrOk THEN
+	          //------------------------------------------------------------------------------------------
+	          // Increase pathData retrievePointer and get command
+	          //------------------------------------------------------------------------------------------
+	          IF #statPathDataPointers.retrievePointer <= #statNumberOfPathDataElements THEN
+	            #statPathDataPointers.retrievePointer += 1;
+	          END_IF;
+	          
+	          // Ring buffer
+	          IF #statPathDataPointers.retrievePointer > #statNumberOfPathDataElements AND NOT #statPathDataPointers.ignoreAddPointer THEN
+	            #statPathDataPointers.retrievePointer := 1;
+	            // reset addPointer restart bit
+	            #statPathDataPointers.addPointerRestarted := FALSE;
+	            // count restart cycles of PathData retrievePointer
+	            #statNoRestarts += 1;
+	          END_IF;
+	          
+	          // check for length of PathData array to do not exceed element count
+	          IF #statPathDataPointers.retrievePointer <= #statNumberOfPathDataElements
+	            AND #statPathDataPointers.retrievePointer > 0
+	          THEN
+	            // Copy path command from path data
+	            #tempRetVal := "LKinCtrl_GetPathDataCmd"(pathDataType := #statPathDataType,
+	                                                     index := #statPathDataPointers.retrievePointer,
+	                                                     pathData := #pathData,
+	                                                     pathDataCommand => #statPathDataCommand,
+	                                                     parameterValid => #statParameterValid,
+	                                                     pointTable := #pointTable);
+	            IF #tempRetVal <> 16#0 THEN
+	              // Error wrong path data type 
+	              #statStatus := #ERR_INVALID_POINT;
+	              #statErrorAutoCleared := TRUE;
+	              // Set state machine to no processing
+	              #statStateMachine := #NO_PROCESSING;
+	            ELSE
+	              // check for command to be deactivated
+	              IF #statPathDataCommand.cmdActivated THEN
+	                // Go to check cmd state
+	                #statStateMachine := #CHECK_CMD;
+	              ELSE
+	                ;// do nothing as pathData.retrievePointer has already been increased ==> next cmd checked in next cycle
+	              END_IF;
+	            END_IF;
+	            
+	          ELSE
+	            // end of PathData array reached
+	            // set status to show pre buffering is completed ==> external disable in next state of MovePath
+	            #statStatus := #STATUS_ALL_CMDS_BUFFERED;
+	            // set stateMachine
+	            #statStateMachine := #PATHDATA_PREBUFFERED_COMPLETELY;
+	          END_IF;
+	          
+	        ELSIF #tempPreBufferPtrOk = FALSE THEN
+	          // PathDataPreBuf full -> FB has not transferred the next cmd to the addPointer element in PathDataPreBuf yet
+	          #statStatus := #STATUS_PATHDATA_PREBUF_FULL;
+	        ELSE
+	          ;// PathData pointer is not ok -> Wait for new commands
+	        END_IF;
+	        
+	      END_IF;
+	    END_REGION GET_CMD
+	    
+	    //------------------------------------------------------------------------------------------
+	    // Check if command is valid and do some calculations
+	    //------------------------------------------------------------------------------------------
+	    REGION CHECK_CMD
+	      IF #statStateMachine = #CHECK_CMD THEN
+	        // check for command to be last command (today also end of PathData: -1) 
+	        IF #statPathDataCommand.cmdType < 0 THEN
+	          // last activated command in PathData reached
+	          #statStatus := #STATUS_ALL_CMDS_BUFFERED; // set status to show pre buffering is completed
+	          #statStateMachine := #PATHDATA_PREBUFFERED_COMPLETELY; // set stateMachine
+	        ELSE
+	          // command check in external FC
+	          #statStatus := "LKinCtrl_CheckPathDataCmd"(firstFlag:=#flagLimits.firstFlag,
+	                                                     lastFlag:=#flagLimits.lastFlag,
+	                                                     firstValueFlag:=#flagLimits.firstValueFlag,
+	                                                     lastValueFlag:=#flagLimits.lastValueFlag,
+	                                                     cmdIsMotionCmd => #statCmdIsMotionCmd,
+	                                                     pathDataCmd := #statPathDataCommand);
+	          
+	          // Check for circle mode with circle plane and user frame with rotation 
+	          IF #statPathDataCommand.cmdCoordinates.coordSystem >= "LKINCTRL_CS_NO_OF_FIRST_USER_FRAME"
+	            AND #statPathDataCommand.cmdCoordinates.coordSystem <= "LKINCTRL_CS_NO_OF_LAST_USER_FRAME"
+	          THEN
+	            #tempRetVal.%X0 := "LKinCtrl_CheckUserFrame"(cmdType := #statPathDataCommand.cmdType,
+	                                                         coordinateSystem := #statPathDataCommand.cmdCoordinates.coordSystem,
+	                                                         circMode := #statPathDataCommand.cmdParameters.circleParameters.circMode,
+	                                                         userFrames := #statUserFrames);
+	            // Set error if retval is false
+	            IF #tempRetVal.%X0 = FALSE THEN
+	              #statStatus := #ERR_CIRC_CMD_USER_FRAME;
+	            END_IF;
+	          END_IF;
+	          
+	          // Check for moveDirect command during ContourOffset
+	          IF #statOffsetCompActivated = TRUE
+	            AND (#statPathDataCommand.cmdType = "LKINCTRL_MC_MOVEDIRECTABS"
+	            OR #statPathDataCommand.cmdType = "LKINCTRL_MC_MOVEDIRECTREL")
+	          THEN
+	            // Set error status 
+	            #statStatus := #ERR_OFFSET_COMPENSATION;
+	          END_IF;
+	          
+	          // check if no error was detected ==> command configured correctly
+	          IF #statStatus = #STATUS_NO_ERROR_IN_COMMAND THEN
+	            // ---------------------------------------------------------------------------
+	            // Resolve things FB ExecuteKinMotionCmd can not handle but cmd is then send to FB ExecuteKinMotionCmd
+	            // Resolve:
+	            //  - SET_USER_FRAME -> Update internal frames static
+	            //  - SET_OCS_FRAME -> Update internal frames static
+	            //  - PARAMETER VALID BITS (GCode) -> Update missing positions  
+	            //  - MOVE_CIRCULAR_RELATIVE -> Recalculate to absoulte command
+	            //  - CircMode 3 (GCode) -> Rel AuxPoint (CircCenter) + EndPoint -> Recalculate to absolute command
+	            // ---------------------------------------------------------------------------
+	            CASE #statPathDataCommand.cmdType OF
+	              "LKINCTRL_MC_SET_OCS_FRAME", "LKINCTRL_MC_SET_USER_FRAME":
+	                // Check if frame of start position is changed
+	                IF #statStartCoordSystem = #statPathDataCommand.cmdCoordinates.coordSystem THEN
+	                  // Transform start position to WCS before actually changing frame
+	                  "LKinCtrl_FrameTrans"(coordSystem    := "CS_WCS", // Target CS
+	                                        coordSystemOld := #statPathDataCommand.cmdCoordinates.coordSystem, // Last CS
+	                                        OCSFrames      := #statOCSFrames, // OCS frames
+	                                        userFrames     := #statUserFrames,
+	                                        position       := #statStartPos); // Position to be transformed
+	                  #statStartCoordSystem := "CS_WCS";
+	                END_IF;
+	                
+	                IF #statPathDataCommand.cmdType = "LKINCTRL_MC_SET_OCS_FRAME" THEN
+	                  // Update OCS frame definition
+	                  #statOCSFrames[#statPathDataCommand.cmdCoordinates.coordSystem] := #statPathDataCommand.cmdCoordinates.cartesianPosition;
+	                ELSE
+	                  // Update internal user frame information
+	                  #statUserFrames[#statPathDataCommand.cmdCoordinates.coordSystem] := #statPathDataCommand.cmdCoordinates.cartesianPosition;
+	                END_IF;
+	                
+	                // Copy frame into target position for tempPreBufferCmd 
+	                #statResultingPos[1] := #statPathDataCommand.cmdCoordinates.cartesianPosition.x;
+	                #statResultingPos[2] := #statPathDataCommand.cmdCoordinates.cartesianPosition.y;
+	                #statResultingPos[3] := #statPathDataCommand.cmdCoordinates.cartesianPosition.z;
+	                #statResultingPos[4] := #statPathDataCommand.cmdCoordinates.cartesianPosition.a;
+	                #statResultingPos[5] := #statPathDataCommand.cmdCoordinates.cartesianPosition.b;
+	                #statResultingPos[6] := #statPathDataCommand.cmdCoordinates.cartesianPosition.c;
+	                
+	              "LKINCTRL_MC_SHIFT_CS_REL":
+	                // check if the coordinate system has changed
+	                IF #statPathDataCommand.cmdCoordinates.coordSystem <> #statRelativeShift.coordinateSystem THEN
+	                  // reset relative shift for coordinate system
+	                  FOR #tempCtr := 1 TO 6 DO
+	                    #statRelativeShift.coordinates[#tempCtr] := 0.0;
+	                  END_FOR;
+	                END_IF;
+	                
+	                // set relative shift for coordinate system
+	                #statRelativeShift.shiftActive := TRUE;
+	                
+	                // copy coordinate values to shift values
+	                #statRelativeShift.coordinates[1] += #statPathDataCommand.cmdCoordinates.cartesianPosition.x;
+	                #statRelativeShift.coordinates[2] += #statPathDataCommand.cmdCoordinates.cartesianPosition.y;
+	                #statRelativeShift.coordinates[3] += #statPathDataCommand.cmdCoordinates.cartesianPosition.z;
+	                #statRelativeShift.coordinates[4] += #statPathDataCommand.cmdCoordinates.cartesianPosition.a;
+	                #statRelativeShift.coordinates[5] += #statPathDataCommand.cmdCoordinates.cartesianPosition.b;
+	                #statRelativeShift.coordinates[6] += #statPathDataCommand.cmdCoordinates.cartesianPosition.c;
+	                
+	                #statRelativeShift.coordinateSystem := #statPathDataCommand.cmdCoordinates.coordSystem;
+	                
+	              "LKINCTRL_MC_RESET_SHIFT":
+	                // reset relative shift for coordinate system
+	                #statRelativeShift.shiftActive := FALSE;
+	                #statRelativeShift.coordinateSystem := "CS_WCS";
+	                FOR #tempCtr := 1 TO 6 DO
+	                  #statRelativeShift.coordinates[#tempCtr] := 0.0;
+	                END_FOR;
+	            END_CASE;
+	            
+	            // ---------------------------------------------------------------------------
+	            // Check if command was a motion command and caclulate resulting position
+	            // ---------------------------------------------------------------------------
+	            // If command is not a motion command then skip caclulation
+	            IF #statCmdIsMotionCmd THEN
+	              // Call prepare command to calcluate necessary variables
+	              #instLKinCtrlPrepareCommand(startPosition                   := #statStartPos,
+	                                          startPositionCoordSystem        := #statStartCoordSystem,
+	                                          startLinkConstellation          := #statStartLinkConstellation,
+	                                          status                          => #tempRetVal,
+	                                          cmdLengthZero                   => #tempCmdLengthIsZero,
+	                                          resultingLinkConstellation      => #statResultingLinkConstellation,
+	                                          resultingDistance               => #statResultingDistance,
+	                                          resultingPosition               => #statResultingPos,
+	                                          resultingAuxPoint               => #statResultingAuxPoint,
+	                                          cmdType                         := #statPathDataCommand.cmdType,
+	                                          coordinates                     := #statPathDataCommand.cmdCoordinates.cartesianPosition,
+	                                          coordSystem                     := #statPathDataCommand.cmdCoordinates.coordSystem,
+	                                          circleParameters                := #statPathDataCommand.cmdParameters.circleParameters,
+	                                          moveDirectParameter             := #statPathDataCommand.cmdParameters.moveDirectParameters,
+	                                          parameterValid                  := #statParameterValid,
+	                                          OCSFrames                       := #statOCSFrames,
+	                                          userFrames                      := #statUserFrames,
+	                                          relativeShift                   := #statRelativeShift,
+	                                          kinematicsTransformation        := #instMC_KinematicsTransformation,
+	                                          inverseKinematicsTransformation := #instMC_InverseKinematicsTransformation,
+	                                          toKinematics                    := #to_Kinematics);
+	              
+	              // check for error in last position calculation
+	              IF #tempRetVal <> 16#0 THEN
+	                // set error status
+	                #statErrorAutoCleared := TRUE;
+	                #statStatus := #ERR_LASTPOS_CALCULATION;
+	              END_IF;
+	            ELSE // Not a motion command
+	              // Copy frame into target position for tempPreBufferCmd 
+	              #statResultingPos[1] := #statPathDataCommand.cmdCoordinates.cartesianPosition.x;
+	              #statResultingPos[2] := #statPathDataCommand.cmdCoordinates.cartesianPosition.y;
+	              #statResultingPos[3] := #statPathDataCommand.cmdCoordinates.cartesianPosition.z;
+	              #statResultingPos[4] := #statPathDataCommand.cmdCoordinates.cartesianPosition.a;
+	              #statResultingPos[5] := #statPathDataCommand.cmdCoordinates.cartesianPosition.b;
+	              #statResultingPos[6] := #statPathDataCommand.cmdCoordinates.cartesianPosition.c;
+	            END_IF;
+	            
+	            
+	            // ---------------------------------------------------------------------------
+	            // Check commands which are directly resolved in PreBuffer and not send to FB ExecuteKinMotionCmd
+	            // - Offset compensation (Radius & Length)
+	            // ---------------------------------------------------------------------------
+	            CASE #statPathDataCommand.cmdType OF
+	              "LKINCTRL_CONFIG_START_OFFSET_COMP_LEFT", // configuration command - offset compensation activated left
+	              "LKINCTRL_CONFIG_START_OFFSET_COMP_RIGHT": // configuration command - offset compensation activated right
+	                // handle activation of contour offset calculation
+	                #statOffsetCompActivated := TRUE;
+	                #statOffsetCompFirstCmd := TRUE;
+	                #preBufferLockDueToConfigCmd := TRUE;
+	                
+	                // store compensation calculation parameters
+	                #statToolLength := #configuration.offsetParameter[#statPathDataCommand.cmdParameters.offsetParameters.offsetParaNo].length;
+	                #statToolRadius := #configuration.offsetParameter[#statPathDataCommand.cmdParameters.offsetParameters.offsetParaNo].radius;
+	                #statPathPlane := #statPathDataCommand.cmdParameters.offsetParameters.mainPathPlane;
+	                
+	                // If lastPos is in MCS then transform to WCS as Contour offset needs cartesian coordinates!
+	                IF #statStartCoordSystem = "CS_MCS" OR #statStartCoordSystem = "CS_JCS" THEN
+	                  // Transform lastPos to WCS
+	                  #instMC_KinematicsTransformation(AxesGroup         := #to_Kinematics,
+	                                                   Enable            := TRUE,
+	                                                   AxesPosition      := #statStartPos,
+	                                                   CoordSystem       := "CS_WCS",
+	                                                   AxesCoordSystem   := #statStartCoordSystem,
+	                                                   ErrorId           => #tempRetVal,
+	                                                   Position          => #statStartPos,
+	                                                   LinkConstellation => #statStartLinkConstellation);
+	                  
+	                  
+	                  // Update old coordSystem
+	                  #statStartCoordSystem := "CS_WCS";
+	                  
+	                  // check for error in last position calculation
+	                  IF #tempRetVal <> 16#0 THEN
+	                    // set error status
+	                    #statErrorAutoCleared := TRUE;
+	                    #statStatus := #tempRetVal;
+	                  END_IF;
+	                END_IF;
+	                
+	                // Initial position
+	                #statCurrentPosIn.positionAbsolute.x := #statStartPos[1];
+	                #statCurrentPosIn.positionAbsolute.y := #statStartPos[2];
+	                #statCurrentPosIn.positionAbsolute.z := #statStartPos[3];
+	                #statCurrentPosIn.positionAbsolute.a := #statStartPos[4];
+	                #statCurrentPosIn.positionAbsolute.b := #statStartPos[5];
+	                #statCurrentPosIn.positionAbsolute.c := #statStartPos[6];
+	                
+	                // added according to AW
+	                #statCurrentPosIn.positionAbsoluteRadComp := #statCurrentPosIn.positionAbsolute;
+	                
+	                // Initialize last pos for offset compensation
+	                #statLastPosOffsetComp := #statStartPos;
+	                #statAuxPointOffsetComp := #statResultingAuxPoint;
+	                
+	                IF #statPathDataCommand.cmdType = "LKINCTRL_CONFIG_START_OFFSET_COMP_LEFT" THEN
+	                  // store compensation calculation parameters
+	                  #statCompDirection := "LKINCTRL_COMP_LEFT";
+	                  
+	                ELSIF #statPathDataCommand.cmdType = "LKINCTRL_CONFIG_START_OFFSET_COMP_RIGHT" THEN
+	                  // store compensation calculation parameters
+	                  #statCompDirection := "LKINCTRL_COMP_RIGHT";
+	                END_IF;
+	                
+	                // Get next command
+	                #statStateMachine := #GET_CMD;
+	                
+	              "LKINCTRL_CONFIG_END_OFFSET_COMP":  // configuration command - offset compensation deactivated
+	                // Only set position if offset was actually active before
+	                IF #statOffsetCompActivated THEN
+	                  // Restore statLastPos
+	                  #statResultingPos := #statLastPosOffsetComp;
+	                  #statResultingAuxPoint := #statAuxPointOffsetComp;
+	                END_IF;
+	                #statOffsetCompActivated := FALSE;
+	                #statCompDirection := 0;
+	                
+	                // Get next command
+	                #statStateMachine := #GET_CMD;
+	                
+	              ELSE
+	                // ---------------------------------------------------------------------------
+	                // Regular command which is send to FB ExecuteKinMotionCmd
+	                // ---------------------------------------------------------------------------
+	                // handle regular command copying
+	                IF (#statOffsetCompActivated = FALSE OR #statCmdIsMotionCmd = FALSE) THEN
+	                  // Set bit to signal at least one cmd is added to preBuffered
+	                  #statCmdAdded := TRUE;
+	                  #statStateMachine := #COPY_CMD;
+	                ELSE // Compensation active and is a motion command
+	                  #statStateMachine := #CHECK_NEXT_CMD;
+	                END_IF;
+	            END_CASE;
+	            
+	          ELSE
+	            // Error in command 
+	            #statErrorAutoCleared := TRUE;
+	          END_IF;
+	        END_IF;
+	      END_IF;
+	    END_REGION CHECK_CMD    
+	    
+	    // =======================================================================================================  
+	    // Contour offset is handled in the following regions / states
+	    // =======================================================================================================  
+	    REGION CONTOUR_OFFSET
+	      REGION CHECK_NEXT_COMMAND
+	        IF #statStateMachine = #CHECK_NEXT_CMD THEN
+	          // ---------------------------------------------------------------------------
+	          // Command is motion command -> Caclulate resulting position
+	          // ---------------------------------------------------------------------------
+	          #instLKinCtrlPrepareCommand(status                          => #tempRetVal,
+	                                      cmdLengthZero                   => #tempCmdLengthIsZero,
+	                                      cmdType                         := #statPathDataCommand.cmdType,
+	                                      coordinates                     := #statPathDataCommand.cmdCoordinates.cartesianPosition,
+	                                      coordSystem                     := #statPathDataCommand.cmdCoordinates.coordSystem,
+	                                      circleParameters                := #statPathDataCommand.cmdParameters.circleParameters,
+	                                      moveDirectParameter             := #statPathDataCommand.cmdParameters.moveDirectParameters,
+	                                      parameterValid                  := #statParameterValid,
+	                                      resultingPosition               => #statResultingPos,
+	                                      resultingAuxPoint               => #statResultingAuxPoint,
+	                                      startPositionCoordSystem        := #statStartCoordSystem,
+	                                      resultingLinkConstellation      => #statResultingLinkConstellation,
+	                                      OCSFrames                       := #statOCSFrames,
+	                                      userFrames                      := #statUserFrames,
+	                                      kinematicsTransformation        := #instMC_KinematicsTransformation,
+	                                      inverseKinematicsTransformation := #instMC_InverseKinematicsTransformation,
+	                                      toKinematics                    := #to_Kinematics,
+	                                      relativeShift                   := #statRelativeShift);
+	          
+	          // ---------------------------------------------------------------------------
+	          // check for command to be END_OFFSET_COMP or end of path command
+	          // ---------------------------------------------------------------------------
+	          IF #statPathDataCommand.cmdType = "LKINCTRL_CONFIG_END_OFFSET_COMP"
+	            OR #statPathDataCommand.cmdType = -1
+	          THEN
+	            #statNextCommandIn.cmdType := -1; // transfer no command for end of compensation
+	            #statNextButOneCommandIn.cmdType := -1; // transfer no command for end of compensation
+	            #tempValidNextButOneCmdFound := TRUE;
+	            // Go to next state --> No need to search NBO
+	            #statStateMachine := #OFFSET_CALC;
+	            
+	          ELSE
+	            // ---------------------------------------------------------------------------
+	            // check for command length to be zero
+	            // ---------------------------------------------------------------------------
+	            IF #tempCmdLengthIsZero = FALSE THEN
+	              // ---------------------------
+	              // Command length is not 0.0
+	              // -> Use as next cmd
+	              // ---------------------------
+	              #tempValidNextCmdFound := TRUE; // set first condition bit to abort loop
+	              #statDebugNextCmdFound := #statPathDataPointers.retrievePointer;
+	              
+	              // copy 'next' cmd to next command input
+	              #statNextCommandIn := #statPathDataCommand;
+	              IF #statNextCommandIn.cmdType = "LKINCTRL_MC_MOVELINEARREL" THEN
+	                #statNextCommandIn.cmdType := "LKINCTRL_MC_MOVELINEARABS";
+	              ELSIF #statNextCommandIn.cmdType = "LKINCTRL_MC_MOVECIRCULARREL" THEN
+	                #statNextCommandIn.cmdType := "LKINCTRL_MC_MOVECIRCULARABS";
+	              END_IF;
+	              #statNextCommandIn.cmdCoordinates.cartesianPosition.x := #statResultingPos[1];
+	              #statNextCommandIn.cmdCoordinates.cartesianPosition.y := #statResultingPos[2];
+	              #statNextCommandIn.cmdCoordinates.cartesianPosition.z := #statResultingPos[3];
+	              #statNextCommandIn.cmdCoordinates.cartesianPosition.a := #statResultingPos[4];
+	              #statNextCommandIn.cmdCoordinates.cartesianPosition.b := #statResultingPos[5];
+	              #statNextCommandIn.cmdCoordinates.cartesianPosition.c := #statResultingPos[6];
+	              #statNextCommandIn.cmdParameters.circleParameters.auxPoint := #statResultingAuxPoint;
+	              
+	              // Go to next state
+	              #statStateMachine := #SEARCH_NBO;
+	              
+	            ELSE
+	              // ---------------------------
+	              // command has no length
+	              // ---------------------------
+	              // --> RelCmd with 0.0 or AbsCmd with same target
+	              // --> copy command as usual without calling any contour offset calculation functions
+	              // Copy regular cmd to tempPreBufferedCmd
+	              "LKinCtrl_ConvElements_PathDataToPathData_PreBuf"(copyCompensatedParametes := TRUE,
+	                                                                copyTransitionParameters := TRUE,
+	                                                                copyFlags                := TRUE,
+	                                                                pathDataElement          := #statPathDataCommand,
+	                                                                pathDataPreBufElement    := #tempPreBufferCmd,
+	                                                                pathDataName             := #statPathDataName);
+	              
+	              // Additional info which was not copied in FC
+	              #tempPreBufferCmd.cmdID := #statPathDataPointers.retrievePointer + #statNoRestarts * INT_TO_DINT("LKINCTRL_NO_OF_PATHDATA_ELEMENTS");
+	              #tempPreBufferCmd.parameterValid := #statParameterValid;
+	              
+	              // Use compensated coordinates for multiple zero length commands in a row
+	              IF #statOffsetCompFirstCmd = FALSE AND #statPathDataCommand.cmdType = "LKINCTRL_MC_MOVELINEARABS" THEN
+	                FOR #tempCtr := 1 TO "LKINCTRL_NO_OF_VALID_BITS" DO
+	                  #tempPreBufferCmd.cmdCoordinates.targetPosition[#tempCtr] := #statLastPosOffsetComp[#tempCtr];
+	                  #tempPreBufferCmd.parameterValid[#tempCtr] := TRUE;
+	                END_FOR;
+	              END_IF;
+	              
+	              // Write temp to PreBuffer
+	              #pathDataPreBuf.commands[#pathDataPreBuf.addPointer] := #tempPreBufferCmd;
+	              
+	              // increase addPointer after copy of command for next command
+	              IF #pathDataPreBuf.addPointer < "LKINCTRL_NO_OF_PATHDATA_PREBUFFER_ELEMENTS" THEN
+	                #pathDataPreBuf.addPointer += 1;
+	              ELSE
+	                #pathDataPreBuf.addPointer := 1;
+	                #pathDataPreBuf.addPointerRestarted := TRUE;
+	              END_IF;
+	              
+	              // Go to next state
+	              #statStateMachine := #GET_CMD;
+	            END_IF;
+	          END_IF;
+	        END_IF;
+	      END_REGION CHECK_NEXT_COMMAND
+	      
+	      REGION CHECK_NEXT_BUT_ONE_COMMAND
+	        IF #statStateMachine = #SEARCH_NBO THEN
+	          // ---------------------------------------------------------------------------
+	          // find valid nextCmd and nextButOneCmd (input) data
+	          // ---------------------------------------------------------------------------
+	          // Init last pos and old coord system
+	          #statNBOLastPos := #statResultingPos;
+	          #statNBOCoordSystemOld := #statStartCoordSystem;
+	          #statNBOAuxPoint := #statResultingAuxPoint;
+	          #statNBOLinkConstellation := #statResultingLinkConstellation;
+	          
+	          IF #statNBOSearchAborted = FALSE THEN
+	            // initially set pointer increase counter to 1
+	            #statRetrievePointerIncCtr := 1;
+	          ELSE
+	            // Reset abort bit but keep RetreivePointerIncCounter the same
+	            #statNBOSearchAborted := FALSE;
+	          END_IF;
+	          
+	          // Use repeat to search in path data for next valid command
+	          REPEAT
+	            
+	            // Check pointers also for not ringBuffer or ignore add pointer
+	            // Added FR 22.05.2019
+	            IF #statPathDataPointers.ignoreAddPointer THEN
+	              // No ring buffer
+	              // Check index to be lower than max path data length 
+	              #tempIndexOk := #statPathDataPointers.retrievePointer + #statRetrievePointerIncCtr <= "LKINCTRL_NO_OF_PATHDATA_ELEMENTS";
+	            ELSE
+	              // Ring buffer
+	              // Added JR 13.05.2019 
+	              // If index overflows then calc offset to point to first index
+	              IF #statPathDataPointers.retrievePointer + #statRetrievePointerIncCtr > "LKINCTRL_NO_OF_PATHDATA_ELEMENTS" THEN
+	                // Set statRetrievePointerIncCtr
+	                #statRetrievePointerIncCtr := 1 - #statPathDataPointers.retrievePointer;
+	              END_IF;
+	              
+	              // Condition if (#statPathDataPointers.retrievePointer + #statRetrievePointerIncCtr) > 1
+	              #tempIndexOk :=
+	              ((#statPathDataPointers.retrievePointer + #statRetrievePointerIncCtr) <= #statPathDataPointers.addPointer)
+	              OR (((#statPathDataPointers.retrievePointer + #statRetrievePointerIncCtr) > #statPathDataPointers.addPointer)
+	              AND #statPathDataPointers.addPointerRestarted);
+	            END_IF;
+	            
+	            // Copy path data command
+	            // 2019.03.28 FR: Get last command
+	            IF (#statPathDataPointers.retrievePointer + #statRetrievePointerIncCtr) >= 1
+	              AND #tempIndexOk
+	            THEN
+	              // Get path data command and previous path data command
+	              #tempRetVal := "LKinCtrl_GetPathDataCmd"(pathDataType := #statPathDataType,
+	                                                       index := #statPathDataPointers.retrievePointer + #statRetrievePointerIncCtr,
+	                                                       pathData := #pathData,
+	                                                       pathDataCommand => #statNBOPathCmdCheck,
+	                                                       parameterValid => #statNBOParameterValid,
+	                                                       pointTable := #pointTable);
+	              
+	              // Check if index is not ok and not ring buffer
+	              // --> End of path data is reached and Next or NBO was not found 
+	              // --> Set the corresponding cmd to -1 to end offset correctly 
+	            ELSIF #tempIndexOk = FALSE
+	              AND #statPathDataPointers.ignoreAddPointer
+	            THEN
+	              IF #tempValidNextCmdFound THEN
+	                // set NBO to -1
+	                // transfer no command for end of compensation
+	                #statNextButOneCommandIn.cmdType := -1;
+	                #tempValidNextButOneCmdFound := TRUE;
+	              ELSE
+	                // set Next and NBO to -1
+	                // transfer no command for end of compensation
+	                #statNextCommandIn.cmdType := -1;
+	                #tempValidNextCmdFound := TRUE;
+	                // transfer no command for end of compensation
+	                #statNextButOneCommandIn.cmdType := -1;
+	                #tempValidNextButOneCmdFound := TRUE;
+	              END_IF;
+	              // Exit repeat
+	              EXIT;
+	              
+	              // Index is not valid and ringbuffer active --> Check for new command 
+	            ELSE
+	              // Exit repeat loop and check again in next cycle
+	              // memorize abort
+	              #statNBOSearchAborted := TRUE;
+	              EXIT;
+	            END_IF;
+	            
+	            // preCheck sequence for comamnd to have length of zero
+	            #tempCmdLengthIsZero := FALSE;
+	            
+	            // Command was copied --> Check if valid for NBO
+	            IF #statNBOPathCmdCheck.cmdActivated THEN
+	              // Valid
+	              // Check for length 0.0
+	              #instLKinCtrlPrepareCommand(status                          => #tempRetVal,
+	                                          cmdLengthZero                   => #tempCmdLengthIsZero,
+	                                          cmdType                         := #statNBOPathCmdCheck.cmdType,
+	                                          coordinates                     := #statNBOPathCmdCheck.cmdCoordinates.cartesianPosition,
+	                                          coordSystem                     := #statNBOPathCmdCheck.cmdCoordinates.coordSystem,
+	                                          circleParameters                := #statNBOPathCmdCheck.cmdParameters.circleParameters,
+	                                          moveDirectParameter             := #statNBOPathCmdCheck.cmdParameters.moveDirectParameters,
+	                                          parameterValid                  := #statNBOParameterValid,
+	                                          resultingPosition               => #statNBOLastPos,
+	                                          resultingAuxPoint               => #statNBOAuxPoint,
+	                                          startPositionCoordSystem        := #statNBOCoordSystemOld,
+	                                          resultingLinkConstellation      => #statNBOLinkConstellation,
+	                                          OCSFrames                       := #statOCSFrames,
+	                                          userFrames                      := #statUserFrames,
+	                                          kinematicsTransformation        := #instMC_KinematicsTransformation,
+	                                          inverseKinematicsTransformation := #instMC_InverseKinematicsTransformation,
+	                                          toKinematics                    := #to_Kinematics,
+	                                          relativeShift                   := #statRelativeShift);
+	              
+	              
+	              // check for command to be END_OFFSET_COMP or end of path command
+	              IF #statNBOPathCmdCheck.cmdType = "LKINCTRL_CONFIG_END_OFFSET_COMP"
+	                OR #statNBOPathCmdCheck.cmdType = -1
+	              THEN
+	                // transfer no command for end of compensation
+	                #statNextButOneCommandIn.cmdType := -1;
+	                #tempCmdLengthIsZero := FALSE; // Reset cmdLengthIsZero to trigger end of repeat
+	              ELSE
+	                // copy 'next' cmd to nextButOneCommand input
+	                #statNextButOneCommandIn := #statNBOPathCmdCheck;
+	                IF #statNextButOneCommandIn.cmdType = "LKINCTRL_MC_MOVELINEARREL" THEN
+	                  #statNextButOneCommandIn.cmdType := "LKINCTRL_MC_MOVELINEARABS";
+	                ELSIF #statNextButOneCommandIn.cmdType = "LKINCTRL_MC_MOVECIRCULARREL" THEN
+	                  #statNextButOneCommandIn.cmdType := "LKINCTRL_MC_MOVECIRCULARABS";
+	                END_IF;
+	                #statNextButOneCommandIn.cmdCoordinates.cartesianPosition.x := #statNBOLastPos[1];
+	                #statNextButOneCommandIn.cmdCoordinates.cartesianPosition.y := #statNBOLastPos[2];
+	                #statNextButOneCommandIn.cmdCoordinates.cartesianPosition.z := #statNBOLastPos[3];
+	                #statNextButOneCommandIn.cmdCoordinates.cartesianPosition.a := #statNBOLastPos[4];
+	                #statNextButOneCommandIn.cmdCoordinates.cartesianPosition.b := #statNBOLastPos[5];
+	                #statNextButOneCommandIn.cmdCoordinates.cartesianPosition.c := #statNBOLastPos[6];
+	                #statNextButOneCommandIn.cmdParameters.circleParameters.auxPoint := #statNBOAuxPoint;
+	              END_IF;
+	              
+	              IF #tempCmdLengthIsZero = FALSE THEN
+	                // Has length
+	                // Check if valid
+	                // set condition bit to abort loop
+	                #tempValidNextButOneCmdFound := TRUE;
+	                #statDebugNextButOneCmdFound := #statPathDataPointers.retrievePointer + #statRetrievePointerIncCtr;
+	              ELSE
+	                // Is 0.0 length cmd --> Not valid for NBO --> Search continues
+	                // increase set pointer increase counter to check next element
+	                #statRetrievePointerIncCtr += 1;
+	              END_IF;
+	            ELSE
+	              // Cmd deactivated --> Not valid
+	              // increase set pointer increase counter to check next element
+	              #statRetrievePointerIncCtr += 1;
+	            END_IF;
+	            
+	          UNTIL #tempValidNextButOneCmdFound END_REPEAT;
+	          
+	          // If both cmds were found and no abort then go to offset calc
+	          IF #tempValidNextButOneCmdFound AND NOT #statNBOSearchAborted THEN
+	            #statStateMachine := #OFFSET_CALC; // Go to OffsetCalc
+	            #statOffsetCompFirstCmd := FALSE; // reset variable for first offset command
+	          END_IF;
+	        END_IF;
+	      END_REGION CHECK_NEXT_BUT_ONE_COMMAND
+	      
+	      REGION OFFSET_CALCULATION
+	        IF #statStateMachine = #OFFSET_CALC THEN
+	          // ---------------------------------------------------------------------------
+	          // Offset Compensation Calculation
+	          // ---------------------------------------------------------------------------
+	          #statRetValOffsetComp := "LKinCtrl_OffsetContour"(toolLength := #statToolLength,
+	                                                            toolRadius := #statToolRadius,
+	                                                            pathPlane := #statPathPlane,
+	                                                            compensationDirection := #statCompDirection,
+	                                                            currentPosIn := #statCurrentPosIn,
+	                                                            nextCommandIn := #statNextCommandIn,
+	                                                            nextButOneCommandIn := #statNextButOneCommandIn,
+	                                                            nextCommandOut := #statNextCommandOut,
+	                                                            intermediateCommandOut := #statIntermediateCommandOut,
+	                                                            nextButOneCommandOut := #statNextButOneCommandOut,
+	                                                            nextPositionAbsoluteOut := #statNextPositionAbsoluteOut,
+	                                                            nextPositionAbsoluteRadCompOut := #statNextPositionAbsoluteRadCompOut);
+	          
+	          // ---------------------------------------------
+	          // check for errors in offset compensation calculation
+	          // ---------------------------------------------
+	          IF #statRetValOffsetComp.returnValue <> 16#0 THEN
+	            #statErrorAutoCleared := TRUE;
+	            #statStatus := #statRetValOffsetComp.returnValue;
+	          ELSE
+	            // use nextPositionAbsolute from last calc as currentPositionAbsolute for next calc
+	            #statCurrentPosIn.positionAbsolute := #statNextPositionAbsoluteOut;
+	            #statCurrentPosIn.positionAbsoluteRadComp := #statNextPositionAbsoluteRadCompOut;
+	            
+	            // ---------------------------------------------
+	            // check for compensated nextCmd to be available
+	            // ---------------------------------------------
+	            IF #statNextCommandOut.cmdType <> -1 THEN
+	              //PathData - command - cmdID
+	              #pathDataPreBuf.commands[#pathDataPreBuf.addPointer].cmdID := #statPathDataPointers.retrievePointer + #statNoRestarts * INT_TO_DINT("LKINCTRL_NO_OF_PATHDATA_ELEMENTS");
+	              
+	              // copy next cmd data (OUT) - compensated (new calculated data)
+	              "LKinCtrl_ConvElements_PathDataToPathData_PreBuf"(copyCompensatedParametes := TRUE,
+	                                                                copyTransitionParameters := FALSE, //true ,
+	                                                                copyFlags                := TRUE,
+	                                                                pathDataElement          := #statNextCommandOut,
+	                                                                pathDataPreBufElement    := #pathDataPreBuf.commands[#pathDataPreBuf.addPointer],
+	                                                                pathDataName             := #statPathDataName);
+	              
+	              // Added FR 22.05.2019: Set ParameterValid bits true
+	              FOR #tempCtr := 1 TO "LKINCTRL_NO_OF_VALID_BITS" DO
+	                #pathDataPreBuf.commands[#pathDataPreBuf.addPointer].parameterValid[#tempCtr] := TRUE;
+	              END_FOR;
+	              
+	              // Write temp to PreBuffer
+	              #pathDataPreBuf.commands[#pathDataPreBuf.addPointer] := #pathDataPreBuf.commands[#pathDataPreBuf.addPointer];
+	              
+	              // After contour offset caclulation the resulting position is different -> Radius and length is included
+	              #instLKinCtrlPrepareCommand(status                          => #tempRetVal,
+	                                          cmdLengthZero                   => #tempCmdLengthIsZero,
+	                                          cmdType                         := #pathDataPreBuf.commands[#pathDataPreBuf.addPointer].cmdType,
+	                                          coordinates                     := #pathDataPreBuf.commands[#pathDataPreBuf.addPointer].cmdCoordinates.targetPosition,
+	                                          coordSystem                     := #pathDataPreBuf.commands[#pathDataPreBuf.addPointer].cmdCoordinates.coordSystem,
+	                                          circleParameters                := #pathDataPreBuf.commands[#pathDataPreBuf.addPointer].cmdParameters.circleParameters,
+	                                          moveDirectParameter             := #pathDataPreBuf.commands[#pathDataPreBuf.addPointer].cmdParameters.moveDirectParameters,
+	                                          parameterValid                  := #pathDataPreBuf.commands[#pathDataPreBuf.addPointer].parameterValid,
+	                                          resultingPosition               => #statLastPosOffsetComp,
+	                                          resultingAuxPoint               => #statAuxPointOffsetComp,
+	                                          startPositionCoordSystem        := #statStartCoordSystem,
+	                                          resultingLinkConstellation      => #statResultingLinkConstellation,
+	                                          OCSFrames                       := #statOCSFrames,
+	                                          userFrames                      := #statUserFrames,
+	                                          kinematicsTransformation        := #instMC_KinematicsTransformation,
+	                                          inverseKinematicsTransformation := #instMC_InverseKinematicsTransformation,
+	                                          toKinematics                    := #to_Kinematics,
+	                                          relativeShift                   := #statRelativeShift);
+	              
+	              // Copy resulting target to start if motion command -> Necessary for preparation of next command
+	              #statStartPos := #statLastPosOffsetComp;
+	              #statStartCoordSystem := #statPathDataCommand.cmdCoordinates.coordSystem;
+	              #statStartLinkConstellation := #statResultingLinkConstellation;
+	              
+	              // check for error in last position calculation
+	              IF #tempRetVal <> 16#0 THEN
+	                // set error status
+	                #statErrorAutoCleared := TRUE;
+	                #statStatus := #ERR_LASTPOS_CALCULATION;
+	              END_IF;
+	              
+	              // increase addPointer after copy of command for next command
+	              IF #pathDataPreBuf.addPointer < "LKINCTRL_NO_OF_PATHDATA_PREBUFFER_ELEMENTS" THEN
+	                #pathDataPreBuf.addPointer += 1;
+	              ELSE
+	                #pathDataPreBuf.addPointer := 1;
+	                #pathDataPreBuf.addPointerRestarted := TRUE;
+	              END_IF;
+	              
+	              // write transitionParameters of nextButOneCmd result to next but one command
+	              #pathDataPreBuf.commands[#pathDataPreBuf.addPointer].cmdParameters.transitionParameters := #statNextButOneCommandOut.transitionParameter;
+	            ELSE
+	              ; // Invalid command -> nothing to copy
+	            END_IF;
+	            
+	            // ---------------------------------------------
+	            // check if there is an additional intermediate command
+	            // ---------------------------------------------
+	            IF (#statIntermediateCommandOut.cmdType > 0) THEN
+	              
+	              // copy intermediate cmd to PathData_PreBuf - no flags
+	              "LKinCtrl_ConvElements_PathDataToPathData_PreBuf"(copyCompensatedParametes := TRUE,
+	                                                                copyTransitionParameters := FALSE,
+	                                                                copyFlags                := FALSE,
+	                                                                pathDataElement          := #statIntermediateCommandOut,
+	                                                                pathDataPreBufElement    := #pathDataPreBuf.commands[#pathDataPreBuf.addPointer],
+	                                                                pathDataName             := #statPathDataName);
+	              
+	              //PathData - command - cmdID
+	              // set intermediate commands cmdID to cmdID of following command ==> flag handling similar to transitionParameter
+	              #pathDataPreBuf.commands[#pathDataPreBuf.addPointer].cmdID := (#statPathDataPointers.retrievePointer + 1) + #statNoRestarts * INT_TO_DINT("LKINCTRL_NO_OF_PATHDATA_ELEMENTS");
+	              
+	              // added FR: 11.07.2019: Set ParameterValid bits true
+	              FOR #tempCtr := 1 TO "LKINCTRL_NO_OF_VALID_BITS" DO
+	                #pathDataPreBuf.commands[#pathDataPreBuf.addPointer].parameterValid[#tempCtr] := TRUE;
+	              END_FOR;
+	              
+	              // mark intermediate commands to except them from flag for remaining distance
+	              #pathDataPreBuf.commands[#pathDataPreBuf.addPointer].isIntermediateCmd := TRUE;
+	              
+	              // Write temp to PreBuffer
+	              #pathDataPreBuf.commands[#pathDataPreBuf.addPointer] := #pathDataPreBuf.commands[#pathDataPreBuf.addPointer];
+	              
+	              // After contour offset caclulation the resulting position is different -> Radius and length is included
+	              #instLKinCtrlPrepareCommand(status                          => #tempRetVal,
+	                                          cmdLengthZero                   => #tempCmdLengthIsZero,
+	                                          cmdType                         := #pathDataPreBuf.commands[#pathDataPreBuf.addPointer].cmdType,
+	                                          coordinates                     := #pathDataPreBuf.commands[#pathDataPreBuf.addPointer].cmdCoordinates.targetPosition,
+	                                          coordSystem                     := #pathDataPreBuf.commands[#pathDataPreBuf.addPointer].cmdCoordinates.coordSystem,
+	                                          circleParameters                := #pathDataPreBuf.commands[#pathDataPreBuf.addPointer].cmdParameters.circleParameters,
+	                                          moveDirectParameter             := #pathDataPreBuf.commands[#pathDataPreBuf.addPointer].cmdParameters.moveDirectParameters,
+	                                          parameterValid                  := #pathDataPreBuf.commands[#pathDataPreBuf.addPointer].parameterValid,
+	                                          resultingPosition               => #statLastPosOffsetComp,
+	                                          resultingAuxPoint               => #statAuxPointOffsetComp,
+	                                          startPositionCoordSystem        := #statStartCoordSystem,
+	                                          resultingLinkConstellation      => #statResultingLinkConstellation,
+	                                          OCSFrames                       := #statOCSFrames,
+	                                          userFrames                      := #statUserFrames,
+	                                          kinematicsTransformation        := #instMC_KinematicsTransformation,
+	                                          inverseKinematicsTransformation := #instMC_InverseKinematicsTransformation,
+	                                          toKinematics                    := #to_Kinematics,
+	                                          relativeShift                   := #statRelativeShift);
+	              
+	              // Copy resulting target to start if motion command -> Necessary for preparation of next command
+	              #statStartPos := #statLastPosOffsetComp;
+	              
+	              // increase addPointer after copy of command for next command
+	              IF #pathDataPreBuf.addPointer < "LKINCTRL_NO_OF_PATHDATA_PREBUFFER_ELEMENTS" THEN
+	                #pathDataPreBuf.addPointer += 1;
+	              ELSE
+	                #pathDataPreBuf.addPointer := 1;
+	                #pathDataPreBuf.addPointerRestarted := TRUE;
+	              END_IF;
+	              
+	            ELSE
+	              ; // No intermediate cmd -> do nothing
+	            END_IF;
+	          END_IF;
+	         
+	          // Get next command
+	          #statStateMachine := #GET_CMD;
+	        END_IF;
+	        
+	
+	        
+	      END_REGION OFFSET_CALCULATION
+	    END_REGION CONTOUR_OFFSET
+	    
+	    // ---------------------------------------------------------------------------
+	    // Take pathData command and copy to preBuffered pathData
+	    // ---------------------------------------------------------------------------
+	    REGION COPY_COMMAND
+	      IF #statStateMachine = #COPY_CMD THEN
+	        
+	        // ---------------------------------------------------------------------------
+	        // Check copying of parameters (startPosition, targetPosition, auxPoint, etc.
+	        // ---------------------------------------------------------------------------
+	        "LKinCtrl_ConvElements_PathDataToPathData_PreBuf"(copyCompensatedParametes := TRUE,
+	                                                          copyTransitionParameters := TRUE,
+	                                                          copyFlags                := TRUE,
+	                                                          pathDataElement          := #statPathDataCommand,
+	                                                          pathDataPreBufElement    := #tempPreBufferCmd,
+	                                                          pathDataName             := #statPathDataName);
+	        
+	        #tempPreBufferCmd.cmdCoordinates.startPosition := #statStartPos;
+	        #tempPreBufferCmd.cmdCoordinates.targetPosition := #statResultingPos;
+	        #tempPreBufferCmd.cmdCoordinates.targetDistance := #statResultingDistance;
+	        #tempPreBufferCmd.cmdParameters.circleParameters.auxPoint := #statResultingAuxPoint;
+	        
+	        // Copy resulting target to start if motion command -> Necessary for preparation of next command
+	        IF #statCmdIsMotionCmd THEN
+	          #statStartPos := #statResultingPos;
+	          #statStartCoordSystem := #statPathDataCommand.cmdCoordinates.coordSystem;
+	          #statStartLinkConstellation := #statResultingLinkConstellation;
+	        END_IF;
+	        
+	        // Additional info which was not copied in FC
+	        #tempPreBufferCmd.cmdID := #statPathDataPointers.retrievePointer + #statNoRestarts * INT_TO_DINT("LKINCTRL_NO_OF_PATHDATA_ELEMENTS");
+	        #tempPreBufferCmd.parameterValid := #statParameterValid;
+	        #tempPreBufferCmd.isIntermediateCmd := FALSE;        // command is no intermediate command by default, only changed with active offset compensation and generation of additional command
+	        
+	        // PathData Blending at first active command of path
+	        IF (#statInitPathTransition = 1) THEN
+	          #tempPreBufferCmd.cmdParameters.bufferMode := #initBufferMode;
+	          #tempPreBufferCmd.cmdParameters.transitionParameters := #initTransitionParameter;
+	          #statInitPathTransition := 0; // Reset static to avoid further writing of transition parameter
+	        END_IF;
+	        
+	        // Write temp to PreBuffer
+	        #pathDataPreBuf.commands[#pathDataPreBuf.addPointer] := #tempPreBufferCmd;
+	        
+	        // increment PathDataPreBuf addPointer for next copy procedure
+	        // also implement restart of pointer (1..constant)
+	        IF #pathDataPreBuf.addPointer < "LKINCTRL_NO_OF_PATHDATA_PREBUFFER_ELEMENTS" THEN
+	          #pathDataPreBuf.addPointer += 1;
+	        ELSE
+	          #pathDataPreBuf.addPointer := 1;
+	          #pathDataPreBuf.addPointerRestarted := TRUE;
+	        END_IF;
+	        
+	        // -----------------------------------
+	        // Go to next state: GET_CMD
+	        // -----------------------------------
+	        #statStateMachine := #GET_CMD;
+	      END_IF;
+	    END_REGION COPY_COMMAND
+	    
+	  END_REGION PATHDATA_PREBUFFERING
+	  
+	  REGION PATHDATA_PREBUFFERED_COMPLETELY
+	    // STATE: PATHDATA_PREBUFFERED_COMPLETELY
+	    // =======================================================================================================      
+	    // PATHDATA_PREBUFFERED_COMPLETELY: Disabling, e.g. closing connections, etc.
+	    IF #statStateMachine = #PATHDATA_PREBUFFERED_COMPLETELY
+	      // AND #statDebugState = TRUE
+	    THEN
+	      
+	      // reset  variable for single step debugging of states
+	      #statDebugState := FALSE;
+	      
+	      // Added FR 2019.03.28 // Reworked 08.04.2020
+	      // REGION GET_LAST_CMD_TYPE
+	      //
+	      // Always get last cmd id from preBuffered
+	      // --> Deactivated commands do not appear in preBuffered anyway
+	      // --> No need to check config cmds as they also do not appear --> Output LastCmdIsConfigCmd is not even needed / used in MovePath
+	      // --> Last cmdType equals cmdID element
+	      // --> LastCmdId is checked in MovePath if all commands are executed by Executer 
+	      // --> Condition: LastCmdIdPathdata = PathDataElementPreBuffered.cmdId --> Check if all commands we added are executed
+	      // --> Problems: how to check if empty pathdata is connected?
+	      //               How to check if pathData with only deactivated cmds (and one -1) is connected 
+	      //               Or only config commands, ...
+	      //   ==> in all cases not a single command was added to preBuffer
+	      //
+	      // Use bit to check if at least one command was added 
+	      IF #statCmdAdded THEN
+	        // At least one command was added to PreBuffered PathData
+	        // --> Use CmdId from PreBuffer to get statLastCmdId
+	        // Prebuffered cmd at last addPointer index has last cmdID
+	        IF (#pathDataPreBuf.addPointer - 1) > 0 THEN
+	          #statLastCmdIdPathdata := #pathDataPreBuf.commands[#pathDataPreBuf.addPointer - 1].cmdID;
+	        ELSE
+	          #statLastCmdIdPathdata := #pathDataPreBuf.commands["LKINCTRL_NO_OF_PATHDATA_PREBUFFER_ELEMENTS"].cmdID;
+	        END_IF;
+	      ELSE
+	        // No command was added to PreBuffered PathData --> statLastCmdId = 0 
+	        #statLastCmdIdPathdata := 0;
+	      END_IF;
+	    END_IF;
+	  END_REGION PATHDATA_PREBUFFERED_COMPLETELY
+	  
+	  REGION DISABLE_STATE
+	    // STATE: DISABLE_STATE
+	    // =======================================================================================================      
+	    // DISABLE_STATE: Disabling, e.g. closing connections, etc.
+	    IF #statStateMachine = #DISABLE_STATE
+	      // AND #statDebugState = TRUE
+	    THEN
+	      // reset  variable for single step debugging of states
+	      #statDebugState := FALSE;
+	      
+	      // Reset retrieve Pointer in #pathData
+	      #pathData.LKinLangInterface.retrievePointer := 0;
+	      #statPathDataPointers := #pathData.LKinLangInterface;
+	      
+	      // set statDisablingCompleted for deactivation of FB below
+	      #statDisablingCompleted := TRUE;
+	    END_IF;
+	  END_REGION DISABLE_STATE
+	  
+	END_REGION STATE_MACHINE
+	
+	REGION OUTPUTS
+	  // Write outputs
+	  IF (#statDisablingCompleted = TRUE) THEN
+	    // Reset outputs if disabling completed
+	    #statValid := FALSE;
+	    #statBusy := FALSE;
+	    #statError := FALSE;
+	    #statErrorUserCleared := FALSE;
+	    // #statErrorAutoCleared := FALSE;
+	    #statStatus := #STATUS_NO_CALL;
+	    // TODO: Reset application specific outputs
+	    
+	  ELSIF (#statErrorUserCleared = TRUE) AND (#statError = FALSE) THEN
+	    // Error can only be cleared by user; rising edge at enable input is needed to continue 
+	    #statValid := FALSE;
+	    #statBusy := FALSE;
+	    #statError := TRUE;
+	    #statStateMachine := #NO_PROCESSING; // Switch state machine to "no processing"
+	    
+	  ELSIF (#statErrorAutoCleared = TRUE) AND (#statError = FALSE) THEN
+	    // Error can be reset by FB automatically  
+	    #statValid := FALSE;
+	    #statBusy := TRUE;
+	    #statError := TRUE;
+	    #statStateMachine := #NO_PROCESSING; // Switch state machine to "no processing"
+	    
+	  ELSIF (#statErrorAutoCleared = FALSE) AND (#statErrorUserCleared = FALSE) AND (#statError = TRUE) THEN
+	    // If autocleared error is acknowledged
+	    #statValid := TRUE;
+	    #statBusy := TRUE;
+	    #statError := FALSE;
+	    #statStatus := #STATUS_SUBSEQUENT_CALL;
+	  END_IF;
+	  
+	  // Copy pointers back to connected path data 
+	  #pathData.LKinLangInterface := #statPathDataPointers;
+	  
+	  // Write static values to outputs
+	  #valid := #statValid;
+	  #busy := #statBusy;
+	  #error := #statError;
+	  #status := #statStatus;
+	  // Write application specific static values to outputs
+	  #lastCmdIdPathData := #statLastCmdIdPathdata;
+	  #pathDataRetrievePointer := #statPathDataPointers.retrievePointer;
+	  #preprocessingStop := #statPathDataPointers.preprocessingStop;
+	END_REGION OUTPUTS
+	// =================================================================================================================
+	// End of Function Block: LKinCtrl_PreBuffer
+	// =================================================================================================================
+END_FUNCTION_BLOCK
+

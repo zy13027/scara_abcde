@@ -1,0 +1,48 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="input" Datatype="Struct">
+      <Member Name="bo_Active" Datatype="Bool" />
+      <Member Name="mode" Datatype="Int" />
+    </Member>
+    <Member Name="output" Datatype="Struct">
+      <Member Name="done" Datatype="Bool" />
+      <Member Name="busy" Datatype="Bool" />
+      <Member Name="error" Datatype="Bool" />
+      <Member Name="i32_ErrorCode" Datatype="Word" />
+      <Member Name="r64_MeasuredValue1" Datatype="LReal" />
+      <Member Name="r64_MeasuredValue2" Datatype="LReal" />
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>UDT_typeMeasureInput</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

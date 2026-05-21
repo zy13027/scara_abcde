@@ -1,0 +1,59 @@
+﻿FUNCTION "LKinCtrl_ScaleDynamics" : "LKinCtrl_typePathDynamics"
+TITLE = LKinCtrl_ScaleDynamics
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Scale dynamics values according to input factor
+   VAR_INPUT 
+      dynamicsIn : "LKinCtrl_typePathDynamics";   // Input dynamics
+      scaleFactor : LReal;   // Scaling factor
+      mode : DInt;   // Scaling mode for start and target dynamics (0: disable, 1: velo, 2: velo and accel, 3: velo, accel and jerk)
+   END_VAR
+
+   VAR CONSTANT 
+      MODE_VELO_ACCEL : DInt := 2;   // Scale only velocity and acceleration
+      MODE_VELO : DInt := 1;   // Scale only velocity
+      MODE_DISALBE : DInt := 0;   // Scale nothing
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2023
+	//-----------------------------------------------------------------------------
+	// Library:       LKinCtrl
+	// Tested with:   S7-1518TF-4 PN/DP, FW V3.1
+	// Engineering:   TIA Portal V19
+	// Restrictions:  ---
+	// Requirements:  S7-1500T, FW V3.0
+	// Functionality: Scale dynamics values (velocity, acceleration, deceleration and jerk)
+	//                according to input factor
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 21.09.2023 SF               First released version
+	//=============================================================================
+	
+	//Preset output
+	#LKinCtrl_ScaleDynamics := #dynamicsIn;
+	//Scale if necessary
+	IF (#mode > #MODE_DISALBE) THEN
+	  //Scale velocity
+	  #LKinCtrl_ScaleDynamics.velocity := #dynamicsIn.velocity * #scaleFactor / 100.0;
+	  IF (#mode > #MODE_VELO) THEN
+	    //Scale acceleration 
+	    #LKinCtrl_ScaleDynamics.acceleration := #dynamicsIn.acceleration * (#scaleFactor / 100.0) * (#scaleFactor / 100.0);
+	    #LKinCtrl_ScaleDynamics.deceleration := #dynamicsIn.deceleration * (#scaleFactor / 100.0) * (#scaleFactor / 100.0);
+	    IF (#mode > #MODE_VELO_ACCEL) THEN
+	      //Scale jerk
+	      #LKinCtrl_ScaleDynamics.jerk := #dynamicsIn.jerk * (#scaleFactor / 100.0) * (#scaleFactor / 100.0) * (#scaleFactor / 100.0);
+	    END_IF;
+	  END_IF;
+	END_IF;
+	
+END_FUNCTION
+

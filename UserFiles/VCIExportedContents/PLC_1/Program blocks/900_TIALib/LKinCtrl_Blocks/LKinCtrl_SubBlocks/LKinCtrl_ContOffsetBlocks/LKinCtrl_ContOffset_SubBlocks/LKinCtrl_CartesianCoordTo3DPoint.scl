@@ -1,0 +1,36 @@
+﻿FUNCTION "LKinCtrl_CartesianCoordTo3DPoint" : "LKinCtrl_typeCOff3DPoint"
+TITLE = LKinCtrl_CartesianCoordTo3DPoint
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//The function converts data type "LKinCtrl_typeCartesianPosition" in "LKinCtrl_typeCOff3DPoint"
+   VAR_INPUT 
+      cartesianCoord : "LKinCtrl_typeCartesianPosition";   // Cartesian input coordinate
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LCOffset
+	// Tested with: S7-1515T-3 PN/DP
+	// Engineering: TIA Portal V15
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 2.5
+	// Functionality: The function converts data type "LKinCtrl_typeCartesianPosition" in "LKinCtrl_typeCOff3DPoint"
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   2019-02-14    AW                  created
+	//===========================================================================================
+	//
+	#LKinCtrl_CartesianCoordTo3DPoint.x := #cartesianCoord.x;
+	#LKinCtrl_CartesianCoordTo3DPoint.y := #cartesianCoord.y;
+	#LKinCtrl_CartesianCoordTo3DPoint.z := #cartesianCoord.z;
+END_FUNCTION
+

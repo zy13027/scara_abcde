@@ -1,0 +1,48 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="pathDataName" Datatype="String[&quot;LKINCTRL_LENGTH_OF_PATHDATA_NAME&quot;]" />
+    <Member Name="pathDataIdentifier" Datatype="USInt" />
+    <Member Name="setNumber" Datatype="DInt" />
+    <Member Name="MotionType" Datatype="Int">
+      <StartValue>-1</StartValue>
+    </Member>
+    <Member Name="MotionFBNo" Datatype="Int" />
+    <Member Name="coordinateSystem" Datatype="Int" />
+    <Member Name="transitionParameter" Datatype="LReal" />
+    <Member Name="bufferMode" Datatype="Int" />
+    <Member Name="measurementCmd" Datatype="USInt" />
+    <Member Name="position" Datatype="Array[1..6] of LReal" />
+  </Section>
+</Sections></Interface>
+      <Name>LKinCtrl_bufferElement</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

@@ -1,0 +1,112 @@
+﻿FUNCTION "LKinCtrl_GetDistanceToPrevious" : Word
+TITLE = LKinCtrl_GetDistanceToPrevious
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+   VAR_IN_OUT 
+      cmdPar : "LKinCtrl_typePnPLinCmdSeqParameter";   // Parameters of points
+      axesGroup {InstructionName := 'TO_Kinematics'; LibVersion := '9.0'} : TO_Kinematics;   // Reference to axes group
+   END_VAR
+
+   VAR_TEMP 
+      tempPrevPoint : "LKinCtrl_typePnPLinPointParameter" := ((), [()], (), (), [-1.0], ((), (), ((), (), (), (), (), ()), ((), (), (), (), (), ())), (), ((), (), (), ()), (), ());
+      tempWord : Word;
+   END_VAR
+
+   VAR CONSTANT 
+      STATUS_NO_ERR : Word := 16#0000;   // No error
+      ERR_GET_DIST : Word := 16#8000;   // Error - Get linear distance
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2023
+	//-----------------------------------------------------------------------------
+	// Library:       LKinCtrl
+	// Tested with:   S7-1518TF-4 PN/DP, FW V3.1
+	// Engineering:   TIA Portal V19
+	// Restrictions:  ---
+	// Requirements:  S7-1500T, FW V3.0
+	// Functionality: This block is filling the distance-parameter for a command sequence
+	//                (Usage for LKinCtrl_MC_MovePickAndPlace...)
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 21.09.2023 SF               First released version
+	//=============================================================================
+	
+	#LKinCtrl_GetDistanceToPrevious := #STATUS_NO_ERR;
+	
+	//Target point
+	IF (#cmdPar.target.usePoint = TRUE) THEN
+	  IF (#cmdPar.preTarget.usePoint = TRUE) THEN
+	    #tempPrevPoint := #cmdPar.preTarget;
+	  ELSIF (#cmdPar.intermediate.usePoint = TRUE) THEN
+	    #tempPrevPoint := #cmdPar.intermediate;
+	  ELSIF (#cmdPar.postStart.usePoint = TRUE) THEN
+	    #tempPrevPoint := #cmdPar.postStart;
+	  ELSE
+	    #tempPrevPoint := #cmdPar.start;
+	  END_IF;
+	  #tempWord := "LKinCtrl_CalcLinearDistance"(previous := #tempPrevPoint,
+	                                             actual := #cmdPar.target,
+	                                             axesGroup := #axesGroup);
+	  IF (#tempWord.%X15 = TRUE) THEN
+	    #LKinCtrl_GetDistanceToPrevious := #ERR_GET_DIST;
+	    RETURN;
+	  END_IF;
+	END_IF;
+	
+	//Pretarget
+	IF (#cmdPar.preTarget.usePoint = TRUE) THEN
+	  IF (#cmdPar.intermediate.usePoint = TRUE) THEN
+	    #tempPrevPoint := #cmdPar.intermediate;
+	  ELSIF (#cmdPar.postStart.usePoint = TRUE) THEN
+	    #tempPrevPoint := #cmdPar.postStart;
+	  ELSE
+	    #tempPrevPoint := #cmdPar.start;
+	  END_IF;
+	  #tempWord := "LKinCtrl_CalcLinearDistance"(previous := #tempPrevPoint,
+	                                             actual := #cmdPar.preTarget,
+	                                             axesGroup := #axesGroup);
+	  IF (#tempWord.%X15 = TRUE) THEN
+	    #LKinCtrl_GetDistanceToPrevious := #ERR_GET_DIST;
+	    RETURN;
+	  END_IF;
+	END_IF;
+	
+	//Intermediate
+	IF (#cmdPar.intermediate.usePoint = TRUE) THEN
+	  IF (#cmdPar.postStart.usePoint = TRUE) THEN
+	    #tempPrevPoint := #cmdPar.postStart;
+	  ELSE
+	    #tempPrevPoint := #cmdPar.start;
+	  END_IF;
+	  #tempWord := "LKinCtrl_CalcLinearDistance"(previous := #tempPrevPoint,
+	                                             actual := #cmdPar.intermediate,
+	                                             axesGroup := #axesGroup);
+	  IF (#tempWord.%X15 = TRUE) THEN
+	    #LKinCtrl_GetDistanceToPrevious := #ERR_GET_DIST;
+	    RETURN;
+	  END_IF;
+	END_IF;
+	
+	//PostStart
+	IF (#cmdPar.postStart.usePoint = TRUE) THEN
+	  #tempPrevPoint := #cmdPar.start;
+	  #tempWord := "LKinCtrl_CalcLinearDistance"(previous := #tempPrevPoint,
+	                                             actual := #cmdPar.postStart,
+	                                             axesGroup := #axesGroup);
+	  IF (#tempWord.%X15 = TRUE) THEN
+	    #LKinCtrl_GetDistanceToPrevious := #ERR_GET_DIST;
+	    RETURN;
+	  END_IF;
+	END_IF;
+	
+END_FUNCTION
+

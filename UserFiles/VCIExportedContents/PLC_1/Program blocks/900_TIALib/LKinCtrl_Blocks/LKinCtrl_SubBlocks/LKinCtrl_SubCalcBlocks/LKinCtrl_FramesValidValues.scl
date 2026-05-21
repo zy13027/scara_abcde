@@ -1,0 +1,159 @@
+﻿FUNCTION "LKinCtrl_FramesValidValues" : Void
+TITLE = LKinCtrl_FramesValidValues
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+   VAR_INPUT 
+      mode : DInt;   // 0 = positioning, 1 = tool frame, 2 = OCS/KCS frame, 3 = MCS/JCS
+      typeOfKinematics : DInt;   // Type of the TO_Kinematics (<TO>.Kinematics.TypeOfKinematics )
+   END_VAR
+
+   VAR_OUTPUT 
+      frameCoordinateConfigurable : Array[0..5] of Bool;   // Determines if the offset/rotation by the coordinate is permitted
+      upperLimitFrame : Array[0..5] of LReal;   // Upper limit of offset/rotation (exception: 3D with 2 orientation & mode positioning -> limits for C do not define a range but only these 2 values are allowed )
+      lowerLimitFrame : Array[0..5] of LReal;   // Lower limit of the offset/rotation (exception: 3D with 2 orientation & mode positioning -> limits for C do not define a range but only these 2 values are allowed )
+   END_VAR
+
+   VAR_TEMP 
+      tempCoordinatesCounter : DInt;   // Temporary variable to loop through the coordinates
+      tempKinematicsType3D : DInt;   // Temporary variable to categorize the types of kinematics (2D, 2D with orientation, 3D, ...)
+      tempFrameCoordinateConfigurable : Array[0..5] of Bool;   // Determines if the offset/rotation by the coordinate is permitted
+      tempUpperLimitFrame : Array[0..5] of LReal;   // Upper limit of offset/rotation (exception: 3D with 2 orientation & mode positioning -> limits for C do not define a range but only these 2 values are allowed )
+      tempLowerLimitFrame : Array[0..5] of LReal;   // Lower limit of the offset/rotation (exception: 3D with 2 orientation & mode positioning -> limits for C do not define a range but only these 2 values are allowed )
+   END_VAR
+
+   VAR CONSTANT 
+      MODE_POSITIONING : DInt := 0;   // Mode returning the positioning frame limits
+      MODE_TOOL_FRAME : DInt := 1;   // Mode returning the tool frame limits
+      "MODE_OCS/KCS_FRAME" : DInt := 2;   // Mode returning the OCS/KCS frame limits
+      "MODE_MCS/JCS_FRAME" : DInt := 3;   // Mode returning the MCS frame limits
+      UPPER_LIMIT_MAX : LReal := 1000000000000.0;   // Maximum limit for the offset in x, y or z direction
+      LOWER_LIMIT_MIN : LReal := -1000000000000.0;   // Minimum limit for the offset in x, y or z direction
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2022 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN/DP
+	// Engineering: TIA Portal V17
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 2.9
+	// Functionality: This FC returns the possible coordinates and ranges for a frame depending
+	// on the kinematics type and the type of frame (positioning, tool frame, OCS/KCS frame).
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   14.12.2022    FF                  First created version
+	// 01.00.01   09.02.2023    FF                  Added MCS/JCS (not limited), A is not limited
+	//                                              for positioning of kinematics <= 4D
+	//===========================================================================================
+	
+	//Categorize the different TO_Kinematics types
+	CASE #typeOfKinematics OF
+	  1, 5, 11, 15, 31:  // 2D kinematics
+	    #tempKinematicsType3D := 1; // 1 - Cartesian portal 2D, Roller picker 2D, Articulated arm 2D, User-defined 2D
+	  2, 6, 12, 16, 20, 32:  // 2D + orientation axis A
+	    #tempKinematicsType3D := 2;   // 2 - Cartesian portal 2D with orientation, Roller picker 2D with orientation, Articulated arm 2D with orientation, Delta picker 2D with orientation, SCARA 2D with orientation, User-defined 2D with orientation A
+	  3, 7, 13, 17, 21, 23, 33:  // 3D kinematics
+	    #tempKinematicsType3D := 3;   // 3 - Cartesian portal 3D, Roller picker 3D (vertical), Articulated arm 3D, Delta picker 3D, Cylindrical robot 3D, Tripod 3D, User-defined 3D
+	  4, 8, 9, 10, 14, 18, 22, 24, 34:  // 3D + orientation axis A
+	    #tempKinematicsType3D := 4;   // 4 - Cartesian portal 3D with orientation, Roller picker 3D with orientation (vertical), Roller picker 3D with orientation (horizontal), SCARA 3D with orientation, Articulated arm 3D with orientation, Delta picker 3D with orientation, Cylindrical robot 3D with orientation, Tripod 3D with orientation, User-defined 3D with orientation A
+	  26, 27, 35:// 3D + orientation axis A, B
+	    #tempKinematicsType3D := 5;   // 5 - Cartesian portal 3D with 2 orientations A, B (Kin+), Delta picker 3D with 2 orientations A, B (Kin+), User-defined kinematics systems 3D with 2 orientations A, B (Kin+)
+	  25, 36:// 3D + orientation axis A, B, C
+	    #tempKinematicsType3D := 6;   // 6 - 6-axis articulated arm with central hand (Kin+), User-defined kinematics systems 3D with 3 orientations (Kin+)
+	  ELSE  // invalid kinematics type
+	    #tempKinematicsType3D := 0;
+	END_CASE;
+	//reset all outputs
+	FOR #tempCoordinatesCounter := 0 TO 5 DO
+	  #tempFrameCoordinateConfigurable[#tempCoordinatesCounter] := FALSE;
+	  #tempUpperLimitFrame[#tempCoordinatesCounter] := 0.0;
+	  #tempLowerLimitFrame[#tempCoordinatesCounter] := 0.0;
+	END_FOR;
+	//x coordinate
+	IF (#mode = #MODE_TOOL_FRAME AND #tempKinematicsType3D <> 2) OR #mode <> #MODE_TOOL_FRAME THEN
+	  #tempFrameCoordinateConfigurable[0] := TRUE;
+	  #tempUpperLimitFrame[0] := #UPPER_LIMIT_MAX;
+	  #tempLowerLimitFrame[0] := #LOWER_LIMIT_MIN;
+	END_IF;
+	//y coordinate
+	IF #tempKinematicsType3D >= 3 OR #mode = #"MODE_MCS/JCS_FRAME" THEN
+	  #tempFrameCoordinateConfigurable[1] := TRUE;
+	  #tempUpperLimitFrame[1] := #UPPER_LIMIT_MAX;
+	  #tempLowerLimitFrame[1] := #LOWER_LIMIT_MIN;
+	END_IF;
+	//z coordinate
+	IF #mode <> #"MODE_MCS/JCS_FRAME" OR (#mode = #"MODE_MCS/JCS_FRAME" AND #tempKinematicsType3D >= 3) THEN
+	  #tempFrameCoordinateConfigurable[2] := TRUE;
+	  #tempUpperLimitFrame[2] := #UPPER_LIMIT_MAX;
+	  #tempLowerLimitFrame[2] := #LOWER_LIMIT_MIN;
+	END_IF;
+	//a coordinate
+	IF (#mode = #MODE_POSITIONING AND (#tempKinematicsType3D = 5 OR #tempKinematicsType3D = 6))
+	  OR (#mode = #"MODE_OCS/KCS_FRAME" AND #tempKinematicsType3D >= 3)
+	  OR (#mode = #MODE_TOOL_FRAME AND (#tempKinematicsType3D = 2 OR #tempKinematicsType3D = 4 OR #tempKinematicsType3D = 6)) THEN
+	  #tempFrameCoordinateConfigurable[3] := TRUE;
+	  #tempUpperLimitFrame[3] := 179.999;
+	  #tempLowerLimitFrame[3] := -180.0;
+	ELSIF (#mode = #MODE_POSITIONING AND (#tempKinematicsType3D = 2 OR #tempKinematicsType3D = 4))
+	  OR (#mode = #"MODE_MCS/JCS_FRAME" AND (#tempKinematicsType3D = 2 OR #tempKinematicsType3D >= 4)) THEN
+	  #tempFrameCoordinateConfigurable[3] := TRUE;
+	  #tempUpperLimitFrame[3] := #UPPER_LIMIT_MAX;
+	  #tempLowerLimitFrame[3] := #LOWER_LIMIT_MIN;
+	END_IF;
+	//b coordinate
+	IF (#mode = #MODE_POSITIONING AND #tempKinematicsType3D >= 5)
+	  OR (#mode = #MODE_TOOL_FRAME AND #tempKinematicsType3D = 6)
+	  OR (#mode = #"MODE_OCS/KCS_FRAME" AND (#tempKinematicsType3D = 3 OR #tempKinematicsType3D = 6)) THEN
+	  #tempFrameCoordinateConfigurable[4] := TRUE;
+	  #tempUpperLimitFrame[4] := 90.0;
+	  #tempLowerLimitFrame[4] := -90.0;
+	ELSIF (#mode = #MODE_TOOL_FRAME AND #tempKinematicsType3D = 5)
+	  OR (#mode = #"MODE_OCS/KCS_FRAME" AND #tempKinematicsType3D = 1) THEN
+	  #tempFrameCoordinateConfigurable[4] := TRUE;
+	  #tempUpperLimitFrame[4] := 179.999;
+	  #tempLowerLimitFrame[4] := -180.0;
+	ELSIF (#mode = #"MODE_MCS/JCS_FRAME" AND #tempKinematicsType3D >= 5) THEN
+	  #tempFrameCoordinateConfigurable[4] := TRUE;
+	  #tempUpperLimitFrame[4] := #UPPER_LIMIT_MAX;
+	  #tempLowerLimitFrame[4] := #LOWER_LIMIT_MIN;
+	END_IF;
+	//c coordinate
+	IF (#mode = #MODE_POSITIONING AND #tempKinematicsType3D = 6)
+	  OR (#mode = #MODE_TOOL_FRAME AND #tempKinematicsType3D = 6)
+	  OR (#mode = #"MODE_OCS/KCS_FRAME" AND (#tempKinematicsType3D = 3 OR #tempKinematicsType3D = 6)) THEN
+	  #tempFrameCoordinateConfigurable[5] := TRUE;
+	  #tempUpperLimitFrame[5] := 179.999;
+	  #tempLowerLimitFrame[5] := -180.0;
+	ELSIF #mode = #MODE_POSITIONING AND (#tempKinematicsType3D = 5) THEN // exception: limits do not define a range but only these 2 values are allowed
+	  #tempFrameCoordinateConfigurable[5] := TRUE;
+	  #tempUpperLimitFrame[5] := 0.0;
+	  #tempLowerLimitFrame[5] := -180.0;
+	ELSIF (#mode = #"MODE_MCS/JCS_FRAME" AND #tempKinematicsType3D = 6) THEN
+	  #tempFrameCoordinateConfigurable[5] := TRUE;
+	  #tempUpperLimitFrame[5] := #UPPER_LIMIT_MAX;
+	  #tempLowerLimitFrame[5] := #LOWER_LIMIT_MIN;
+	END_IF;
+	//exceptions: SCARA 2D (OCS/KCS: offset in y direction and rotation around A are permissible)
+	IF #mode = #"MODE_OCS/KCS_FRAME" AND #typeOfKinematics = 20 THEN
+	  #tempFrameCoordinateConfigurable[1] := TRUE;
+	  #tempUpperLimitFrame[1] := #UPPER_LIMIT_MAX;
+	  #tempLowerLimitFrame[1] := #LOWER_LIMIT_MIN;
+	  #tempFrameCoordinateConfigurable[3] := TRUE;
+	  #tempUpperLimitFrame[3] := 179.999;
+	  #tempLowerLimitFrame[3] := -180.0;
+	END_IF;
+	//outputs
+	#frameCoordinateConfigurable := #tempFrameCoordinateConfigurable;
+	#upperLimitFrame := #tempUpperLimitFrame;
+	#lowerLimitFrame := #tempLowerLimitFrame;
+END_FUNCTION
+

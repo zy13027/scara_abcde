@@ -1,0 +1,114 @@
+﻿FUNCTION "LKinCtrl_CalcLineLineIntersectionPoint" : Word
+TITLE = LKinCtrl_CalcLineLineIntersectionPoint
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculate the line segment Pa/Pb that is the shortest route between two lines P1P2 and P3P4
+   VAR_INPUT 
+      startPointFirstLine : "LKinCtrl_typeCOff3DPoint";   // Start point first line
+      endPointFirstLine : "LKinCtrl_typeCOff3DPoint";   // End point first line
+      startPointSecondLine : "LKinCtrl_typeCOff3DPoint";   // Start point second line
+      endPointSecondLine : "LKinCtrl_typeCOff3DPoint";   // End point second line
+   END_VAR
+
+   VAR_OUTPUT 
+      intersectionPointA : "LKinCtrl_typeCOff3DPoint";   // Intersection point a
+      intersectionPointB : "LKinCtrl_typeCOff3DPoint";   // Intersection point b
+      muA : LReal;   // Direction vector a
+      muB : LReal;   // Direction vector b
+   END_VAR
+
+   VAR_TEMP 
+      tempP13 : "LKinCtrl_typeCOff3DPoint";
+      tempP43 : "LKinCtrl_typeCOff3DPoint";
+      tempP21 : "LKinCtrl_typeCOff3DPoint";
+      tempD1343 : LReal;
+      tempD4321 : LReal;
+      tempD1321 : LReal;
+      tempD4343 : LReal;
+      tempD2121 : LReal;
+      tempNumer : LReal;
+      tempDenom : LReal;
+   END_VAR
+
+   VAR CONSTANT 
+      COFF_EPS : LReal := 0.001;   // Internal constant
+      ERR_COFF_LINES_DO_NOT_INTERSECT : Word := 16#8312;   // Error - no solution, lines don't intersect
+      ERR_COFF_ZERO_VECTOR : Word := 16#8313;   // Error - zero vector
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library: - 
+	// Tested with: S7-1516T-3 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.5
+	// Functionality: Calculate the line segment Pa/Pb that is the shortest route
+	// between two lines P1P2 and P3P4. Calculate also the values of mua and mub where
+	// Pa = P1 + mua (P2 - P1)
+	// Pb = P3 + mub (P4 - P3)
+	// Return error if the lines don't intersect
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 2019-02-05 AW               created
+	//=============================================================================
+	REGION PLAUSIBILITY_CHECK
+	
+	END_REGION PLAUSIBILITY_CHECK
+	
+	REGION CALCULATION
+	  #tempP13.x := #startPointFirstLine.x - #startPointSecondLine.x;
+	  #tempP13.y := #startPointFirstLine.y - #startPointSecondLine.y;
+	  #tempP13.z := #startPointFirstLine.z - #startPointSecondLine.z;
+	  #tempP43.x := #endPointSecondLine.x - #startPointSecondLine.x;
+	  #tempP43.y := #endPointSecondLine.y - #startPointSecondLine.y;
+	  #tempP43.z := #endPointSecondLine.z - #startPointSecondLine.z;
+	  IF ((ABS(#tempP43.x) < #COFF_EPS) AND (ABS(#tempP43.y) < #COFF_EPS) AND (ABS(#tempP43.z) < #COFF_EPS)) THEN
+	    #LKinCtrl_CalcLineLineIntersectionPoint := #ERR_COFF_LINES_DO_NOT_INTERSECT;
+	    RETURN;
+	  END_IF;
+	  
+	  #tempP21.x := #endPointFirstLine.x - #startPointFirstLine.x;
+	  #tempP21.y := #endPointFirstLine.y - #startPointFirstLine.y;
+	  #tempP21.z := #endPointFirstLine.z - #startPointFirstLine.z;
+	  IF ((ABS(#tempP21.x) < #COFF_EPS) AND (ABS(#tempP21.y) < #COFF_EPS) AND (ABS(#tempP21.z) < #COFF_EPS)) THEN
+	    #LKinCtrl_CalcLineLineIntersectionPoint := #ERR_COFF_LINES_DO_NOT_INTERSECT;
+	    RETURN;
+	  END_IF;
+	  
+	  #tempD1343 := #tempP13.x * #tempP43.x + #tempP13.y * #tempP43.y + #tempP13.z * #tempP43.z;
+	  #tempD4321 := #tempP43.x * #tempP21.x + #tempP43.y * #tempP21.y + #tempP43.z * #tempP21.z;
+	  #tempD1321 := #tempP13.x * #tempP21.x + #tempP13.y * #tempP21.y + #tempP13.z * #tempP21.z;
+	  #tempD4343 := #tempP43.x * #tempP43.x + #tempP43.y * #tempP43.y + #tempP43.z * #tempP43.z;
+	  #tempD2121 := #tempP21.x * #tempP21.x + #tempP21.y * #tempP21.y + #tempP21.z * #tempP21.z;
+	  
+	  #tempDenom := #tempD2121 * #tempD4343 - #tempD4321 * #tempD4321;
+	  IF (ABS(#tempDenom) < #COFF_EPS) THEN
+	    #LKinCtrl_CalcLineLineIntersectionPoint := #ERR_COFF_LINES_DO_NOT_INTERSECT;
+	    RETURN;
+	  END_IF;
+	  
+	  #tempNumer := #tempD1343 * #tempD4321 - #tempD1321 * #tempD4343;
+	  
+	  #muA := #tempNumer / #tempDenom;
+	  #muB := (#tempD1343 + #tempD4321 * #muA) / #tempD4343;
+	  
+	  #intersectionPointA.x := #startPointFirstLine.x + #muA * #tempP21.x;
+	  #intersectionPointA.y := #startPointFirstLine.y + #muA * #tempP21.y;
+	  #intersectionPointA.z := #startPointFirstLine.z + #muA * #tempP21.z;
+	
+	  #intersectionPointB.x := #startPointSecondLine.x + #muB * #tempP43.x;
+	  #intersectionPointB.y := #startPointSecondLine.y + #muB * #tempP43.y;
+	  #intersectionPointB.z := #startPointSecondLine.z + #muB * #tempP43.z;
+	  
+	END_REGION
+	#LKinCtrl_CalcLineLineIntersectionPoint := 0;
+END_FUNCTION
+

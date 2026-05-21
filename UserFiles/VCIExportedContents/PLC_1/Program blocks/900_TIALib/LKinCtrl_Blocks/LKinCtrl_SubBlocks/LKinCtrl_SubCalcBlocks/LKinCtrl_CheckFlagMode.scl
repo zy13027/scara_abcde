@@ -1,0 +1,56 @@
+﻿FUNCTION "LKinCtrl_CheckFlagMode" : Bool
+TITLE = LKinCtrl_CheckFlagMode
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Check given flag mode to be valid
+   VAR_INPUT 
+      flagMode : DInt;   // Flagmode input
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2022 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN/DP
+	// Engineering: TIA Portal V18
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 3.0
+	// Functionality: LKinCtrl_CheckFlagMode
+	// The FC checks FlagMode of command to be configured correctly
+	//
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   21.12.2022    FR                  First release version v1.0
+	//===========================================================================================
+	
+	CASE #flagMode OF
+	  "LKINCTRL_FM_DEACTIVATED", // 0
+	  "LKINCTRL_FM_SET_BEFORE_AND_NO_RESET", // 1
+	  "LKINCTRL_FM_SET_BEFORE_AND_RESET_AFTER", // 2
+	  "LKINCTRL_FM_SET_BEFORE_AND_RESET_AFTER_ONE_CYCLE", // 3
+	  "LKINCTRL_FM_SET_BEFORE_AND_NO_RESET_AND_WAIT_FOR_ACKNOWLEDGE", // 5
+	  "LKINCTRL_FM_SET_AT_REMAINING_DISTANCE", // 10
+	  "LKINCTRL_FM_SET_AFTER_AND_NO_RESET", // 11
+	  "LKINCTRL_FM_SET_AFTER_AND_RESET_AFTER_ONE_CYCLE", // 13
+	  "LKINCTRL_FM_SET_AFTER_AND_NO_RESET_AND_WAIT_FOR_ACKNOWLEDGE", // 15
+	  "LKINCTRL_FM_RESET_BEFORE", // 20
+	  "LKINCTRL_FM_RESET_AFTER", // 21
+	  "LKINCTRL_FM_RESET_AT_REMAINING_DISTANCE", // 22
+	  "LKINCTRL_FM_NO_SET_AND_WAIT_FOR_FALSE_ONCE", // 25
+	  "LKINCTRL_FM_NO_SET_AND_WAIT_FOR_TRUE_ONCE": // 26
+	    #LKinCtrl_CheckFlagMode := TRUE; // FlagMode ok
+	  ELSE  // not a valid mode
+	    #LKinCtrl_CheckFlagMode := FALSE;
+	END_CASE;
+	
+	
+END_FUNCTION
+

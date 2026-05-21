@@ -1,0 +1,67 @@
+﻿FUNCTION "LKinCtrl_SetOrientationDyn" : Bool
+TITLE = LKinCtrl_SetOrientationDyn
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Set orientation dynamics in TO Kinematics defaults
+   VAR_INPUT 
+      orientationDynamics : "LKinCtrl_typePathDynamics";   // Orientation dynamics to be set
+   END_VAR
+
+   VAR_IN_OUT 
+      orientationDefaults {InstructionName := 'TO_Struct_Kinematics_OrientationDynamics'; LibVersion := '9.0'} : TO_Struct_Kinematics_OrientationDynamics;   // Orientation dynamic defaults of TO Kinematics
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2022 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN/DP
+	// Engineering: TIA Portal V16
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 2.8
+	// Functionality: LKinCtrl_SetOrientationDyn
+	// The FC changes the default orientation dynamics of a given TO Kinematics
+	//
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   04.04.2022    FR                  First released version
+	//===========================================================================================
+	
+	// Set return value to false by default
+	#LKinCtrl_SetOrientationDyn := FALSE;
+	
+	// Velocity
+	IF #orientationDynamics.velocity > 0.0 THEN
+	    #orientationDefaults.Velocity := #orientationDynamics.velocity;
+	    #LKinCtrl_SetOrientationDyn := TRUE;
+	END_IF;
+	
+	// Acceleration
+	IF #orientationDynamics.acceleration > 0.0 THEN
+	    #orientationDefaults.Acceleration := #orientationDynamics.acceleration;
+	    #LKinCtrl_SetOrientationDyn := TRUE;
+	END_IF;
+	
+	// Deceleration
+	IF #orientationDynamics.deceleration > 0.0 THEN
+	    #orientationDefaults.Deceleration := #orientationDynamics.deceleration;
+	    #LKinCtrl_SetOrientationDyn := TRUE;
+	END_IF;
+	
+	// Jerk
+	IF #orientationDynamics.jerk >= 0.0 THEN
+	    #orientationDefaults.Jerk := #orientationDynamics.jerk;
+	    #LKinCtrl_SetOrientationDyn := TRUE;
+	END_IF;
+	
+	
+END_FUNCTION
+

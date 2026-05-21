@@ -1,0 +1,2178 @@
+﻿FUNCTION "LKinCtrl_OffsetContour" : "LKinCtrl_typeCOffReturn"
+TITLE = LKinCtrl_OffsetContour
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//The function calculates a contour offset of a path (tool length and radius) 
+   VAR_INPUT 
+      toolLength : LReal;   // Tool length
+      toolRadius : LReal;   // Tool radius
+      pathPlane : Int;   // Path plane: XZ= 0, YZ=1, XY= 2
+      compensationDirection : Int;   // Tool radius compensation direction: left=1, right = 0
+   END_VAR
+
+   VAR_IN_OUT 
+      currentPosIn : "LKinCtrl_typeCOffInCurrentPos";   // Source data - current position
+      nextCommandIn : "LKinCtrl_typePathDataElement";   // Source data - next command
+      nextButOneCommandIn : "LKinCtrl_typePathDataElement";   // Source data - next but one command
+      nextCommandOut : "LKinCtrl_typePathDataElement";   // Target data - next command
+      intermediateCommandOut : "LKinCtrl_typePathDataElement";   // Target data - intermediate (additional) command
+      nextButOneCommandOut : "LKinCtrl_typeCOffOutNextButOneCmd";   // Target data - next but one command
+      nextPositionAbsoluteOut : "LKinCtrl_typeCartesianPosition";   // Source data - next absolute position
+      nextPositionAbsoluteRadCompOut : "LKinCtrl_typeCartesianPosition";   // Source data - next absolute position (radius compensated)
+   END_VAR
+
+   VAR_TEMP 
+      internalNumber : DInt;   // Internal error position
+      boCmdInPathPlane : Bool;   // Command in path plane
+      pathDataDelete : "LKinCtrl_typeCOffPathDataOut" := (((), (), (), (), (), (((), (), (), (), (), ()), ()), (((), (), (), ()), ((), (), (), ()), (), (), [-1.0], (), (), ((), (), [()]), ((), ()), (()), ((), (), [()], (), (), (), ()), ((), (), ()), (([()], (), (), ()), ([()], (), (), ()))), [((), (), ()), ((), (), ()), ((), (), ())], [((), (), (), ()), ((), (), (), ()), ((), (), (), ()), ((), (), (), ())], [6(TRUE)]), ((), (), (), (), (), (((), (), (), (), (), ()), ()), (((), (), (), ()), ((), (), (), ()), (), (), [-1.0], (), (), ((), (), [()]), ((), ()), (()), ((), (), [()], (), (), (), ()), ((), (), ()), (([()], (), (), ()), ([()], (), (), ()))), [((), (), ()), ((), (), ()), ((), (), ())], [((), (), (), ()), ((), (), (), ()), ((), (), (), ()), ((), (), (), ())], [6(TRUE)]), ([()]), ((), (), (), (), (), ()), ((), (), (), (), (), ()));   // Delete data structure
+      tempCurrentPoint : "LKinCtrl_typeCOff3DPoint";   // End point 1st command - current command
+      tempCurrentPointPathPlane : "LKinCtrl_typeCOff3DPoint";   // End point 1st command - current command - path plane
+      tempCurrentPointRadComp : "LKinCtrl_typeCOff3DPoint";   // End point 1st command - current command - radius compensated
+      tempNextCmdIn : "LKinCtrl_typeCOffCmdInInternal";   // Next command input
+      tempNextButOneCmdIn : "LKinCtrl_typeCOffCmdInInternal";   // Next but one command input
+      tempNextCmdOut : "LKinCtrl_typeCOffCmdOutInternal";   // Next command output
+      tempIntermediateCmdOut : "LKinCtrl_typeCOffCmdOutInternal";   // Intermediate command output
+      tempNextButOneCmdOut : "LKinCtrl_typeCOffCmdOutInternal";   // Next but one command output
+      tempToolRadiusComp : Bool;   // TRUE: tool radius compensation used
+      tempToolLengthComp : Bool;   // TRUE: tool length compensation used
+      tempRetValue : Word;   // Return value
+      tempMuA : LReal;
+      tempMuB : LReal;
+      tempCornerType : Int;
+      tempPa : "LKinCtrl_typeCOff3DPoint";
+      tempPb : "LKinCtrl_typeCOff3DPoint";
+      tempDistance1 : LReal;
+      tempDistance2 : LReal;
+      tempCircleDistance1 : LReal;
+      tempCircleDistance2 : LReal;
+      tempCircleDistance3 : LReal;
+      tempAngle : LReal;
+      tempMod : DInt;
+      tempPathChoice : DInt;
+      tempNextCmdEndPointLevelled : "LKinCtrl_typeCOff3DPoint";
+      tempNextCmdIntermediatePointLevelled : "LKinCtrl_typeCOff3DPoint";
+      tempNextButOneStartPointOrthShiftedLevelled : "LKinCtrl_typeCOff3DPoint";
+      tempNextButOneCmdStartPointOrthTangShiftedLevelled : "LKinCtrl_typeCOff3DPoint";
+      tempNextCmdStartPointOrhtShiftLevelled : "LKinCtrl_typeCOff3DPoint";
+      tempDirectionUncompensatedVec : "LKinCtrl_typeCOff3DPoint";
+      tempDirectionCompensatedVec : "LKinCtrl_typeCOff3DPoint";
+      tempDirectionUncompensatedUnitVec : "LKinCtrl_typeCOff3DPoint";
+      tempDirectionCompensatedUnitVec : "LKinCtrl_typeCOff3DPoint";
+      tempLengthCompensatedPointDifferenceVec : LReal;
+   END_VAR
+
+   VAR CONSTANT 
+      COFF_TRANSITION_TOLERANCE : LReal := 0.2;   // Tolerance for additional circle - outer corner
+      ERR_COFF_INVALID_TOOL_LENGTH : Word := 16#8301;   // Error - invalid tool length
+      ERR_COFF_INVALID_TOOL_RADIUS : Word := 16#8302;   // Error - invalid tool radius
+      ERR_COFF_INVALID_PATH_PLANE : Word := 16#8303;   // Error - invalid path plane
+      ERR_COFF_INVALID_COMPENSATION_DIRECTION : Word := 16#8304;   // Error - invalid compensation direction
+      ERR_COFF_FUNCTION_NOT_SUPPORTED : Word := 16#8305;   // Error - functionality not supported
+      ERR_COFF_INVALID_COMMAND_TYPE : Word := 16#8306;   // Error - invalid command type
+      ERR_COFF_INVALID_CIRCLE_MODE : Word := 16#8307;   // Error - invalid circle mode
+      ERR_COFF_INVALID_PATH_PLANE_OF_CIRCULAR_CMD : Word := 16#8308;   // Error - invalid path plane of a circular command
+      ERR_COFF_INVALID_PATH_CHOICE_OF_CIRCULAR_CMD : Word := 16#8309;   // Error - invalid path choice of circular command
+      ERR_COFF_INTERNAL : Word := 16#830F;   // Error - internal
+      ERR_COFF_VECTOR_LENGTH_ZERO : Word := 16#8310;   // Error - vector length is zero
+      ERR_COFF_INVALID_ACOS_ARGUMENT : Word := 16#8311;   // Error - invalid ACOS argument
+      ERR_COFF_LINES_DO_NOT_INTERSECT : Word := 16#8312;   // Error - no solution, lines don't intersect
+      ERR_COFF_ZERO_VECTOR : Word := 16#8313;   // Error - zero vector
+      ERR_COFF_CMD_LENGTH_ZERO : Word := 16#8314;   // Error - cmd with length zero not permitted
+      ERR_COFF_LINE_CIRCLE_DO_NOT_INTERSECT : Word := 16#8315;   // Error - no solution - line and circle don't intersect
+      ERR_COFF_CIRCLES_DO_NOT_INTERSECT : Word := 16#8318;   // Error - no solution - circles don't intersect
+      ERR_COFF_ONE_CIRC_CONTAINED_IN_THE_OTHER : Word := 16#8319;   // Error - one circle is contained in the other
+      ERR_COFF_NO_SOLUTION_FOR_GIVEN_LINEAR_CMD : Word := 16#8320;   // Error - no valid solution with given linear command
+      ERR_COFF_NO_SOLUTION_FOR_GIVEN_CIRCULAR_CMD : Word := 16#8321;   // Error - no valid solution with given circular command
+      ERR_COFF_LINEAR_CMD_AND_TOOL_RADIUS_LEAD_TO_REVERSAL : Word := 16#8322;   // Error - linear command in combination with tool radius leads to reversal movement
+      ERR_COFF_CIRCLE_CENTERS_EQUAL : Word := 16#8350;   // Error - circle centers are equal infinite intersections (only internal)
+      COFF_REGION_TYPE_NONE : Int := 0;   // Region type: none
+      COFF_REGION_TYPE_PLAUSIBILITY : Int := 1;   // Region type: plausibitlity general
+      COFF_REGION_TYPE_PLAUSIBILITY_NEXT_CMD : Int := 2;   // Region type: plausibility next command
+      COFF_REGION_TYPE_PLAUSIBILITY_NEXT_BUT_ONE_CMD : Int := 3;   // Region type: plausibility next but one command
+      COFF_REGION_TYPE_PRE_CALC : Int := 4;   // Region type: precalculation
+      COFF_REGION_TYPE_RAD_COMP_NEXT_CMD_LIN : Int := 5;   // Region type: radius compensation next command linear
+      COFF_REGION_TYPE_RAD_COMP_LIN_LIN : Int := 6;   // Region type: radius compensation next command linear, next but one command linear
+      COFF_REGION_TYPE_RAD_COMP_LIN_CIRC : Int := 7;   // Region type: radius compensation next command linear, next but one command circular
+      COFF_REGION_TYPE_RAD_COMP_LIN_NONE : Int := 8;   // Region type: radius compensation next command linear, next but one command none
+      COFF_REGION_TYPE_RAD_COMP_LIN_GEN : Int := 9;   // Region type: radius compensation next command linear - general
+      COFF_REGION_TYPE_RAD_COMP_NEXT_CMD_CIRC : Int := 10;   // Region type: radius compensation next command circular
+      COFF_REGION_TYPE_RAD_COMP_CIRC_LIN : Int := 11;   // Region type: radius compensation next command circular next but one command linear
+      COFF_REGION_TYPE_RAD_COMP_CIRC_CIRC : Int := 12;   // Region type: radius compensation next command circular, next but one command circular
+      COFF_REGION_TYPE_RAD_COMP_CIRC_NONE : Int := 13;   // Region type: radius compensation next command circular, next but one command none
+      COFF_REGION_TYPE_RAD_COMP_CIRC_GEN : Int := 14;   // Region type: radius compensation next command circular - general
+      COFF_REGION_TYPE_LEN_COMP_NEXT : Int := 15;   // Region type: tool length compensation next command
+      COFF_REGION_TYPE_LEN_COMP_INTER_CMD : Int := 16;   // Region type: tool length compensation intermediate command
+      COFF_REGION_TYPE_LEN_COMP_NEXT_BUT_ONE_CMD : Int := 17;   // Region type: tool length compensation next but one command
+      COFF_REGION_TYPE_OUTPUT_DATA : Int := 18;   // Region type: ouptut data
+      COFF_TOLERANCE : LReal := 0.001;   // Tolerance
+      RADIUS_PLAUSIBLITY_TOLERANCE : LReal := 0.1;   // Radius tolerance
+      COFF_CIRC_REVERSAL_TOLERANCE_ANGLE : LReal := 90.0;   // Reversal tolerance check for circle
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1515T-3 PN/DP
+	// Engineering: TIA Portal V15
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 2.5
+	// Functionality: LKinCtrl_OffsetContour
+	// The function calculates a contour offset of a path (tool length and radius) 
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 00.09.00   2019-02-06    AW                  Beta version
+	// 01.00.00   2019-03-08    AW                  First release version
+	// 01.01.00   2020-08-14    AW                  Bug fix - intersection point of 1st and 2nd circle (equal circle centers)
+	//                                                       - LKinCtrl_CalcLineCircleIntersectionPoint
+	//                                                       - LKinCtrl_CalcCircleCircleIntersectionPoint
+	//                                              length compensation (circle with radius and endpoint)
+	// 01.01.01  2020-08-25     AW                  Additional tolerance intersection of two circles (possible tiny floating point
+	//                                              deviations in case of one intersection point) - LKinCtrl_CalcCircleCircleIntersectionPoint
+	// 01.01.02  2020-10-13     AW                  fix - check innter outer corner - not done for linear commands in same direction anymore
+	//                                              additional check for next command LINEAR and next but one command NONE
+	//                                              avoid reversal movement for small linear path length in combination with big compensation radius
+	// 01.01.03  2020-11-09     AW                  bugfix addtional check - N E X T   B U T   O N E   C M D  -  N O N E                                          
+	// 01.02.00  2021-03-11     FR                  changed interface to reduce nesting depth
+	// 01.02.01  2021-11-12     AW                  bugfix intersection point of 1st linear and 2nd circular command
+	// 01.02.02  2022-05-19     AW                  bugfix M O D I F Y   N E X T   C I R C U L A R   C O M M A N D - CIRC_CENTER - calculate compensated angle,
+	//                                              additional plausibility check - 
+	//                                              tool radius must not be greater than circle radius
+	//                                              tool radius must not be greater than circle start and end point (uncompensated)
+	//                                              new constant: RADIUS_PLAUSIBLITY_TOLERANCE
+	//===========================================================================================
+	
+	// Plausibility checks of parameter
+	REGION PLAUSIBILITY_CHECK
+	  // Check tool length
+	  IF (#toolLength < 0.0)
+	  THEN
+	    #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_INVALID_TOOL_LENGTH; // Invalid tool length
+	    #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_PLAUSIBILITY;
+	    #LKinCtrl_OffsetContour.internalNumber := 101;
+	    RETURN;
+	    
+	    // Check tool radius  
+	  ELSIF (#toolRadius < 0.0)
+	  THEN
+	    #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_INVALID_TOOL_RADIUS; // Invalid tool radius
+	    #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_PLAUSIBILITY;
+	    #LKinCtrl_OffsetContour.internalNumber := 102;
+	    RETURN;
+	  END_IF;
+	  
+	  // Check circular path plane in combination with global path plane - next command
+	  IF ((((#nextCommandIn.cmdType = "LKINCTRL_MC_MOVECIRCULARABS") OR
+	    (#nextCommandIn.cmdType = "LKINCTRL_MC_MOVECIRCULARREL")) AND
+	    ((#nextCommandIn.cmdParameters.circleParameters.circMode = "CM_CENTER") OR
+	    (#nextCommandIn.cmdParameters.circleParameters.circMode = "CM_RADIUS")) AND
+	    (#pathPlane <> #nextCommandIn.cmdParameters.circleParameters.circlePlane)))
+	  THEN
+	    #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_INVALID_PATH_PLANE_OF_CIRCULAR_CMD; // Invalid path plane of a circular command
+	    #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_PLAUSIBILITY_NEXT_CMD;
+	    #LKinCtrl_OffsetContour.internalNumber := 103;
+	    RETURN;
+	  END_IF;
+	  
+	  // Check circular path plane in combination with global path plane - next but one command
+	  IF ((((#nextButOneCommandIn.cmdType = "LKINCTRL_MC_MOVECIRCULARABS") OR
+	    (#nextButOneCommandIn.cmdType = "LKINCTRL_MC_MOVECIRCULARREL")) AND
+	    ((#nextButOneCommandIn.cmdParameters.circleParameters.circMode = "CM_CENTER") OR
+	    (#nextButOneCommandIn.cmdParameters.circleParameters.circMode = "CM_RADIUS")) AND
+	    (#pathPlane <> #nextButOneCommandIn.cmdParameters.circleParameters.circlePlane)))
+	  THEN
+	    #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_INVALID_PATH_PLANE_OF_CIRCULAR_CMD; // Invalid path plane of a circular command
+	    #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_PLAUSIBILITY_NEXT_BUT_ONE_CMD;
+	    #LKinCtrl_OffsetContour.internalNumber := 104;
+	    RETURN;
+	  END_IF;
+	  
+	  // Tool radius compensation?
+	  #tempToolRadiusComp := FALSE;
+	  IF (#toolRadius > 0.0)
+	  THEN
+	    // Check path plane
+	    IF ((#pathPlane >= "CP_XZ") AND (#pathPlane <= "CP_XY"))
+	    THEN
+	      IF ((#compensationDirection >= "LKINCTRL_COMP_LEFT") AND (#compensationDirection <= "LKINCTRL_COMP_RIGHT"))
+	      THEN
+	        #tempToolRadiusComp := TRUE;
+	      ELSE
+	        #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_INVALID_COMPENSATION_DIRECTION; // Invalid compensation direction
+	        #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_PLAUSIBILITY;
+	        #LKinCtrl_OffsetContour.internalNumber := 105;
+	        RETURN;
+	      END_IF;
+	    ELSE
+	      #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_INVALID_PATH_PLANE; // Invalid path plane
+	      #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_PLAUSIBILITY;
+	      #LKinCtrl_OffsetContour.internalNumber := 106;
+	      RETURN;
+	    END_IF;
+	  END_IF;
+	  
+	  // Tool length compensation=
+	  IF (#toolLength > 0.0)
+	  THEN
+	    #tempToolLengthComp := TRUE;
+	  ELSE
+	    #tempToolLengthComp := FALSE;
+	  END_IF;
+	END_REGION PLAUSIBILITY_CHECK
+	
+	
+	REGION Delete data
+	  //#pathDataOut := #pathDataDelete;
+	  #nextCommandOut := #pathDataDelete.nextCommand;
+	  #intermediateCommandOut := #pathDataDelete.intermediateCommand;
+	  #nextButOneCommandOut := #pathDataDelete.nextButOneCommand;
+	  #nextPositionAbsoluteOut := #pathDataDelete.nextPositionAbsolute;
+	  #nextPositionAbsoluteRadCompOut := #pathDataDelete.nextPositionAbsoluteRadComp;
+	END_REGION
+	
+	REGION General
+	  
+	  IF (#tempToolRadiusComp OR #tempToolLengthComp) THEN
+	    // Output data preliminary
+	    // Next command
+	    #nextCommandOut := #nextCommandIn;
+	    // Current position
+	    // --------------------------
+	    #tempCurrentPoint := "LKinCtrl_CartesianCoordTo3DPoint"(#currentPosIn.positionAbsolute);
+	    #tempCurrentPointRadComp := "LKinCtrl_CartesianCoordTo3DPoint"(#currentPosIn.positionAbsoluteRadComp);
+	    
+	    // Next command
+	    // --------------------------
+	    #tempNextCmdIn.cmdType := #nextCommandIn.cmdType;
+	    // Write to output data - modifications done later
+	    #tempNextCmdOut.cmdType := #tempNextCmdIn.cmdType;
+	    
+	    #tempNextCmdIn.transitionParameter1 := #nextCommandIn.cmdParameters.transitionParameters[1];
+	    #tempNextCmdIn.bufferMode := #nextCommandIn.cmdParameters.bufferMode;
+	    
+	    IF ((#tempNextCmdIn.cmdType = "LKINCTRL_MC_MOVELINEARABS") OR
+	      (#tempNextCmdIn.cmdType = "LKINCTRL_MC_MOVELINEARREL"))
+	    THEN
+	      IF (#tempNextCmdIn.cmdType = "LKINCTRL_MC_MOVELINEARABS") THEN
+	        // Absolute coordinates
+	        // End point is defined
+	        
+	        #tempNextCmdIn.endPoint := "LKinCtrl_CartesianCoordTo3DPoint"(cartesianCoord := #nextCommandIn.cmdCoordinates.cartesianPosition);
+	        
+	      ELSIF (#tempNextCmdIn.cmdType = "LKINCTRL_MC_MOVELINEARREL") THEN
+	        // Relative coordinates -> calculate absolute coordinate
+	        #tempNextCmdIn.endPoint := "LKinCtrl_VecAdd"(vIn1 := #tempCurrentPoint,
+	                                                     vIn2 := "LKinCtrl_CartesianCoordTo3DPoint"(#nextCommandIn.cmdCoordinates.cartesianPosition));
+	        
+	        // Set command type to absolute
+	        #tempNextCmdOut.cmdType := "LKINCTRL_MC_MOVELINEARABS";
+	      END_IF;
+	      
+	      // Check if cmd length is unequal zero
+	      IF ("LKinCtrl_VecAbs"("LKinCtrl_VecSub"(vIn1 := #tempCurrentPoint, vIn2 := #tempNextCmdIn.endPoint)) < #COFF_TOLERANCE) THEN
+	        
+	        // Not allowed - function has no memory and therefore can't treat a command length of zero correctly
+	        #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_CMD_LENGTH_ZERO;
+	        #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_PLAUSIBILITY_NEXT_CMD;
+	        #LKinCtrl_OffsetContour.internalNumber := 201;
+	        RETURN;
+	      END_IF;
+	      
+	      // Check if next linear command has at least one component in path plane direction
+	      #tempRetValue := "LKinCtrl_CalcVecDistancePathPlane"(vectorInA := #tempCurrentPoint,
+	                                                           vectorInB := #tempNextCmdIn.endPoint,
+	                                                           pathPlane := #pathPlane,
+	                                                           distancePathPlane => #tempDistance1);
+	      
+	      IF (#tempRetValue <> 0) THEN
+	        #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	        #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_PLAUSIBILITY_NEXT_CMD;
+	        #LKinCtrl_OffsetContour.subBlockNumber := 35055;
+	        #LKinCtrl_OffsetContour.internalNumber := 202;
+	        RETURN;
+	      END_IF;
+	      
+	      // Check if movement is in respective path plane
+	      IF (#tempDistance1 > 0.0) THEN
+	        // Change current position?
+	        // --------------------------
+	        #boCmdInPathPlane := true;
+	      ELSE
+	        #boCmdInPathPlane := false;
+	      END_IF;
+	      
+	    ELSIF ((#tempNextCmdIn.cmdType = "LKINCTRL_MC_MOVECIRCULARABS") OR
+	      (#tempNextCmdIn.cmdType = "LKINCTRL_MC_MOVECIRCULARREL"))
+	    THEN
+	      
+	      #tempNextCmdIn.circleMode := #nextCommandIn.cmdParameters.circleParameters.circMode;
+	      #tempNextCmdIn.pathChoice := #nextCommandIn.cmdParameters.circleParameters.pathChoice;
+	      
+	      // Check for invalid path choice
+	      IF ((#tempNextCmdIn.pathChoice < "PC_POSITIVE") OR
+	        (#tempNextCmdIn.pathChoice > "PC_NEGATIVE"))
+	      THEN
+	        #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_INVALID_PATH_CHOICE_OF_CIRCULAR_CMD; // Invalid path plane of a circular command
+	        #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_PLAUSIBILITY_NEXT_CMD;
+	        #LKinCtrl_OffsetContour.internalNumber := 203;
+	        RETURN;
+	      END_IF;
+	      
+	      #tempNextCmdIn.circlePlane := #nextCommandIn.cmdParameters.circleParameters.circlePlane;
+	      
+	      IF ((#tempNextCmdIn.circleMode = "CM_BORDER") OR
+	        (#tempNextCmdIn.circleMode = "CM_RADIUS"))
+	      THEN
+	        // End point is defined
+	        IF (#tempNextCmdIn.cmdType = "LKINCTRL_MC_MOVECIRCULARABS") THEN
+	          // Absolute coordinates
+	          #tempNextCmdIn.endPoint := "LKinCtrl_CartesianCoordTo3DPoint"(cartesianCoord := #nextCommandIn.cmdCoordinates.cartesianPosition);
+	        ELSE
+	          // Relative coordinates -> calculate absolute coordinate
+	          #tempNextCmdIn.endPoint := "LKinCtrl_VecAdd"(vIn1 := #tempCurrentPoint,
+	                                                       vIn2 := "LKinCtrl_CartesianCoordTo3DPoint"(#nextCommandIn.cmdCoordinates.cartesianPosition));
+	        END_IF;
+	        
+	        IF (#tempNextCmdIn.circleMode = "CM_BORDER") THEN
+	          IF (#tempNextCmdIn.cmdType = "LKINCTRL_MC_MOVECIRCULARABS") THEN
+	            // Absolute coordinates
+	            #tempNextCmdIn.circleIntermediatePoint.x := #nextCommandIn.cmdParameters.circleParameters.auxPoint[1];
+	            #tempNextCmdIn.circleIntermediatePoint.y := #nextCommandIn.cmdParameters.circleParameters.auxPoint[2];
+	            #tempNextCmdIn.circleIntermediatePoint.z := #nextCommandIn.cmdParameters.circleParameters.auxPoint[3];
+	          ELSE
+	            // Relative coordinates -> calculate absolute coordinate
+	            #tempNextCmdIn.circleIntermediatePoint.x := #tempCurrentPoint.x + #nextCommandIn.cmdParameters.circleParameters.auxPoint[1];
+	            #tempNextCmdIn.circleIntermediatePoint.y := #tempCurrentPoint.y + #nextCommandIn.cmdParameters.circleParameters.auxPoint[2];
+	            #tempNextCmdIn.circleIntermediatePoint.z := #tempCurrentPoint.z + #nextCommandIn.cmdParameters.circleParameters.auxPoint[3];
+	          END_IF;
+	        END_IF;
+	        
+	        IF (#tempNextCmdIn.circleMode = "CM_RADIUS") THEN
+	          #tempNextCmdIn.circleRadius := #nextCommandIn.cmdParameters.circleParameters.radius;
+	          
+	          // "Third" coordinate is ignored by system - also ignore here!
+	          // Use start coordinate of circle instead
+	          IF (#pathPlane = "CP_XZ") THEN
+	            #tempNextCmdIn.endPoint.y := #tempCurrentPoint.y;
+	          ELSIF (#pathPlane = "CP_YZ") THEN
+	            #tempNextCmdIn.endPoint.x := #tempCurrentPoint.x;
+	          ELSIF (#pathPlane = "CP_XY") THEN
+	            #tempNextCmdIn.endPoint.z := #tempCurrentPoint.z;
+	          END_IF;
+	        END_IF;
+	        
+	      ELSIF (#tempNextCmdIn.circleMode = "CM_CENTER") THEN
+	        #tempNextCmdIn.circleAngle := #nextCommandIn.cmdParameters.circleParameters.arc;
+	        
+	        IF (#tempNextCmdIn.cmdType = "LKINCTRL_MC_MOVECIRCULARABS") THEN
+	          // Absolute coordinates
+	          #tempNextCmdIn.circleCenterPoint.x := #nextCommandIn.cmdParameters.circleParameters.auxPoint[1];
+	          #tempNextCmdIn.circleCenterPoint.y := #nextCommandIn.cmdParameters.circleParameters.auxPoint[2];
+	          #tempNextCmdIn.circleCenterPoint.z := #nextCommandIn.cmdParameters.circleParameters.auxPoint[3];
+	        ELSE
+	          // Relative coordinates -> calculate absolute coordinate
+	          #tempNextCmdIn.circleCenterPoint.x := #tempCurrentPoint.x + #nextCommandIn.cmdParameters.circleParameters.auxPoint[1];
+	          #tempNextCmdIn.circleCenterPoint.y := #tempCurrentPoint.y + #nextCommandIn.cmdParameters.circleParameters.auxPoint[2];
+	          #tempNextCmdIn.circleCenterPoint.z := #tempCurrentPoint.z + #nextCommandIn.cmdParameters.circleParameters.auxPoint[3];
+	        END_IF;
+	        IF (#tempNextCmdIn.circleMode = "CM_CENTER") THEN
+	          // "Third" coordinate is ignored by system - also ignore here!
+	          // Use start coordinate of circle instead
+	          IF (#pathPlane = "CP_XZ") THEN
+	            #tempNextCmdIn.circleCenterPoint.y := #tempCurrentPoint.y;
+	          ELSIF (#pathPlane = "CP_YZ") THEN
+	            #tempNextCmdIn.circleCenterPoint.x := #tempCurrentPoint.x;
+	          ELSIF (#pathPlane = "CP_XY") THEN
+	            #tempNextCmdIn.circleCenterPoint.z := #tempCurrentPoint.z;
+	          END_IF;
+	          
+	          // Calculte correct circle end point - parameter not mandatory (and therefore probably not correct)
+	          #tempRetValue := "LKinCtrl_CalcCircEndPointWithGivenCenterAndAngle"(circleStartPoint := #tempCurrentPoint,
+	                                                                              circleCenterPoint := #tempNextCmdIn.circleCenterPoint,
+	                                                                              pathPlane := #pathPlane,
+	                                                                              pathChoice := #tempNextCmdIn.pathChoice,
+	                                                                              angle := #tempNextCmdIn.circleAngle,
+	                                                                              endPoint => #tempNextCmdIn.endPoint); // absolute coordinate
+	          
+	          IF (#tempRetValue <> 0) THEN
+	            #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	            #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_PRE_CALC;
+	            #LKinCtrl_OffsetContour.subBlockNumber := 35053;
+	            #LKinCtrl_OffsetContour.internalNumber := 204;
+	            RETURN;
+	          END_IF;
+	        END_IF;
+	        
+	      ELSE
+	        #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_INVALID_CIRCLE_MODE; // Invalid circle mode
+	        #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_PLAUSIBILITY_NEXT_CMD;
+	        RETURN;
+	      END_IF;
+	      
+	      // Set command type to absolute
+	      #tempNextCmdOut.cmdType := "LKINCTRL_MC_MOVECIRCULARABS";
+	    ELSE
+	      #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_INVALID_COMMAND_TYPE; // Invalid command type
+	      #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_PLAUSIBILITY_NEXT_CMD;
+	      #LKinCtrl_OffsetContour.internalNumber := 205;
+	      RETURN;
+	    END_IF;
+	    
+	    // Write to output data - modifications done later
+	    #tempNextCmdOut.circleMode := #tempNextCmdIn.circleMode;
+	    #tempNextCmdOut.endPoint := #tempNextCmdIn.endPoint;
+	    #tempNextCmdOut.circleIntermediatePoint := #tempNextCmdIn.circleIntermediatePoint;
+	    #tempNextCmdOut.circleCenterPoint := #tempNextCmdIn.circleCenterPoint;
+	    #tempNextCmdOut.transitionParameter1 := #tempNextCmdIn.transitionParameter1;
+	    #tempNextCmdOut.circleAngle := #tempNextCmdIn.circleAngle;
+	    
+	    // Next but one command - important!
+	    #tempNextButOneCmdIn.transitionParameter1 := #nextButOneCommandIn.cmdParameters.transitionParameters[1];
+	    #tempNextButOneCmdOut.transitionParameter1 := #tempNextButOneCmdIn.transitionParameter1;
+	  END_IF;
+	END_REGION
+	
+	// Tool radius compensation
+	REGION TOOL_RADIUS_COMPENSATION
+	  // Copy important source variables into temporary variables
+	  
+	  IF (#tempToolRadiusComp) THEN
+	    
+	    REGION Copy data
+	      // ############# C O P Y   D A T A #############
+	      // #################################### 
+	      
+	      // Next but one command
+	      //nextButOneCommandOut.transitionParameter := nextButOneCommandIn.cmdParameters.transitionParameters;
+	      
+	      // Next but one command
+	      // --------------------------
+	      #tempNextButOneCmdIn.cmdType := #nextButOneCommandIn.cmdType;
+	      // Write to output data - modifications done later
+	      #tempNextButOneCmdOut.cmdType := #tempNextButOneCmdIn.cmdType;
+	      
+	      
+	      #tempNextButOneCmdIn.bufferMode := #nextButOneCommandIn.cmdParameters.bufferMode;
+	      
+	      // End point is defined
+	      IF (#tempNextButOneCmdIn.cmdType = "LKINCTRL_MC_MOVELINEARABS") THEN
+	        // Absolute coordinates
+	        #tempNextButOneCmdIn.endPoint := "LKinCtrl_CartesianCoordTo3DPoint"(#nextButOneCommandIn.cmdCoordinates.cartesianPosition);
+	        
+	      ELSIF (#tempNextButOneCmdIn.cmdType = "LKINCTRL_MC_MOVELINEARREL") THEN
+	        // Relative coordinates -> calculate absolute coordinate
+	        #tempNextButOneCmdIn.endPoint := "LKinCtrl_VecAdd"(vIn1 := #tempNextCmdIn.endPoint,
+	                                                           vIn2 := "LKinCtrl_CartesianCoordTo3DPoint"(#nextButOneCommandIn.cmdCoordinates.cartesianPosition));
+	        
+	        // Set command type to absolute
+	        #tempNextButOneCmdOut.cmdType := "LKINCTRL_MC_MOVELINEARABS";
+	        
+	      ELSIF ((#tempNextButOneCmdIn.cmdType = "LKINCTRL_MC_MOVECIRCULARABS") OR
+	        (#tempNextButOneCmdIn.cmdType = "LKINCTRL_MC_MOVECIRCULARREL"))
+	      THEN
+	        #tempNextButOneCmdIn.circleMode := #nextButOneCommandIn.cmdParameters.circleParameters.circMode;
+	        #tempNextButOneCmdIn.pathChoice := #nextButOneCommandIn.cmdParameters.circleParameters.pathChoice;
+	        
+	        // Check for invalid path choice
+	        IF ((#tempNextButOneCmdIn.pathChoice < "PC_POSITIVE") OR
+	          (#tempNextButOneCmdIn.pathChoice > "PC_NEGATIVE"))
+	        THEN
+	          #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_INVALID_PATH_CHOICE_OF_CIRCULAR_CMD; // Invalid path plane of a circular command
+	          #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_PLAUSIBILITY_NEXT_BUT_ONE_CMD;
+	          #LKinCtrl_OffsetContour.internalNumber := 210;
+	          RETURN;
+	        END_IF;
+	        
+	        #tempNextButOneCmdIn.circlePlane := #nextButOneCommandIn.cmdParameters.circleParameters.circlePlane;
+	        
+	        IF ((#tempNextButOneCmdIn.circleMode = "CM_BORDER") OR
+	          (#tempNextButOneCmdIn.circleMode = "CM_RADIUS"))
+	        THEN
+	          
+	          // End point is defined
+	          IF (#tempNextButOneCmdIn.cmdType = "LKINCTRL_MC_MOVECIRCULARABS") THEN
+	            // Absolute coordinates
+	            #tempNextButOneCmdIn.endPoint := "LKinCtrl_CartesianCoordTo3DPoint"(#nextButOneCommandIn.cmdCoordinates.cartesianPosition);
+	          ELSE
+	            // Relative coordinates -> calculate absolute coordinate 
+	            #tempNextButOneCmdIn.endPoint := "LKinCtrl_VecAdd"(vIn1 := #tempNextCmdIn.endPoint,
+	                                                               vIn2 := "LKinCtrl_CartesianCoordTo3DPoint"(#nextButOneCommandIn.cmdCoordinates.cartesianPosition));
+	          END_IF;
+	          
+	          IF (#tempNextButOneCmdIn.circleMode = "CM_BORDER") THEN
+	            IF (#tempNextButOneCmdIn.cmdType = "LKINCTRL_MC_MOVECIRCULARABS") THEN
+	              // Absolute coordinates
+	              #tempNextButOneCmdIn.circleIntermediatePoint.x := #nextButOneCommandIn.cmdParameters.circleParameters.auxPoint[1];
+	              #tempNextButOneCmdIn.circleIntermediatePoint.y := #nextButOneCommandIn.cmdParameters.circleParameters.auxPoint[2];
+	              #tempNextButOneCmdIn.circleIntermediatePoint.z := #nextButOneCommandIn.cmdParameters.circleParameters.auxPoint[3];
+	            ELSE
+	              // Relative coordinates -> calculate absolute coordinate
+	              #tempNextButOneCmdIn.circleIntermediatePoint.x := #tempNextCmdIn.endPoint.x + #nextButOneCommandIn.cmdParameters.circleParameters.auxPoint[1];
+	              #tempNextButOneCmdIn.circleIntermediatePoint.y := #tempNextCmdIn.endPoint.y + #nextButOneCommandIn.cmdParameters.circleParameters.auxPoint[2];
+	              #tempNextButOneCmdIn.circleIntermediatePoint.z := #tempNextCmdIn.endPoint.z + #nextButOneCommandIn.cmdParameters.circleParameters.auxPoint[3];
+	            END_IF;
+	          END_IF;
+	          
+	          IF (#tempNextButOneCmdIn.circleMode = "CM_RADIUS") THEN
+	            #tempNextButOneCmdIn.circleRadius := #nextButOneCommandIn.cmdParameters.circleParameters.radius;
+	            
+	            // "Third" coordinate is ignored by system - also ignore here!
+	            // Use start coordinate of circle instead
+	            IF (#pathPlane = "CP_XZ") THEN
+	              #tempNextButOneCmdIn.endPoint.y := #tempNextCmdIn.endPoint.y;
+	            ELSIF (#pathPlane = "CP_YZ") THEN
+	              #tempNextButOneCmdIn.endPoint.x := #tempNextCmdIn.endPoint.x;
+	            ELSIF (#pathPlane = "CP_XY") THEN
+	              #tempNextButOneCmdIn.endPoint.z := #tempNextCmdIn.endPoint.z;
+	            END_IF;
+	            
+	          END_IF;
+	          
+	        ELSIF (#tempNextButOneCmdIn.circleMode = "CM_CENTER") THEN
+	          #tempNextButOneCmdIn.circleAngle := #nextButOneCommandIn.cmdParameters.circleParameters.arc;
+	          
+	          IF (#tempNextButOneCmdIn.cmdType = "LKINCTRL_MC_MOVECIRCULARABS") THEN
+	            // Absolute coordinates
+	            #tempNextButOneCmdIn.circleCenterPoint.x := #nextButOneCommandIn.cmdParameters.circleParameters.auxPoint[1];
+	            #tempNextButOneCmdIn.circleCenterPoint.y := #nextButOneCommandIn.cmdParameters.circleParameters.auxPoint[2];
+	            #tempNextButOneCmdIn.circleCenterPoint.z := #nextButOneCommandIn.cmdParameters.circleParameters.auxPoint[3];
+	          ELSE
+	            // Relative coordinates -> calculate absolute coordinate
+	            #tempNextButOneCmdIn.circleCenterPoint.x := #tempNextCmdIn.endPoint.x + #nextButOneCommandIn.cmdParameters.circleParameters.auxPoint[1];
+	            #tempNextButOneCmdIn.circleCenterPoint.y := #tempNextCmdIn.endPoint.y + #nextButOneCommandIn.cmdParameters.circleParameters.auxPoint[2];
+	            #tempNextButOneCmdIn.circleCenterPoint.z := #tempNextCmdIn.endPoint.z + #nextButOneCommandIn.cmdParameters.circleParameters.auxPoint[3];
+	          END_IF;
+	          
+	          // "Third" coordinate is ignored by system - also ignore here!
+	          // Use start coordinate of circle instead
+	          IF (#pathPlane = "CP_XZ") THEN
+	            #tempNextButOneCmdIn.circleCenterPoint.y := #tempNextCmdIn.endPoint.y;
+	          ELSIF (#pathPlane = "CP_YZ") THEN
+	            #tempNextButOneCmdIn.circleCenterPoint.x := #tempNextCmdIn.endPoint.x;
+	          ELSIF (#pathPlane = "CP_XY") THEN
+	            #tempNextButOneCmdIn.circleCenterPoint.z := #tempNextCmdIn.endPoint.z;
+	          END_IF;
+	          
+	        ELSE
+	          #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_INVALID_CIRCLE_MODE; // Invalid circle mode
+	          #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_PLAUSIBILITY_NEXT_BUT_ONE_CMD;
+	          #LKinCtrl_OffsetContour.internalNumber := 211;
+	          RETURN;
+	        END_IF;
+	        
+	        // Set command type to absolute
+	        #tempNextButOneCmdOut.cmdType := "LKINCTRL_MC_MOVECIRCULARABS";
+	        
+	      ELSIF (#tempNextButOneCmdIn.cmdType = -1) THEN
+	        ;
+	      ELSE
+	        #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_INVALID_COMMAND_TYPE; // Invalid command type
+	        #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_PLAUSIBILITY_NEXT_BUT_ONE_CMD;
+	        #LKinCtrl_OffsetContour.internalNumber := 212;
+	        RETURN;
+	      END_IF;
+	      
+	      // Write to output data - modifications done later
+	      #tempNextButOneCmdOut.circleMode := #tempNextButOneCmdIn.circleMode;
+	      #tempNextButOneCmdOut.endPoint := #tempNextButOneCmdIn.endPoint;
+	      #tempNextButOneCmdOut.circleIntermediatePoint := #tempNextButOneCmdIn.circleIntermediatePoint;
+	      #tempNextButOneCmdOut.circleCenterPoint := #tempNextButOneCmdIn.circleCenterPoint;
+	      
+	      
+	    END_REGION
+	    
+	    REGION Next command LINEAR
+	      
+	      // ############# N E X T   C M D  -  L I N E A R #############
+	      // ##############################################
+	      IF (#tempNextCmdOut.cmdType = "LKINCTRL_MC_MOVELINEARABS") THEN
+	        IF (#boCmdInPathPlane) THEN
+	          // ########## 1st linear command point 1 to point 2 ##########
+	          // Calculate tangential and orthogonal unit vector of direction
+	          #tempRetValue := "LKinCtrl_CalcLineTangOrthPathPlane"(pathPlane := #pathPlane,
+	                                                                compDirection := #compensationDirection,
+	                                                                vInFirst := #tempNextCmdIn.endPoint,
+	                                                                vInSecond := #tempCurrentPoint,
+	                                                                vUnitTangentialPathPlane => #tempNextCmdOut.tangentialUnitVecEnd,
+	                                                                vUnitOrthogonalPathPlane => #tempNextCmdOut.orthogonalUnitVecEnd);
+	          
+	          IF (#tempRetValue <> 0) THEN
+	            #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	            #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_NEXT_CMD_LIN;
+	            #LKinCtrl_OffsetContour.subBlockNumber := 35055;
+	            #LKinCtrl_OffsetContour.internalNumber := 301;
+	            RETURN;
+	          END_IF;
+	          
+	          // Scale othogonal vector with tool radius to get orthogonal shift
+	          #tempNextCmdOut.orthogonalShiftEnd := "LKinCtrl_VecScale"(vIn := #tempNextCmdOut.orthogonalUnitVecEnd,
+	                                                                    factor := #toolRadius);
+	          
+	          // Scale tangential vector with tool radius to get tangential shift
+	          #tempNextCmdOut.tangentiaShiftEnd := "LKinCtrl_VecScale"(vIn := #tempNextCmdOut.tangentialUnitVecEnd,
+	                                                                   factor := #toolRadius);
+	          
+	          // Calculate orthogonal shifted next target coordinate 
+	          #tempNextCmdOut.endPointOrthShifted := "LKinCtrl_VecAdd"(vIn1 := #tempNextCmdIn.endPoint,
+	                                                                   vIn2 := #tempNextCmdOut.orthogonalShiftEnd);
+	          
+	          // Calculate orthogonal and tangential shifted next target coordinate
+	          #tempNextCmdOut.endPointOrthTangShifted := "LKinCtrl_VecAdd"(vIn1 := #tempNextCmdOut.endPointOrthShifted,
+	                                                                       vIn2 := #tempNextCmdOut.tangentiaShiftEnd);
+	          
+	          #tempNextCmdOut.endPoint := #tempNextCmdOut.endPointOrthShifted;
+	          
+	          // ############# N E X T   B U T   O N E   C M D  -  L I N E A R #############
+	          IF (#tempNextButOneCmdOut.cmdType = "LKINCTRL_MC_MOVELINEARABS") THEN
+	            REGION Next but one command LINEAR
+	              // 2nd linear command point 2 to point 3
+	              // Calculate tangential and orthogonal unit vector of direction
+	              #tempRetValue := "LKinCtrl_CalcLineTangOrthPathPlane"(pathPlane := #pathPlane,
+	                                                                    compDirection := #compensationDirection,
+	                                                                    vInFirst := #tempNextButOneCmdIn.endPoint,
+	                                                                    vInSecond := #tempNextCmdIn.endPoint,
+	                                                                    vUnitTangentialPathPlane => #tempNextButOneCmdOut.tangentialUnitVecStart,
+	                                                                    vUnitOrthogonalPathPlane => #tempNextButOneCmdOut.orthogonalUnitVecStart);
+	              
+	              IF (#tempRetValue <> 0) THEN
+	                #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	                #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_LIN_LIN;
+	                #LKinCtrl_OffsetContour.subBlockNumber := 35055;
+	                #LKinCtrl_OffsetContour.internalNumber := 302;
+	                RETURN;
+	              END_IF;
+	              
+	              // Scale othogonal vector with tool radius to get orthogonal shift
+	              #tempNextButOneCmdOut.orthogonalShiftStart := "LKinCtrl_VecScale"(vIn := #tempNextButOneCmdOut.orthogonalUnitVecStart,
+	                                                                                factor := #toolRadius);
+	              
+	              #tempNextButOneCmdOut.tangentiaShiftStart := "LKinCtrl_VecScale"(vIn := #tempNextButOneCmdOut.tangentialUnitVecStart,
+	                                                                               factor := #toolRadius);
+	              
+	              // Calculate orthogonal shifted next target coordinate 
+	              #tempNextButOneCmdOut.startPointOrthShifted := "LKinCtrl_VecAdd"(vIn1 := #tempNextCmdIn.endPoint,
+	                                                                               vIn2 := #tempNextButOneCmdOut.orthogonalShiftStart);
+	              
+	              // Calculate orthogonal and tangential shifted next target coordinate
+	              #tempNextButOneCmdOut.startPointOrthTangShifted := "LKinCtrl_VecAdd"(vIn1 := #tempNextButOneCmdOut.startPointOrthShifted,
+	                                                                                   vIn2 := #tempNextButOneCmdOut.tangentiaShiftStart);
+	              
+	              // Check if 1st and 2nd linear command are located in exactly the same direction (tangential vector) - then orhtogonal shifted end point of next command is the solution!
+	              // No intersection point, lines intersect completely!
+	              #tempDistance1 := ("LKinCtrl_VecAbs"("LKinCtrl_VecSub"(vIn1 := #tempNextCmdOut.tangentialUnitVecEnd, vIn2 := #tempNextButOneCmdOut.tangentialUnitVecStart)));
+	              
+	              // Check for zero vector
+	              #tempDistance2 := ("LKinCtrl_VecAbs"(#tempNextButOneCmdOut.tangentialUnitVecStart));
+	              
+	              IF ((#tempDistance1 > #COFF_TOLERANCE) AND (#tempDistance2 > 0.0)) THEN
+	                // ########## Intersection point of 1st and 2nd linear command ##########
+	                #tempRetValue := "LKinCtrl_CalcLineLineIntersectionPoint"(startPointFirstLine := #tempNextCmdOut.endPointOrthShifted,
+	                                                                          endPointFirstLine := #tempNextCmdOut.endPointOrthTangShifted,
+	                                                                          startPointSecondLine := #tempNextButOneCmdOut.startPointOrthShifted,
+	                                                                          endPointSecondLine := #tempNextButOneCmdOut.startPointOrthTangShifted,
+	                                                                          intersectionPointA => #tempPa,
+	                                                                          intersectionPointB => #tempPb,
+	                                                                          muA => #tempMuA,
+	                                                                          muB => #tempMuB);
+	                
+	                IF (#tempRetValue <> 0) THEN
+	                  #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	                  #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_LIN_LIN;
+	                  #LKinCtrl_OffsetContour.subBlockNumber := 35060;
+	                  #LKinCtrl_OffsetContour.internalNumber := 303;
+	                  RETURN;
+	                END_IF;
+	                #tempNextCmdOut.endPoint := #tempPa;
+	              ELSE
+	                #tempNextCmdOut.endPoint := #tempNextCmdOut.endPointOrthShifted;
+	              END_IF;
+	              
+	              // Check blending length
+	              IF ((#tempNextButOneCmdIn.transitionParameter1 < 0.0) OR
+	                // V01.01.02 AW 2020-10-13 - avoid inner / outer corner check if 1st and 2nd linear command are located in exactly the same direction
+	                (#tempDistance1 < #COFF_TOLERANCE))
+	              THEN
+	                ; // Maximum blending length used - automatic algorithm, nothing to change here
+	                // OR nothing to do - straight line
+	              ELSE
+	                // Distinguish between inner and outer corner
+	                #tempRetValue := "LKinCtrl_CheckInnerOuterCorner"(vInFirst := #tempNextCmdOut.tangentialUnitVecEnd,
+	                                                                  vInSecond := #tempNextButOneCmdOut.tangentialUnitVecStart,
+	                                                                  pathPlane := #pathPlane,
+	                                                                  direction := #compensationDirection,
+	                                                                  cornerType => #tempCornerType);
+	                
+	                IF (#tempRetValue <> 0) THEN
+	                  #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	                  #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_LIN_LIN;
+	                  #LKinCtrl_OffsetContour.subBlockNumber := 35051;
+	                  #LKinCtrl_OffsetContour.internalNumber := 304;
+	                  RETURN;
+	                END_IF;
+	                
+	                IF (#tempCornerType = "LKINCTRL_OUTER_CORNER") THEN
+	                  IF (#tempNextButOneCmdIn.transitionParameter1 > #COFF_TRANSITION_TOLERANCE) THEN
+	                    
+	                    // Output next but one coordinates - in case it's the last one
+	                    #tempNextButOneCmdOut.endPoint := "LKinCtrl_VecAdd"(vIn1 := #tempNextButOneCmdIn.endPoint,
+	                                                                        vIn2 := #tempNextButOneCmdOut.orthogonalShiftStart);
+	                    
+	                    
+	                    // Modify transition with blending distance - next but one command !
+	                    #tempNextButOneCmdOut.transitionParameter1 += #toolRadius;
+	                    
+	                  ELSE
+	                    // Use shortened end point
+	                    #tempNextCmdOut.endPoint := #tempNextCmdOut.endPointOrthShifted;
+	                    
+	                    // Additional command
+	                    // Intermediate command necessary (circle defined by intermediate position)
+	                    "LKinCtrl_CalcCircleIntermediatePos"(initialEndPoint := #tempNextCmdIn.endPoint,
+	                                                         newEndPoint := #tempPa,
+	                                                         toolRadius := #toolRadius,
+	                                                         circIntermediatePoint => #tempIntermediateCmdOut.circleIntermediatePoint);
+	                    
+	                    
+	                    #tempIntermediateCmdOut.cmdType := "LKINCTRL_MC_MOVECIRCULARABS";
+	                    
+	                    #tempIntermediateCmdOut.endPoint := #tempNextButOneCmdOut.startPointOrthShifted;
+	                    
+	                    // Definition via intermediate point and endpoint
+	                    #tempIntermediateCmdOut.circleMode := "CM_BORDER";
+	                    
+	                  END_IF;
+	                ELSE // Inner corner
+	                  ;
+	                END_IF;
+	              END_IF;
+	            END_REGION
+	            // #############  N E X T   B U T   O N E   C M D   -  C I R C U L A R #############
+	          ELSIF (#tempNextButOneCmdOut.cmdType = "LKINCTRL_MC_MOVECIRCULARABS") THEN
+	            REGION Next but one command CIRCULAR
+	              // Use radius-compensated point (linear end point)
+	              //nextCommandOut.cmdCoordinates.cartesianPosition := #tempNew2ndPoint;
+	              
+	              // Distinguish between different circular modes
+	              IF (#tempNextButOneCmdIn.circleMode = "CM_BORDER") THEN
+	                
+	                // ------------ Via an intermediate point and the end point ("CircMode" = 0) ------------
+	                
+	                // Caluclate center point of circle with given start point, end point and intermediate point
+	                #tempRetValue := "LKinCtrl_CalcCircCenterByIntermediatePointAndEndPoint"(circleStartPoint := #tempNextCmdIn.endPoint,
+	                                                                                         circleEndPoint := #tempNextButOneCmdIn.endPoint,
+	                                                                                         circleIntermediatePoint := #tempNextButOneCmdIn.circleIntermediatePoint,
+	                                                                                         pathPlane := #pathPlane,
+	                                                                                         circleCenterPoint => #tempNextButOneCmdIn.circleCenterPoint);
+	                
+	                IF (#tempRetValue <> 0) THEN
+	                  #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	                  #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_LIN_CIRC;
+	                  #LKinCtrl_OffsetContour.subBlockNumber := 35057;
+	                  #LKinCtrl_OffsetContour.internalNumber := 330;
+	                  RETURN;
+	                END_IF;
+	                
+	                // Calculate path choice
+	                #tempRetValue := "LKinCtrl_CalcCircPathChoiceByIntermediatePointAndEndPoint"(circleStartPoint := #tempNextCmdIn.endPoint,
+	                                                                                             circleEndPoint := #tempNextButOneCmdIn.endPoint,
+	                                                                                             circleintermediatePoint := #tempNextButOneCmdIn.circleIntermediatePoint,
+	                                                                                             pathPlane := #pathPlane,
+	                                                                                             pathChoice => #tempNextButOneCmdIn.pathChoice);
+	                
+	                
+	                IF (#tempRetValue <> 0) THEN
+	                  #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	                  #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_LIN_CIRC;
+	                  #LKinCtrl_OffsetContour.subBlockNumber := 35058;
+	                  #LKinCtrl_OffsetContour.internalNumber := 331;
+	                  RETURN;
+	                END_IF;
+	                
+	              ELSIF (#tempNextButOneCmdIn.circleMode = "CM_CENTER") THEN
+	                // ------------ Via the circle center and the angle in a main plane ("CircMode" = 1) ------------
+	                // "Third" coordinate is ignored by system - also ignore here!
+	                
+	                // Calculte correct circle end point - parameter not mandatory (and therefore probably not correct)
+	                #tempRetValue := "LKinCtrl_CalcCircEndPointWithGivenCenterAndAngle"(circleStartPoint := #tempNextCmdIn.endPoint,
+	                                                                                    circleCenterPoint := #tempNextButOneCmdIn.circleCenterPoint,
+	                                                                                    pathPlane := #pathPlane,
+	                                                                                    pathChoice := #tempNextButOneCmdIn.pathChoice,
+	                                                                                    angle := #tempNextButOneCmdIn.circleAngle,
+	                                                                                    endPoint => #tempNextButOneCmdIn.endPoint);
+	                
+	                
+	                
+	                
+	                IF (#tempRetValue <> 0) THEN
+	                  #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	                  #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_CIRC;
+	                  #LKinCtrl_OffsetContour.subBlockNumber := 35053;
+	                  #LKinCtrl_OffsetContour.internalNumber := 332;
+	                  RETURN;
+	                END_IF;
+	                
+	              ELSIF (#tempNextButOneCmdIn.circleMode = "CM_RADIUS") THEN
+	                
+	                // Calculate circle center point by given start / end point and radius and path choice
+	                #tempRetValue := "LKinCtrl_CalcCircCenterByRadiusAndEndPoint"(circleStartPoint := #tempNextCmdIn.endPoint,
+	                                                                              circleEndPoint := #tempNextButOneCmdIn.endPoint,
+	                                                                              pathPlane := #pathPlane,
+	                                                                              circleRadius := #tempNextButOneCmdIn.circleRadius,
+	                                                                              pathChoice := #tempNextButOneCmdIn.pathChoice,
+	                                                                              circCenterPoint => #tempNextButOneCmdIn.circleCenterPoint);
+	                
+	                IF (#tempRetValue <> 0) THEN
+	                  #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	                  #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_LIN_CIRC;
+	                  #LKinCtrl_OffsetContour.subBlockNumber := 35052;
+	                  #LKinCtrl_OffsetContour.internalNumber := 333;
+	                  RETURN;
+	                END_IF;
+	                
+	                
+	                
+	              END_IF;
+	              
+	              // Calculate end coordinate of "next" linear command
+	              // Calculate orthogonal and tangential vector for next but one circular commamnd
+	              #tempRetValue := "LKinCtrl_CalcCircTangOrthPathPlane"(circlePoint := #tempNextCmdIn.endPoint,
+	                                                                    circleCenterPoint := #tempNextButOneCmdIn.circleCenterPoint,
+	                                                                    pathPlane := #pathPlane,
+	                                                                    compDirection := #compensationDirection,
+	                                                                    pathChoice := #tempNextButOneCmdIn.pathChoice,
+	                                                                    vUnitTangentialPathPlane => #tempNextButOneCmdOut.tangentialUnitVecStart,
+	                                                                    vUnitOrthogonalPathPlane => #tempNextButOneCmdOut.orthogonalUnitVecStart);
+	              
+	              IF (#tempRetValue <> 0) THEN
+	                #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	                #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_LIN_CIRC;
+	                #LKinCtrl_OffsetContour.subBlockNumber := 35056;
+	                #LKinCtrl_OffsetContour.internalNumber := 334;
+	                RETURN;
+	              END_IF;
+	              
+	              
+	              // Scale othogonal vector with tool radius to get orthogonal shift
+	              #tempNextButOneCmdOut.orthogonalShiftStart := "LKinCtrl_VecScale"(vIn := #tempNextButOneCmdOut.orthogonalUnitVecStart,
+	                                                                                factor := #toolRadius);
+	              
+	              #tempNextButOneCmdOut.startPointOrthShifted := "LKinCtrl_VecAdd"(vIn1 := #tempNextCmdIn.endPoint,
+	                                                                               vIn2 := #tempNextButOneCmdOut.orthogonalShiftStart);
+	              
+	              // Calculate radius of circle
+	              #tempNextCmdOut.circleRadius := "LKinCtrl_VecAbs"("LKinCtrl_VecSub"(vIn1 := #tempNextButOneCmdOut.startPointOrthShifted,
+	                                                                                                                                    vIn2 := #tempNextButOneCmdIn.circleCenterPoint));
+	              
+	              
+	              // ########## Intersection point of 1st linear and 2nd circular command  ##########
+	              // V01.02.01 - bugfix linear start point
+	              #tempRetValue := "LKinCtrl_CalcLineCircleIntersectionPoint"(startPointLine := #tempCurrentPointRadComp,//tempNextCmdOut.endPointOrthShifted,
+	                                                                          endPointLine := #tempNextCmdOut.endPointOrthTangShifted,
+	                                                                          circleCenter := #tempNextButOneCmdIn.circleCenterPoint,
+	                                                                          circleRadius := #tempNextCmdOut.circleRadius,
+	                                                                          intersectionPointA => #tempPa,
+	                                                                          intersectionPointB => #tempPb);
+	              
+	              IF (#tempRetValue <> 0) THEN
+	                #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	                #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_LIN_CIRC;
+	                #LKinCtrl_OffsetContour.subBlockNumber := 35061;
+	                #LKinCtrl_OffsetContour.internalNumber := 335;
+	                RETURN;
+	              END_IF;
+	              
+	              
+	              // Two intersection points, use the one which is closer to the circle start point
+	              #tempDistance1 := "LKinCtrl_VecAbs"("LKinCtrl_VecSub"(vIn1 := #tempNextCmdOut.endPointOrthShifted, vIn2 := #tempPa));
+	              #tempDistance2 := "LKinCtrl_VecAbs"("LKinCtrl_VecSub"(vIn1 := #tempNextCmdOut.endPointOrthShifted, vIn2 := #tempPb));
+	              
+	              IF (#tempDistance1 < #tempDistance2) THEN
+	                #tempNextCmdOut.endPoint := #tempPa;
+	              ELSE
+	                #tempNextCmdOut.endPoint := #tempPb;
+	              END_IF;
+	              
+	            END_REGION
+	            // ############# N E X T   B U T   O N E   C M D  -  N O N E #############
+	          ELSE
+	            REGION Next but one command NONE
+	              // V01.01.02 AW 2020-10-13
+	              // Check if current end point is in opposite direction, e.g. small command length with big tool radius etc.
+	              // Avoid reversal movement
+	              
+	              // Calculate difference vector of uncompensated current and next end point
+	              #tempDirectionUncompensatedVec := "LKinCtrl_VecSub"(vIn1 := #tempCurrentPoint, vIn2 := #tempNextCmdIn.endPoint);
+	              #tempDirectionUncompensatedUnitVec := "LKinCtrl_VecUnit"(#tempDirectionUncompensatedVec);
+	              
+	              // Calculate difference vector of compensated current and next end point
+	              #tempDirectionCompensatedVec := "LKinCtrl_VecSub"(vIn1 := #tempCurrentPointRadComp, vIn2 := #tempNextCmdOut.endPoint);
+	              #tempDirectionCompensatedUnitVec := "LKinCtrl_VecUnit"(#tempDirectionCompensatedVec);
+	              
+	              // Calculate length between current compensated and next compensated end point
+	              #tempLengthCompensatedPointDifferenceVec := "LKinCtrl_VecAbs"(#tempDirectionCompensatedVec);
+	              
+	              // Check if vectors are parallel 
+	              IF (((ABS(#tempDirectionUncompensatedUnitVec.x) - ABS(#tempDirectionCompensatedUnitVec.x)) < #COFF_TOLERANCE) AND
+	                ((ABS(#tempDirectionUncompensatedUnitVec.y) - ABS(#tempDirectionCompensatedUnitVec.y)) < #COFF_TOLERANCE) AND
+	                ((ABS(#tempDirectionUncompensatedUnitVec.z) - ABS(#tempDirectionCompensatedUnitVec.z)) < #COFF_TOLERANCE))
+	              THEN
+	                // Opposite direction?
+	                IF ((ABS(#tempDirectionUncompensatedUnitVec.x + #tempDirectionCompensatedUnitVec.x) < #COFF_TOLERANCE) AND
+	                  (ABS(#tempDirectionUncompensatedUnitVec.y + #tempDirectionCompensatedUnitVec.y) < #COFF_TOLERANCE) AND
+	                  (ABS(#tempDirectionUncompensatedUnitVec.z + #tempDirectionCompensatedUnitVec.z) < #COFF_TOLERANCE))
+	                THEN
+	                  // Throw error
+	                  #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_LINEAR_CMD_AND_TOOL_RADIUS_LEAD_TO_REVERSAL;
+	                  #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_LIN_NONE;
+	                  #LKinCtrl_OffsetContour.subBlockNumber := 0;
+	                  #LKinCtrl_OffsetContour.internalNumber := 336;
+	                  RETURN;
+	                  
+	                  // // Possible solution - NOT used!
+	                  // // Use tangential and orthogonal shift
+	                  // // Scale tangential vector with point difference (compensated points) to get tangential shift
+	                  // #tempNextCmdOut.tangentiaShiftEnd := "LKinCtrl_VecScale"(vIn := #tempNextCmdOut.tangentialUnitVecEnd,
+	                  //                                                          factor := #tempLengthCompensatedPointDifferenceVec);
+	                  
+	                  // // Re-calculate orthogonal and (new) tangential shifted next target coordinate
+	                  // // next command end point will be equal to last command end point --> no reversal
+	                  // #tempNextCmdOut.endPointOrthTangShifted := "LKinCtrl_VecAdd"(vIn1 := #tempNextCmdOut.endPointOrthShifted,
+	                  //                                                              vIn2 := #tempNextCmdOut.tangentiaShiftEnd);
+	                  
+	                  // // Use tangential and orthogonal shift - assign new value
+	                  // #tempNextCmdOut.endPoint := #tempNextCmdOut.endPointOrthTangShifted;
+	                  
+	                ELSE
+	                  // Same direction
+	                  ;// Nothing to do
+	                END_IF;
+	              ELSE
+	                // V01.01.03
+	                ;// Nothing to do
+	              END_IF;
+	              
+	            END_REGION
+	          END_IF;
+	          
+	          REGION Additional plausibility check
+	            #tempRetValue := "LKinCtrl_CalcAngleBetweenVectors"(point1 := #tempNextCmdOut.endPoint,
+	                                                                point2 := #tempNextCmdIn.endPoint,
+	                                                                intersectionPoint := #tempCurrentPoint,
+	                                                                angle => #tempAngle);
+	            
+	            IF (#tempRetValue <> 0) THEN
+	              #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	              #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_LIN_GEN;
+	              #LKinCtrl_OffsetContour.subBlockNumber := 35059;
+	              #LKinCtrl_OffsetContour.internalNumber := 340;
+	              RETURN;
+	            END_IF;
+	            
+	            IF (#tempAngle > #COFF_CIRC_REVERSAL_TOLERANCE_ANGLE)
+	            THEN
+	              #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_NO_SOLUTION_FOR_GIVEN_LINEAR_CMD;
+	              #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_LIN_GEN;
+	              #LKinCtrl_OffsetContour.subBlockNumber := 0;
+	              #LKinCtrl_OffsetContour.internalNumber := 341;
+	              RETURN;
+	            END_IF;
+	            
+	          END_REGION
+	        ELSE
+	          // Use radius compensated coordinates
+	          CASE #pathPlane OF
+	            "CP_XY":
+	              #tempNextCmdOut.endPoint.x := #tempCurrentPointRadComp.x;
+	              #tempNextCmdOut.endPoint.y := #tempCurrentPointRadComp.y;
+	              #tempNextCmdOut.endPoint.z := #tempNextCmdOut.endPoint.z;
+	              
+	            "CP_XZ":
+	              #tempNextCmdOut.endPoint.x := #tempCurrentPointRadComp.x;
+	              #tempNextCmdOut.endPoint.y := #tempNextCmdOut.endPoint.y;
+	              #tempNextCmdOut.endPoint.z := #tempCurrentPointRadComp.z;
+	              
+	            "CP_YZ":
+	              #tempNextCmdOut.endPoint.x := #tempNextCmdOut.endPoint.x;
+	              #tempNextCmdOut.endPoint.y := #tempCurrentPointRadComp.y;
+	              #tempNextCmdOut.endPoint.z := #tempCurrentPointRadComp.z;
+	          END_CASE;
+	        END_IF;
+	      END_IF;
+	    END_REGION
+	    
+	    REGION Next command CIRCULAR
+	      // ############# N E X T   C M D  -  C I R C U L A R #############
+	      // ##############################################
+	      IF (#tempNextCmdOut.cmdType = "LKINCTRL_MC_MOVECIRCULARABS") THEN
+	        
+	        // Distinguish between different circular modes
+	        IF (#tempNextCmdIn.circleMode = "CM_BORDER") THEN
+	          
+	          // ------------ Via an intermediate point and the end point ("CircMode" = 0) ------------
+	          // Caluclate center point of circle with given start point, end point and intermediate point
+	          #tempRetValue := "LKinCtrl_CalcCircCenterByIntermediatePointAndEndPoint"(circleStartPoint := #tempCurrentPoint,
+	                                                                                   circleEndPoint := #tempNextCmdIn.endPoint,
+	                                                                                   circleIntermediatePoint := #tempNextCmdIn.circleIntermediatePoint,
+	                                                                                   pathPlane := #pathPlane,
+	                                                                                   circleCenterPoint => #tempNextCmdIn.circleCenterPoint);
+	          
+	          IF (#tempRetValue <> 0) THEN
+	            #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	            #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_NEXT_CMD_CIRC;
+	            #LKinCtrl_OffsetContour.subBlockNumber := 35057;
+	            
+	            #LKinCtrl_OffsetContour.internalNumber := 401;
+	            RETURN;
+	          END_IF;
+	          
+	          // Calculate path choice
+	          #tempRetValue := "LKinCtrl_CalcCircPathChoiceByIntermediatePointAndEndPoint"(circleStartPoint := #tempCurrentPoint,
+	                                                                                       circleEndPoint := #tempNextCmdIn.endPoint,
+	                                                                                       circleintermediatePoint := #tempNextCmdIn.circleIntermediatePoint,
+	                                                                                       pathPlane := #pathPlane,
+	                                                                                       pathChoice => #tempNextCmdIn.pathChoice);
+	          
+	          IF (#tempRetValue <> 0) THEN
+	            #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	            #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_NEXT_CMD_CIRC;
+	            #LKinCtrl_OffsetContour.subBlockNumber := 35058;
+	            #LKinCtrl_OffsetContour.internalNumber := 402;
+	            RETURN;
+	          END_IF;
+	          
+	        ELSIF (#tempNextCmdIn.circleMode = "CM_CENTER") THEN
+	          // ------------ Via the circle center and the angle in a main plane ("CircMode" = 1) ------------
+	          (* im oberen Teil!
+	          // "Third" coordinate is ignored by system - also ignore here!
+	          // Use start coordinate of circle instead
+	          IF (#pathPlane = "CP_XZ") THEN
+	            #tempNextCmdIn.circleCenterPoint.y := #tempCurrentPoint.y;
+	          ELSIF (#pathPlane = "CP_YZ") THEN
+	            #tempNextCmdIn.circleCenterPoint.x := #tempCurrentPoint.x;
+	          ELSIF (#pathPlane = "CP_XY") THEN
+	            #tempNextCmdIn.circleCenterPoint.z := #tempCurrentPoint.z;
+	          END_IF;*)
+	          ;
+	          
+	        ELSIF (#tempNextCmdIn.circleMode = "CM_RADIUS") THEN
+	          // ------------ Via the circle radius and the end point in a main plane ("CircMode" = 2) ------------
+	          // Calculate circle center point by given start / end point and radius and path choice
+	          #tempRetValue := "LKinCtrl_CalcCircCenterByRadiusAndEndPoint"(circleStartPoint := #tempCurrentPoint,
+	                                                                        circleEndPoint := #tempNextCmdIn.endPoint,
+	                                                                        pathPlane := #pathPlane,
+	                                                                        circleRadius := #tempNextCmdIn.circleRadius,
+	                                                                        pathChoice := #tempNextCmdIn.pathChoice,
+	                                                                        circCenterPoint => #tempNextCmdIn.circleCenterPoint);
+	          
+	          IF (#tempRetValue <> 0) THEN
+	            #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	            #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_NEXT_CMD_CIRC;
+	            #LKinCtrl_OffsetContour.subBlockNumber := 35052;
+	            #LKinCtrl_OffsetContour.internalNumber := 403;
+	            RETURN;
+	          END_IF;
+	          
+	        END_IF;
+	        
+	        //REGION todo
+	        // 2019-03-07 - not necessary
+	        (*
+	        // ####
+	        // Calculate circle paramters
+	        #tempRetValue := "LKinCtrl_CalcCircTangOrthPathPlane"(circlePoint := #tempCurrentPoint,
+	                                                              circleCenterPoint := #tempNextCmdIn.circleCenterPoint,
+	                                                              pathPlane := #pathPlane,
+	                                                              compDirection := #compensationDirection,
+	                                                              pathChoice := #tempNextCmdIn.pathChoice,
+	                                                              vUnitTangentialPathPlane => #tempNextCmdOut.tangentialUnitVecStart,
+	                                                              vUnitOrthogonalPathPlane => #tempNextCmdOut.orthogonalUnitVecStart);
+	        
+	        IF (#tempRetValue <> 0) THEN
+	          #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	          #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_LIN_CIRC;
+	          #LKinCtrl_OffsetContour.subBlockNumber := 35056;
+	          #LKinCtrl_OffsetContour.internalNumber := 404;
+	          RETURN;
+	        END_IF;
+	        
+	        // Scale othogonal vector with tool radius to get orthogonal shift
+	        #tempNextCmdOut.orthogonalShiftStart := "LKinCtrl_VecScale"(vIn := #tempNextCmdOut.orthogonalUnitVecStart,
+	                                                                    factor := #toolRadius);
+	        
+	        #tempNextCmdOut.startPointOrthShifted := "LKinCtrl_VecAdd"(vIn1 := #tempCurrentPoint,
+	                                                                   vIn2 := #tempNextCmdOut.orthogonalShiftStart);
+	        
+	        *)
+	        //END_REGION
+	        
+	        
+	        // #############  N E X T   B U T   O N E   C M D   #############
+	        // Check if next but one linear command has at least one component in path plane direction
+	        #tempRetValue := "LKinCtrl_CalcVecDistancePathPlane"(vectorInA := #tempNextCmdIn.endPoint,
+	                                                             vectorInB := #tempNextButOneCmdIn.endPoint,
+	                                                             pathPlane := #pathPlane,
+	                                                             distancePathPlane => #tempDistance1);
+	        
+	        IF (#tempRetValue <> 0) THEN
+	          #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	          #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_LIN;
+	          #LKinCtrl_OffsetContour.subBlockNumber := 35055;
+	          #LKinCtrl_OffsetContour.internalNumber := 405;
+	          RETURN;
+	        END_IF;
+	        
+	        // #############  N E X T   B U T   O N E   C M D   -  L I N E A R  #############
+	        // Linear command must have at least a motion in direction of path plane, otherwise treat as command none!
+	        IF (#tempNextButOneCmdOut.cmdType = "LKINCTRL_MC_MOVELINEARABS") AND (#tempDistance1 > 0.0) THEN
+	          
+	          REGION Next but one command LINEAR
+	            // 2nd linear command point 2 to point 3
+	            // Calculate tangential and orthogonal unit vector of direction (with respect to end point of circle)
+	            #tempRetValue := "LKinCtrl_CalcLineTangOrthPathPlane"(pathPlane := #pathPlane,
+	                                                                  compDirection := #compensationDirection,
+	                                                                  vInFirst := #tempNextButOneCmdIn.endPoint,
+	                                                                  vInSecond := #tempNextCmdIn.endPoint, // End point of circle
+	                                                                  vUnitTangentialPathPlane => #tempNextButOneCmdOut.tangentialUnitVecStart,
+	                                                                  vUnitOrthogonalPathPlane => #tempNextButOneCmdOut.orthogonalUnitVecStart);
+	            
+	            IF (#tempRetValue <> 0) THEN
+	              #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	              #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_LIN;
+	              #LKinCtrl_OffsetContour.subBlockNumber := 35055;
+	              #LKinCtrl_OffsetContour.internalNumber := 406;
+	              RETURN;
+	            END_IF;
+	            
+	            // Scale othogonal vector with tool radius to get orthogonal shift
+	            #tempNextButOneCmdOut.orthogonalShiftStart := "LKinCtrl_VecScale"(vIn := #tempNextButOneCmdOut.orthogonalUnitVecStart,
+	                                                                              factor := #toolRadius);
+	            
+	            // Scale tangential vector with tool radius to get tangential shift
+	            #tempNextButOneCmdOut.tangentiaShiftStart := "LKinCtrl_VecScale"(vIn := #tempNextButOneCmdOut.tangentialUnitVecStart,
+	                                                                             factor := #toolRadius);
+	            
+	            // Calculate orthogonal shifted next target coordinate
+	            #tempNextButOneCmdOut.startPointOrthShifted := "LKinCtrl_VecAdd"(vIn1 := #tempNextCmdIn.endPoint, // Start coordinate next but one command
+	                                                                             vIn2 := #tempNextButOneCmdOut.orthogonalShiftStart);
+	            
+	            // Calculate orthogonal and tangential shifted next target coordinate
+	            #tempNextButOneCmdOut.startPointOrthTangShifted := "LKinCtrl_VecAdd"(vIn1 := #tempNextButOneCmdOut.startPointOrthShifted,
+	                                                                                 vIn2 := #tempNextButOneCmdOut.tangentiaShiftStart);
+	            
+	            // ########## Intersection point of 1st circular and 2nd linear command  ##########
+	            // Change center point to same level with start point
+	            IF (#tempNextCmdIn.circleMode = "CM_BORDER") THEN
+	              // ------------ Via an intermediate point and the end point ("CircMode" = 0) ------------
+	              // 3D circle possible
+	              
+	              // Bring circle parameter to the same level as current point
+	              #tempNextCmdEndPointLevelled := #tempNextCmdIn.endPoint;
+	              #tempNextCmdIntermediatePointLevelled := #tempNextCmdIn.circleIntermediatePoint;
+	              
+	              
+	              // Bring coordinates to same level as current point
+	              #tempNextCmdStartPointOrhtShiftLevelled := #tempCurrentPointRadComp;// #tempNextCmdOut.startPointOrthShifted;
+	              #tempNextButOneStartPointOrthShiftedLevelled := #tempNextButOneCmdOut.startPointOrthShifted;
+	              #tempNextButOneCmdStartPointOrthTangShiftedLevelled := #tempNextButOneCmdOut.startPointOrthTangShifted;
+	              
+	              // Level parameters (third coordinate) with current point
+	              CASE #pathPlane OF
+	                "CP_XZ":
+	                  #tempNextCmdEndPointLevelled.y := #tempCurrentPoint.y;
+	                  #tempNextCmdIntermediatePointLevelled.y := #tempCurrentPoint.y;
+	                  #tempNextCmdStartPointOrhtShiftLevelled.y := #tempCurrentPoint.y;
+	                  #tempNextButOneStartPointOrthShiftedLevelled.y := #tempCurrentPoint.y;
+	                  #tempNextButOneCmdStartPointOrthTangShiftedLevelled.y := #tempCurrentPoint.y;
+	                  
+	                "CP_YZ":
+	                  #tempNextCmdEndPointLevelled.x := #tempCurrentPoint.x;
+	                  #tempNextCmdIntermediatePointLevelled.x := #tempCurrentPoint.x;
+	                  #tempNextCmdStartPointOrhtShiftLevelled.x := #tempCurrentPoint.x;
+	                  #tempNextButOneStartPointOrthShiftedLevelled.x := #tempCurrentPoint.x;
+	                  #tempNextButOneCmdStartPointOrthTangShiftedLevelled.x := #tempCurrentPoint.x;
+	                  
+	                "CP_XY":
+	                  #tempNextCmdEndPointLevelled.z := #tempCurrentPoint.z;
+	                  #tempNextCmdIntermediatePointLevelled.z := #tempCurrentPoint.z;
+	                  #tempNextCmdStartPointOrhtShiftLevelled.z := #tempCurrentPoint.z;
+	                  #tempNextButOneStartPointOrthShiftedLevelled.z := #tempCurrentPoint.z;
+	                  #tempNextButOneCmdStartPointOrthTangShiftedLevelled.z := #tempCurrentPoint.z;
+	                ELSE
+	                  #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_INTERNAL;
+	                  #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_LIN;
+	                  #LKinCtrl_OffsetContour.internalNumber := 407;
+	                  RETURN;
+	              END_CASE;
+	              
+	              // Calculate new levelled circle center point
+	              #tempRetValue := "LKinCtrl_CalcCircCenterByIntermediatePointAndEndPoint"(circleStartPoint := #tempCurrentPoint,
+	                                                                                       circleEndPoint := #tempNextCmdEndPointLevelled,
+	                                                                                       circleIntermediatePoint := #tempNextCmdIntermediatePointLevelled,
+	                                                                                       pathPlane := #pathPlane,
+	                                                                                       circleCenterPoint => #tempNextCmdOut.circleCenterPoint); // levelled
+	              
+	              IF (#tempRetValue <> 0) THEN
+	                #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	                #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_NEXT_CMD_CIRC;
+	                #LKinCtrl_OffsetContour.subBlockNumber := 35057;
+	                #LKinCtrl_OffsetContour.internalNumber := 408;
+	                RETURN;
+	              END_IF;
+	              
+	              // Calculate modified radius - levelled
+	              #tempNextCmdOut.circleRadius := "LKinCtrl_VecAbs"("LKinCtrl_VecSub"(vIn1 := #tempNextCmdStartPointOrhtShiftLevelled,
+	                                                                                                                                    vIn2 := #tempNextCmdOut.circleCenterPoint));
+	              
+	              
+	              
+	              
+	              #tempRetValue := "LKinCtrl_CalcLineCircleIntersectionPoint"(startPointLine := #tempNextButOneStartPointOrthShiftedLevelled,
+	                                                                          endPointLine := #tempNextButOneCmdStartPointOrthTangShiftedLevelled,
+	                                                                          circleCenter := #tempNextCmdOut.circleCenterPoint,
+	                                                                          circleRadius := #tempNextCmdOut.circleRadius,
+	                                                                          intersectionPointA => #tempPa,
+	                                                                          intersectionPointB => #tempPb);
+	              
+	              // Relevel intersection point
+	              CASE #pathPlane OF
+	                "CP_XZ":
+	                  #tempPa.y := #tempNextCmdIn.endPoint.y;
+	                  #tempPb.y := #tempNextCmdIn.endPoint.y;
+	                  
+	                "CP_YZ":
+	                  #tempPa.x := #tempNextCmdIn.endPoint.x;
+	                  #tempPb.x := #tempNextCmdIn.endPoint.x;
+	                  
+	                "CP_XY":
+	                  #tempPa.z := #tempNextCmdIn.endPoint.z;
+	                  #tempPb.z := #tempNextCmdIn.endPoint.z;
+	                ELSE
+	                  #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_INTERNAL;
+	                  #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_LIN;
+	                  #LKinCtrl_OffsetContour.internalNumber := 409;
+	                  RETURN;
+	              END_CASE;
+	              
+	            ELSE
+	              // 2D circle
+	              // Calculate modified radius
+	              #tempNextCmdOut.circleRadius := "LKinCtrl_VecAbs"("LKinCtrl_VecSub"(vIn1 := #tempCurrentPointRadComp,//#tempNextCmdOut.startPointOrthShifted,
+	                                                                                                                                    vIn2 := #tempNextCmdIn.circleCenterPoint));
+	              
+	              #tempRetValue := "LKinCtrl_CalcLineCircleIntersectionPoint"(startPointLine := #tempNextButOneCmdOut.startPointOrthShifted,
+	                                                                          endPointLine := #tempNextButOneCmdOut.startPointOrthTangShifted,
+	                                                                          circleCenter := #tempNextCmdIn.circleCenterPoint,
+	                                                                          circleRadius := #tempNextCmdOut.circleRadius,
+	                                                                          intersectionPointA => #tempPa,
+	                                                                          intersectionPointB => #tempPb);
+	              
+	              
+	            END_IF;
+	            
+	            
+	            IF (#tempRetValue <> 0) THEN
+	              #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	              #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_LIN;
+	              #LKinCtrl_OffsetContour.subBlockNumber := 35061;
+	              #LKinCtrl_OffsetContour.internalNumber := 410;
+	              RETURN;
+	            END_IF;
+	            
+	            // Two intersection points, use the one which is closer to the circle end point
+	            #tempDistance1 := "LKinCtrl_VecAbs"("LKinCtrl_VecSub"(vIn1 := #tempNextCmdIn.endPoint, vIn2 := #tempPa));
+	            #tempDistance2 := "LKinCtrl_VecAbs"("LKinCtrl_VecSub"(vIn1 := #tempNextCmdIn.endPoint, vIn2 := #tempPb));
+	            
+	            IF (#tempDistance1 < #tempDistance2) THEN
+	              #tempNextCmdOut.endPoint := #tempPa;
+	            ELSE
+	              #tempNextCmdOut.endPoint := #tempPb;
+	            END_IF;
+	            
+	          END_REGION
+	          // #############  N E X T   B U T   O N E   C M D   -  C I R C U L A R #############
+	        ELSIF (#tempNextButOneCmdOut.cmdType = "LKINCTRL_MC_MOVECIRCULARABS") THEN
+	          REGION Next but one command CIRCULAR
+	            // Distinguish between different circular modes
+	            IF (#tempNextButOneCmdIn.circleMode = "CM_BORDER") THEN
+	              // ------------ Via an intermediate point and the end point ("CircMode" = 0) ------------
+	              
+	              // Caluclate center point of circle with given start point, end point and intermediate point
+	              #tempRetValue := "LKinCtrl_CalcCircCenterByIntermediatePointAndEndPoint"(circleStartPoint := #tempNextCmdIn.endPoint,
+	                                                                                       circleEndPoint := #tempNextButOneCmdIn.endPoint,
+	                                                                                       circleIntermediatePoint := #tempNextButOneCmdIn.circleIntermediatePoint,
+	                                                                                       pathPlane := #pathPlane,
+	                                                                                       circleCenterPoint => #tempNextButOneCmdIn.circleCenterPoint);
+	              
+	              IF (#tempRetValue <> 0) THEN
+	                #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	                #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_CIRC;
+	                #LKinCtrl_OffsetContour.subBlockNumber := 35057;
+	                #LKinCtrl_OffsetContour.internalNumber := 430;
+	                RETURN;
+	              END_IF;
+	              
+	              // Calculate path choice
+	              #tempRetValue := "LKinCtrl_CalcCircPathChoiceByIntermediatePointAndEndPoint"(circleStartPoint := #tempNextCmdIn.endPoint,
+	                                                                                           circleEndPoint := #tempNextButOneCmdIn.endPoint,
+	                                                                                           circleintermediatePoint := #tempNextButOneCmdIn.circleIntermediatePoint,
+	                                                                                           pathPlane := #pathPlane,
+	                                                                                           pathChoice => #tempNextButOneCmdIn.pathChoice);
+	              
+	              IF (#tempRetValue <> 0) THEN
+	                #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	                #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_CIRC;
+	                #LKinCtrl_OffsetContour.subBlockNumber := 35058;
+	                #LKinCtrl_OffsetContour.internalNumber := 431;
+	                RETURN;
+	              END_IF;
+	              
+	            ELSIF (#tempNextButOneCmdIn.circleMode = "CM_CENTER") THEN
+	              // ------------ Via the circle center and the angle in a main plane ("CircMode" = 1) ------------
+	              
+	              // "Third" coordinate is ignored by system - also ignore here!
+	              // Use start coordinate of circle instead
+	              IF (#pathPlane = "CP_XZ") THEN
+	                #tempNextButOneCmdIn.circleCenterPoint.y := #tempNextCmdIn.endPoint.y;
+	              ELSIF (#pathPlane = "CP_YZ") THEN
+	                #tempNextButOneCmdIn.circleCenterPoint.x := #tempNextCmdIn.endPoint.x;
+	              ELSIF (#pathPlane = "CP_XY") THEN
+	                #tempNextButOneCmdIn.circleCenterPoint.z := #tempNextCmdIn.endPoint.z;
+	              END_IF;
+	              
+	              // Calculte correct circle end point - parameter not mandatory (and therefore probably not correct)
+	              #tempRetValue := "LKinCtrl_CalcCircEndPointWithGivenCenterAndAngle"(circleStartPoint := #tempNextCmdIn.endPoint,
+	                                                                                  circleCenterPoint := #tempNextButOneCmdIn.circleCenterPoint,
+	                                                                                  pathPlane := #pathPlane,
+	                                                                                  pathChoice := #tempNextButOneCmdIn.pathChoice,
+	                                                                                  angle := #tempNextButOneCmdIn.circleAngle,
+	                                                                                  endPoint => #tempNextButOneCmdIn.endPoint);
+	              
+	              IF (#tempRetValue <> 0) THEN
+	                #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	                #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_CIRC;
+	                #LKinCtrl_OffsetContour.subBlockNumber := 35053;
+	                #LKinCtrl_OffsetContour.internalNumber := 432;
+	                RETURN;
+	              END_IF;
+	              
+	            ELSIF (#tempNextButOneCmdIn.circleMode = "CM_RADIUS") THEN
+	              // ------------ Via the circle radius and the end point in a main plane ("CircMode" = 2) ------------
+	              #tempRetValue := "LKinCtrl_CalcCircCenterByRadiusAndEndPoint"(circleStartPoint := #tempNextCmdIn.endPoint,
+	                                                                            circleEndPoint := #tempNextButOneCmdIn.endPoint,
+	                                                                            pathPlane := #pathPlane,
+	                                                                            circleRadius := #tempNextButOneCmdIn.circleRadius,
+	                                                                            pathChoice := #tempNextButOneCmdIn.pathChoice,
+	                                                                            circCenterPoint => #tempNextButOneCmdIn.circleCenterPoint);
+	              
+	              IF (#tempRetValue <> 0) THEN
+	                #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	                #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_CIRC;
+	                #LKinCtrl_OffsetContour.subBlockNumber := 35052;
+	                #LKinCtrl_OffsetContour.internalNumber := 433;
+	                RETURN;
+	              END_IF;
+	              
+	            END_IF;
+	            
+	            // Take care of next circular command
+	            #tempRetValue := "LKinCtrl_CalcCircTangOrthPathPlane"(circlePoint := #tempNextCmdIn.endPoint,
+	                                                                  circleCenterPoint := #tempNextButOneCmdIn.circleCenterPoint,
+	                                                                  pathPlane := #pathPlane,
+	                                                                  compDirection := #compensationDirection,
+	                                                                  pathChoice := #tempNextButOneCmdIn.pathChoice,
+	                                                                  vUnitTangentialPathPlane => #tempNextButOneCmdOut.tangentialUnitVecStart,
+	                                                                  vUnitOrthogonalPathPlane => #tempNextButOneCmdOut.orthogonalUnitVecStart);
+	            
+	            IF (#tempRetValue <> 0) THEN
+	              #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	              #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_CIRC;
+	              #LKinCtrl_OffsetContour.subBlockNumber := 35056;
+	              #LKinCtrl_OffsetContour.internalNumber := 434;
+	              RETURN;
+	            END_IF;
+	            
+	            // Scale othogonal vector with tool radius to get orthogonal shift
+	            #tempNextButOneCmdOut.orthogonalShiftStart := "LKinCtrl_VecScale"(vIn := #tempNextButOneCmdOut.orthogonalUnitVecStart,
+	                                                                              factor := #toolRadius);
+	            
+	            
+	            #tempNextButOneCmdOut.startPointOrthShifted := "LKinCtrl_VecAdd"(vIn1 := #tempNextCmdIn.endPoint,
+	                                                                             vIn2 := #tempNextButOneCmdOut.orthogonalShiftStart);
+	            
+	            // ########## Intersection point of 1st circular and 2nd circular command  ##########
+	            
+	            IF (#tempNextCmdIn.circleMode = "CM_BORDER") THEN
+	              // ------------ Via an intermediate point and the end point ("CircMode" = 0) ------------
+	              // 3D circle possible
+	              //
+	              // Bring coordinates and parameters to same level as current point
+	              #tempNextCmdStartPointOrhtShiftLevelled := #tempCurrentPointRadComp; //#tempNextCmdOut.startPointOrthShifted;
+	              #tempNextCmdOut.circleCenterPoint := #tempNextCmdIn.circleCenterPoint;
+	              
+	              // Level parameters (third coordinate) with current point
+	              CASE #pathPlane OF
+	                "CP_XZ":
+	                  #tempNextCmdStartPointOrhtShiftLevelled.y := #tempCurrentPoint.y;
+	                  #tempNextCmdOut.circleCenterPoint.y := #tempCurrentPoint.y;
+	                  
+	                "CP_YZ":
+	                  #tempNextCmdStartPointOrhtShiftLevelled.x := #tempCurrentPoint.x;
+	                  #tempNextCmdOut.circleCenterPoint.x := #tempCurrentPoint.x;
+	                  
+	                "CP_XY":
+	                  #tempNextCmdStartPointOrhtShiftLevelled.z := #tempCurrentPoint.z;
+	                  #tempNextCmdOut.circleCenterPoint.z := #tempCurrentPoint.z;
+	                ELSE
+	                  #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_INTERNAL;
+	                  #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_CIRC;
+	                  #LKinCtrl_OffsetContour.internalNumber := 435;
+	                  RETURN;
+	              END_CASE;
+	              
+	              // Calculate radius of shifted 1st circle - levelled
+	              #tempNextCmdOut.circleRadius := "LKinCtrl_VecAbs"("LKinCtrl_VecSub"(vIn1 := #tempNextCmdStartPointOrhtShiftLevelled,
+	                                                                                                                                    vIn2 := #tempNextCmdOut.circleCenterPoint));
+	            ELSE
+	              #tempNextCmdOut.circleCenterPoint := #tempNextCmdIn.circleCenterPoint;
+	              // Calculate radius of shifted 1st circle
+	              #tempNextCmdOut.circleRadius := "LKinCtrl_VecAbs"("LKinCtrl_VecSub"(vIn1 := #tempCurrentPointRadComp,
+	                                                                                                                                    vIn2 := #tempNextCmdOut.circleCenterPoint));
+	            END_IF;
+	            
+	            IF (#tempNextButOneCmdIn.circleMode = "CM_BORDER") THEN
+	              // ------------ Via an intermediate point and the end point ("CircMode" = 0) ------------
+	              // 3D circle possible
+	              //
+	              // Bring coordinates and parameters to same level as current point
+	              #tempNextButOneStartPointOrthShiftedLevelled := #tempNextButOneCmdOut.startPointOrthShifted;
+	              #tempNextButOneCmdOut.circleCenterPoint := #tempNextButOneCmdIn.circleCenterPoint;
+	              
+	              // Level parameters (third coordinate) with current point
+	              CASE #pathPlane OF
+	                "CP_XZ":
+	                  #tempNextButOneStartPointOrthShiftedLevelled.y := #tempCurrentPoint.y;
+	                  #tempNextButOneCmdOut.circleCenterPoint.y := #tempCurrentPoint.y;
+	                  
+	                "CP_YZ":
+	                  #tempNextButOneStartPointOrthShiftedLevelled.x := #tempCurrentPoint.x;
+	                  #tempNextButOneCmdOut.circleCenterPoint.x := #tempCurrentPoint.x;
+	                  
+	                "CP_XY":
+	                  #tempNextButOneStartPointOrthShiftedLevelled.z := #tempCurrentPoint.z;
+	                  #tempNextButOneCmdOut.circleCenterPoint.z := #tempCurrentPoint.z;
+	                ELSE
+	                  #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_INTERNAL;
+	                  #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_CIRC;
+	                  #LKinCtrl_OffsetContour.internalNumber := 435;
+	                  RETURN;
+	              END_CASE;
+	              // Calculate radius of shifted 2nd circle - levelled
+	              #tempNextButOneCmdOut.circleRadius := "LKinCtrl_VecAbs"("LKinCtrl_VecSub"(vIn1 := #tempNextButOneStartPointOrthShiftedLevelled,
+	                                                                                                                                                vIn2 := #tempNextButOneCmdOut.circleCenterPoint));
+	            ELSE
+	              #tempNextButOneCmdOut.circleCenterPoint := #tempNextButOneCmdIn.circleCenterPoint;
+	              
+	              // Calculate radius of shifted 2nd circle
+	              // preliminary
+	              #tempNextButOneCmdOut.circleRadius := "LKinCtrl_VecAbs"("LKinCtrl_VecSub"(vIn1 := #tempNextButOneCmdOut.startPointOrthShifted,
+	                                                                                                                                                vIn2 := #tempNextButOneCmdOut.circleCenterPoint));
+	            END_IF;
+	            
+	            // Intersection point of 1st and 2nd circle
+	            #tempRetValue := "LKinCtrl_CalcCircleCircleIntersectionPoint"(circleCenterPoint1 := #tempNextCmdOut.circleCenterPoint,
+	                                                                          circleCenterPoint2 := #tempNextButOneCmdOut.circleCenterPoint,
+	                                                                          circleRadius1 := #tempNextCmdOut.circleRadius,
+	                                                                          circleRadius2 := #tempNextButOneCmdOut.circleRadius,
+	                                                                          pathPlane := #pathPlane,
+	                                                                          intersectionPointA => #tempPa,
+	                                                                          intersectionPointB => #tempPb);
+	            IF (#tempRetValue <> 0) THEN
+	              // V01.00.01
+	              IF (#tempRetValue = #ERR_COFF_CIRCLE_CENTERS_EQUAL) THEN
+	                // Circles are equal - use modified start point of following circle instead
+	                #tempPa := #tempNextButOneCmdOut.startPointOrthShifted;
+	                #tempPb := #tempNextButOneCmdOut.startPointOrthShifted;
+	              ELSE
+	                #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	                #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_CIRC;
+	                #LKinCtrl_OffsetContour.subBlockNumber := 35062;
+	                #LKinCtrl_OffsetContour.internalNumber := 437;
+	                RETURN;
+	              END_IF;
+	            END_IF;
+	            
+	            IF (#tempNextCmdIn.circleMode = "CM_BORDER") THEN
+	              // ------------ Via an intermediate point and the end point ("CircMode" = 0) ------------
+	              // 3D circle possible
+	              // Relevel intersection point
+	              CASE #pathPlane OF
+	                "CP_XZ":
+	                  #tempPa.y := #tempNextCmdIn.endPoint.y;
+	                  #tempPb.y := #tempNextCmdIn.endPoint.y;
+	                  
+	                "CP_YZ":
+	                  #tempPa.x := #tempNextCmdIn.endPoint.x;
+	                  #tempPb.x := #tempNextCmdIn.endPoint.x;
+	                  
+	                "CP_XY":
+	                  #tempPa.z := #tempNextCmdIn.endPoint.z;
+	                  #tempPb.z := #tempNextCmdIn.endPoint.z;
+	                ELSE
+	                  #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_INTERNAL;
+	                  #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_LIN;
+	                  #LKinCtrl_OffsetContour.internalNumber := 436;
+	                  RETURN;
+	              END_CASE;
+	            END_IF;
+	            
+	            // Two intersection points, use the one which is closer to the circle end point
+	            #tempDistance1 := "LKinCtrl_VecAbs"("LKinCtrl_VecSub"(vIn1 := #tempNextCmdIn.endPoint, vIn2 := #tempPa));
+	            #tempDistance2 := "LKinCtrl_VecAbs"("LKinCtrl_VecSub"(vIn1 := #tempNextCmdIn.endPoint, vIn2 := #tempPb));
+	            
+	            IF (#tempDistance1 < #tempDistance2) THEN
+	              #tempNextCmdOut.endPoint := #tempPa;
+	            ELSE
+	              #tempNextCmdOut.endPoint := #tempPb;
+	            END_IF;
+	            
+	          END_REGION
+	          // ############# N E X T   B U T   O N E   C M D  -  N O N E #############
+	        ELSE
+	          REGION Next but one command NONE
+	            // Output next but one coordinates - in case it's the last one
+	            #tempNextButOneCmdOut.endPoint := #tempNextButOneCmdOut.endPointOrthShifted;
+	            
+	            // Calculate end point for circle (orthogonal shifted)
+	            #tempRetValue := "LKinCtrl_CalcCircTangOrthPathPlane"(circlePoint := #tempNextCmdIn.endPoint,
+	                                                                  circleCenterPoint := #tempNextCmdIn.circleCenterPoint,
+	                                                                  pathPlane := #pathPlane,
+	                                                                  compDirection := #compensationDirection,
+	                                                                  pathChoice := #tempNextCmdIn.pathChoice,
+	                                                                  vUnitTangentialPathPlane => #tempNextCmdOut.tangentialUnitVecEnd,
+	                                                                  vUnitOrthogonalPathPlane => #tempNextCmdOut.orthogonalUnitVecEnd);
+	            
+	            IF (#tempRetValue <> 0) THEN
+	              #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	              #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_NONE;
+	              #LKinCtrl_OffsetContour.subBlockNumber := 35056;
+	              #LKinCtrl_OffsetContour.internalNumber := 450;
+	              RETURN;
+	            END_IF;
+	            
+	            // Scale othogonal vector with tool radius to get orthogonal shift
+	            #tempNextCmdOut.orthogonalShiftEnd := "LKinCtrl_VecScale"(vIn := #tempNextCmdOut.orthogonalUnitVecEnd,
+	                                                                      factor := #toolRadius);
+	            
+	            
+	            #tempNextCmdOut.endPoint := "LKinCtrl_VecAdd"(vIn1 := #tempNextCmdIn.endPoint,
+	                                                          vIn2 := #tempNextCmdOut.orthogonalShiftEnd);
+	            (*
+	            // Distinguish between different circular modes
+	            IF (#tempNextCmdIn.circleMode = "CM_BORDER") THEN
+	              // ------------ Via an intermediate point and the end point ("CircMode" = 0) ------------
+	              
+	              // Calculate end point for circle mode 0 by given mode 0
+	              #tempRetValue := "LKinCtrl_CalcCircTangOrthPathPlane"(circlePoint := #tempNextCmdIn.endPoint,
+	                                                                    circleCenterPoint := #tempNextCmdIn.circleCenterPoint,
+	                                                                    pathPlane := #pathPlane,
+	                                                                    compDirection := #compensationDirection,
+	                                                                    pathChoice := #tempNextCmdIn.pathChoice,
+	                                                                    vUnitTangentialPathPlane => #tempNextCmdOut.tangentialUnitVecEnd,
+	                                                                    vUnitOrthogonalPathPlane => #tempNextCmdOut.orthogonalUnitVecEnd);
+	              
+	              IF (#tempRetValue <> 0) THEN
+	                #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	                #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_NONE;
+	                #LKinCtrl_OffsetContour.subBlockNumber := 35056;
+	                #LKinCtrl_OffsetContour.internalNumber := 450;
+	                RETURN;
+	              END_IF;
+	              
+	              // Scale othogonal vector with tool radius to get orthogonal shift
+	              #tempNextCmdOut.orthogonalShiftEnd := "LKinCtrl_VecScale"(vIn := #tempNextCmdOut.orthogonalUnitVecEnd,
+	                                                                        factor := #toolRadius);
+	              
+	              
+	              #tempNextCmdOut.endPoint := "LKinCtrl_VecAdd"(vIn1 := #tempNextCmdIn.endPoint,
+	                                                            vIn2 := #tempNextCmdOut.orthogonalShiftEnd);
+	            ELSIF (#tempNextCmdIn.circleMode = "CM_CENTER") THEN
+	              (*
+	              // Calculate end point for circle mode 0 by given mode 1
+	              #tempRetValue := "LKinCtrl_CalcCircEndPointWithGivenCenterAndAngle"(circleStartPoint := #tempCurrentPointRadComp,
+	                                                                                  circleCenterPoint := #tempNextCmdIn.circleCenterPoint,
+	                                                                                  pathPlane := #pathPlane,
+	                                                                                  pathChoice := #tempNextCmdIn.pathChoice,
+	                                                                                  angle := #tempNextCmdIn.circleAngle,
+	                                                                                  endPoint => #tempNextCmdOut.endPoint);
+	              
+	              IF (#tempRetValue <> 0) THEN
+	                #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	                #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_NONE;
+	                #LKinCtrl_OffsetContour.subBlockNumber := 35053;
+	                #LKinCtrl_OffsetContour.internalNumber := 451;
+	                RETURN;
+	              END_IF;
+	              *)
+	              // Calculate end point for circle mode 0 by given mode 0
+	              #tempRetValue := "LKinCtrl_CalcCircTangOrthPathPlane"(circlePoint := #tempNextCmdIn.endPoint,
+	                                                                    circleCenterPoint := #tempNextCmdIn.circleCenterPoint,
+	                                                                    pathPlane := #pathPlane,
+	                                                                    compDirection := #compensationDirection,
+	                                                                    pathChoice := #tempNextCmdIn.pathChoice,
+	                                                                    vUnitTangentialPathPlane => #tempNextCmdOut.tangentialUnitVecEnd,
+	                                                                    vUnitOrthogonalPathPlane => #tempNextCmdOut.orthogonalUnitVecEnd);
+	              
+	              IF (#tempRetValue <> 0) THEN
+	                #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	                #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_NONE;
+	                #LKinCtrl_OffsetContour.subBlockNumber := 35056;
+	                #LKinCtrl_OffsetContour.internalNumber := 450;
+	                RETURN;
+	              END_IF;
+	              
+	              // Scale othogonal vector with tool radius to get orthogonal shift
+	              #tempNextCmdOut.orthogonalShiftEnd := "LKinCtrl_VecScale"(vIn := #tempNextCmdOut.orthogonalUnitVecEnd,
+	                                                                        factor := #toolRadius);
+	              
+	              
+	              #tempNextCmdOut.endPoint := "LKinCtrl_VecAdd"(vIn1 := #tempNextCmdIn.endPoint,
+	                                                            vIn2 := #tempNextCmdOut.orthogonalShiftEnd);
+	              
+	            ELSIF (#tempNextCmdIn.circleMode = "CM_RADIUS") THEN
+	              (*
+	              // ------------ Via the circle radius and the end point in a main plane ("CircMode" = 2) ------------
+	              // Calculate angle between center/start and center/end of circle - always the smaller one!!!
+	              #tempRetValue := "LKinCtrl_CalcAngleBetweenVectors"(point1 := #tempCurrentPointRadComp,//#tempNextCmdOut.startPointOrthShifted,
+	                                                                  point2 := #tempNextCmdIn.endPoint,//#tempNextCmdOut.endPoint,
+	                                                                  intersectionPoint := #tempNextCmdIn.circleCenterPoint,
+	                                                                  angle => #tempAngle);
+	              
+	              IF (#tempRetValue <> 0) THEN
+	                #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	                #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_NONE;
+	                #LKinCtrl_OffsetContour.subBlockNumber := 35059;
+	                #LKinCtrl_OffsetContour.internalNumber := 452;
+	                RETURN;
+	              END_IF;
+	              
+	              // Calculate end point for circle mode 0 by given mode 2
+	              #tempRetValue := "LKinCtrl_CalcCircEndPointWithGivenCenterAndAngle"(circleStartPoint := #tempCurrentPointRadComp, //tempNextCmdOut.startPointOrthShifted,
+	                                                                                  circleCenterPoint := #tempNextCmdIn.circleCenterPoint,
+	                                                                                  pathPlane := #pathPlane,
+	                                                                                  pathChoice := #tempNextCmdIn.pathChoice,
+	                                                                                  angle := #tempAngle,
+	                                                                                  endPoint => #tempNextCmdOut.endPoint);
+	              
+	              
+	              
+	              IF (#tempRetValue <> 0) THEN
+	                #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	                #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_NONE;
+	                #LKinCtrl_OffsetContour.subBlockNumber := 35053;
+	                #LKinCtrl_OffsetContour.internalNumber := 453;
+	                RETURN;
+	              END_IF;
+	              *)
+	              ;
+	            END_IF;
+	            *)
+	            
+	          END_REGION
+	        END_IF;
+	        
+	        
+	        // ############# M O D I F Y   N E X T   C I R C U L A R   C O M M A N D   #############
+	        REGION Modify next circular command
+	          // Distinguish between different circular modes
+	          IF (#tempNextCmdIn.circleMode = "CM_BORDER") THEN
+	            
+	            // ------------ Via an intermediate point and the end point ("CircMode" = 0) ------------
+	            // Calculate intermediate point for circle mode 0 by given mode 0
+	            // Calculate circle paramters
+	            #tempRetValue := "LKinCtrl_CalcCircTangOrthPathPlane"(circlePoint := #tempNextCmdIn.circleIntermediatePoint,
+	                                                                  circleCenterPoint := #tempNextCmdIn.circleCenterPoint,
+	                                                                  pathPlane := #pathPlane,
+	                                                                  compDirection := #compensationDirection,
+	                                                                  pathChoice := #tempNextCmdIn.pathChoice,
+	                                                                  vUnitTangentialPathPlane => #tempNextCmdOut.tangentialUnitVecIntermediate,
+	                                                                  vUnitOrthogonalPathPlane => #tempNextCmdOut.orthogonalUnitVecIntermediate);
+	            
+	            IF (#tempRetValue <> 0) THEN
+	              #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	              #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_GEN;
+	              #LKinCtrl_OffsetContour.subBlockNumber := 35056;
+	              #LKinCtrl_OffsetContour.internalNumber := 460;
+	              RETURN;
+	            END_IF;
+	            
+	            // Scale othogonal vector with tool radius to get orthogonal shift
+	            #tempNextCmdOut.orthogonalShiftIntermediate := "LKinCtrl_VecScale"(vIn := #tempNextCmdOut.orthogonalUnitVecIntermediate,
+	                                                                               factor := #toolRadius);
+	            
+	            
+	            #tempNextCmdOut.circleIntermediatePoint := "LKinCtrl_VecAdd"(vIn1 := #tempNextCmdIn.circleIntermediatePoint,
+	                                                                         vIn2 := #tempNextCmdOut.orthogonalShiftIntermediate);
+	            
+	            // Change circle mode to 0 - intermediate point and the end point ("CircMode" = 0)
+	            #tempNextCmdOut.circleMode := "CM_BORDER";
+	            
+	          ELSIF (#tempNextCmdIn.circleMode = "CM_CENTER") THEN
+	            
+	            // Take care of greater angles
+	            // #tempMod := TRUNC(#tempNextCmdIn.circleAngle / 180.0);
+	            // IF (#tempMod >= 3) THEN
+	            //   #tempAngle := #tempNextCmdIn.circleAngle - ((#tempMod - 1) * 180);
+	            // ELSE
+	            //   #tempAngle := #tempNextCmdIn.circleAngle;
+	            // END_IF;
+	            
+	            // V01.02.02
+	            // Calculate compensated angle
+	            #tempRetValue := "LKinCtrl_CalcAngleBetweenVectors"(point1 := #tempCurrentPointRadComp, //tempNextCmdOut.startPointOrthShifted,
+	                                                                point2 := #tempNextCmdOut.endPoint,
+	                                                                intersectionPoint := #tempNextCmdIn.circleCenterPoint,
+	                                                                angle => #tempAngle);
+	            
+	            IF (#tempRetValue <> 0) THEN
+	              #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	              #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_GEN;
+	              #LKinCtrl_OffsetContour.subBlockNumber := 35059;
+	              #LKinCtrl_OffsetContour.internalNumber := 461;
+	              RETURN;
+	            END_IF;
+	            //
+	            // Calculate intermediate point for circle mode 0 by given mode 1
+	            #tempRetValue := "LKinCtrl_CalcCircEndPointWithGivenCenterAndAngle"(circleStartPoint := #tempCurrentPointRadComp, // tempNextCmdOut.startPointOrthShifted,
+	                                                                                circleCenterPoint := #tempNextCmdIn.circleCenterPoint,
+	                                                                                pathPlane := #pathPlane,
+	                                                                                pathChoice := #tempNextCmdIn.pathChoice,
+	                                                                                angle := #tempAngle / 2.0,//(#tempNextCmdIn.circleAngle / 2.0),
+	                                                                                endPoint => #tempNextCmdOut.circleIntermediatePoint);
+	            IF (#tempRetValue <> 0) THEN
+	              #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	              #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_GEN;
+	              #LKinCtrl_OffsetContour.subBlockNumber := 35053;
+	              #LKinCtrl_OffsetContour.internalNumber := 462;
+	              RETURN;
+	            END_IF;
+	            
+	            // Ceck if resulting path choice (circle with intermediate point) has changed --> circle larger than 360°
+	            // Calculate path choice
+	            #tempRetValue := "LKinCtrl_CalcCircPathChoiceByIntermediatePointAndEndPoint"(circleStartPoint := #tempCurrentPointRadComp, //tempNextCmdOut.startPointOrthShifted,
+	                                                                                         circleEndPoint := #tempNextCmdOut.endPoint,
+	                                                                                         circleintermediatePoint := #tempNextCmdOut.circleIntermediatePoint,
+	                                                                                         pathPlane := #pathPlane,
+	                                                                                         pathChoice => #tempPathChoice);
+	            
+	            
+	            IF (#tempRetValue <> 0) THEN
+	              #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	              #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_GEN;
+	              #LKinCtrl_OffsetContour.subBlockNumber := 35058;
+	              #LKinCtrl_OffsetContour.internalNumber := 463;
+	              RETURN;
+	            END_IF;
+	            
+	            IF ((#tempNextCmdIn.pathChoice <> #tempPathChoice) OR
+	              (#tempNextCmdIn.circleAngle >= 360.0))
+	            THEN
+	              
+	              // V01.02.02 - done before now
+	              // // Calculate additional angle between center/start and center/end of circle - always the smaller one!!!
+	              // #tempRetValue := "LKinCtrl_CalcAngleBetweenVectors"(point1 := #tempCurrentPointRadComp, //tempNextCmdOut.startPointOrthShifted,
+	              //                                                     point2 := #tempNextCmdOut.endPoint,
+	              //                                                     intersectionPoint := #tempNextCmdIn.circleCenterPoint,
+	              //                                                     angle => #tempAngle);
+	              
+	              // IF (#tempRetValue <> 0) THEN
+	              //   #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	              //   #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_GEN;
+	              //   #LKinCtrl_OffsetContour.subBlockNumber := 35059;
+	              //   #LKinCtrl_OffsetContour.internalNumber := 463;
+	              //   RETURN;
+	              // END_IF;
+	              
+	              // Circle > 360° - not possible with circle type border
+	              IF (#tempNextCmdIn.pathChoice <> #tempPathChoice) THEN
+	                #tempNextCmdOut.circleAngle := (TRUNC((#tempNextCmdIn.circleAngle + 180.0) / 360.0) * 360.0) + #tempAngle;
+	              ELSE
+	                #tempNextCmdOut.circleAngle := (TRUNC((#tempNextCmdIn.circleAngle + 180.0) / 360.0) * 360.0) - #tempAngle;
+	              END_IF;
+	              
+	              #tempNextCmdOut.circleMode := "CM_CENTER";
+	            ELSE
+	              
+	              // V01.02.02
+	              // Output angle - for debugging only
+	              #tempNextCmdOut.circleAngle := #tempAngle;
+	              
+	              // Change circle mode to 0 - intermediate point and the end point ("CircMode" = 0)
+	              #tempNextCmdOut.circleMode := "CM_BORDER";
+	            END_IF;
+	            
+	          ELSIF (#tempNextCmdIn.circleMode = "CM_RADIUS") THEN
+	            // ------------ Via the circle radius and the end point in a main plane ("CircMode" = 2) ------------
+	            // Calculate angle between center/start and center/end of circle - always the smaller one!!!
+	            #tempRetValue := "LKinCtrl_CalcAngleBetweenVectors"(point1 := #tempCurrentPointRadComp,
+	                                                                point2 := #tempNextCmdOut.endPoint,
+	                                                                intersectionPoint := #tempNextCmdIn.circleCenterPoint,
+	                                                                angle => #tempAngle);
+	            
+	            IF (#tempRetValue <> 0) THEN
+	              #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	              #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_GEN;
+	              #LKinCtrl_OffsetContour.subBlockNumber := 35059;
+	              #LKinCtrl_OffsetContour.internalNumber := 464;
+	              RETURN;
+	            END_IF;
+	            
+	            // Calculate intermediate point for circle mode 0 by given mode 2
+	            #tempRetValue := "LKinCtrl_CalcCircEndPointWithGivenCenterAndAngle"(circleStartPoint := #tempCurrentPointRadComp, //tempNextCmdOut.startPointOrthShifted,
+	                                                                                circleCenterPoint := #tempNextCmdIn.circleCenterPoint,
+	                                                                                pathPlane := #pathPlane,
+	                                                                                pathChoice := #tempNextCmdIn.pathChoice,
+	                                                                                angle := (#tempAngle / 2.0),
+	                                                                                endPoint => #tempNextCmdOut.circleIntermediatePoint);
+	            
+	            IF (#tempRetValue <> 0) THEN
+	              #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	              #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_GEN;
+	              #LKinCtrl_OffsetContour.subBlockNumber := 35053;
+	              #LKinCtrl_OffsetContour.internalNumber := 465;
+	              RETURN;
+	            END_IF;
+	            
+	            // Change circle mode to 0 - intermediate point and the end point ("CircMode" = 0)
+	            #tempNextCmdOut.circleMode := "CM_BORDER";
+	            
+	          END_IF;
+	          
+	          // Additional check - has the direction between start - end and start - compensated end changed
+	          // --> Reversal path with "small" length (and "large" tool radius) leads to unexpected circle (mathematical correct but in an unexpected direction)
+	          REGION Additional plausibility check
+	            #tempRetValue := "LKinCtrl_CalcAngleBetweenVectors"(point1 := #tempNextCmdOut.endPoint,
+	                                                                point2 := #tempNextCmdIn.endPoint,
+	                                                                intersectionPoint := #tempCurrentPoint,
+	                                                                angle => #tempAngle);
+	            
+	            IF (#tempRetValue <> 0) THEN
+	              #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	              #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_GEN;
+	              #LKinCtrl_OffsetContour.subBlockNumber := 35059;
+	              #LKinCtrl_OffsetContour.internalNumber := 470;
+	              RETURN;
+	            END_IF;
+	            
+	            IF ((#tempAngle > #COFF_CIRC_REVERSAL_TOLERANCE_ANGLE) AND
+	              ("LKinCtrl_VecAbs"("LKinCtrl_VecSub"(vIn1 := #tempNextCmdOut.endPoint,
+	                                                                      vIn2 := #tempNextCmdOut.circleIntermediatePoint)) < (2.0 * #toolRadius)))
+	            THEN
+	              #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_NO_SOLUTION_FOR_GIVEN_CIRCULAR_CMD;
+	              #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_GEN;
+	              #LKinCtrl_OffsetContour.subBlockNumber := 0;
+	              #LKinCtrl_OffsetContour.internalNumber := 471;
+	              RETURN;
+	            END_IF;
+	            
+	          END_REGION
+	          
+	          // V01.02.02
+	          REGION Additional plausibility check
+	            // Check if circle radius has become smaller than possible - compensation inside
+	            
+	            // Calculate the length end point circle center 
+	            #tempRetValue := "LKinCtrl_CalcVecDistancePathPlane"(vectorInA := #tempNextCmdIn.endPoint,
+	                                                                 vectorInB := #tempNextCmdIn.circleCenterPoint,
+	                                                                 pathPlane := #pathPlane,
+	                                                                 distancePathPlane => #tempCircleDistance1);
+	            
+	            IF (#tempRetValue <> 0) THEN
+	              #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	              #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_GEN;
+	              #LKinCtrl_OffsetContour.subBlockNumber := 35067;
+	              #LKinCtrl_OffsetContour.internalNumber := 472;
+	              RETURN;
+	            END_IF;
+	            
+	            #tempRetValue := "LKinCtrl_CalcVecDistancePathPlane"(vectorInA := #tempNextCmdOut.endPoint,
+	                                                                 vectorInB := #tempNextCmdIn.circleCenterPoint,
+	                                                                 pathPlane := #pathPlane,
+	                                                                 distancePathPlane => #tempCircleDistance2);
+	            
+	            IF (#tempRetValue <> 0) THEN
+	              #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	              #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_GEN;
+	              #LKinCtrl_OffsetContour.subBlockNumber := 35067;
+	              #LKinCtrl_OffsetContour.internalNumber := 473;
+	              RETURN;
+	            END_IF;
+	            
+	            IF (#tempCircleDistance2 < #tempCircleDistance1) THEN
+	              // inside circle - check plausibility
+	              // Tool radius must not be greater than circle radius
+	              IF (#toolRadius > (#tempCircleDistance1 - #RADIUS_PLAUSIBLITY_TOLERANCE)) THEN
+	                #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_NO_SOLUTION_FOR_GIVEN_CIRCULAR_CMD;
+	                #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_GEN;
+	                #LKinCtrl_OffsetContour.subBlockNumber := 0;
+	                #LKinCtrl_OffsetContour.internalNumber := 474;
+	                RETURN;
+	              END_IF;
+	              // Tool radius must not be greater than circle start and end point (uncompensated)
+	              #tempRetValue := "LKinCtrl_CalcVecDistancePathPlane"(vectorInA := #tempCurrentPoint,
+	                                                                   vectorInB := #tempNextCmdIn.endPoint,
+	                                                                   pathPlane := #pathPlane,
+	                                                                   distancePathPlane => #tempCircleDistance3);
+	              
+	              IF (#tempRetValue <> 0) THEN
+	                #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	                #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_GEN;
+	                #LKinCtrl_OffsetContour.subBlockNumber := 35067;
+	                #LKinCtrl_OffsetContour.internalNumber := 475;
+	                RETURN;
+	              END_IF;
+	              
+	              IF (#toolRadius > (#tempCircleDistance3 - #RADIUS_PLAUSIBLITY_TOLERANCE)) THEN
+	                #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_NO_SOLUTION_FOR_GIVEN_CIRCULAR_CMD;
+	                #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_RAD_COMP_CIRC_GEN;
+	                #LKinCtrl_OffsetContour.subBlockNumber := 0;
+	                #LKinCtrl_OffsetContour.internalNumber := 476;
+	                RETURN;
+	              END_IF;
+	              
+	            END_IF;
+	            
+	          END_REGION
+	        END_REGION
+	      END_IF;
+	    END_REGION
+	    
+	  END_IF;
+	  
+	  // V01.00.01
+	  // Output before length compensation
+	  #nextPositionAbsoluteRadCompOut := "LKinCtrl_3DPointToCartesianCoord"(#tempNextCmdOut.endPoint);
+	END_REGION TOOL_RADIUS_COMPENSATION
+	
+	// Tool length compensation
+	REGION TOOL_LENGTH_COMPENSATION
+	  IF (#tempToolLengthComp) THEN
+	    // Next command
+	    // -------------------------------------------------------------------------------------
+	    // Compensate coordinates of according to path plane
+	    // End point
+	    #tempRetValue := "LKinCtrl_CalcToolLengthCompensation"(toolLength := #toolLength,
+	                                                           pathPlane := #pathPlane,
+	                                                           point := #tempNextCmdOut.endPoint);
+	    IF (#tempRetValue <> 0) THEN
+	      #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	      #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_LEN_COMP_NEXT;
+	      #LKinCtrl_OffsetContour.subBlockNumber := 35070;
+	      #LKinCtrl_OffsetContour.internalNumber := 601;
+	      RETURN;
+	    END_IF;
+	    
+	    // Circle coordinates
+	    IF (#tempNextCmdOut.cmdType = "LKINCTRL_MC_MOVECIRCULARABS") THEN
+	      
+	      IF (#tempNextCmdOut.circleMode = "CM_BORDER") THEN
+	        
+	        #tempRetValue := "LKinCtrl_CalcToolLengthCompensation"(toolLength := #toolLength,
+	                                                               pathPlane := #pathPlane,
+	                                                               point := #tempNextCmdOut.circleIntermediatePoint);
+	        IF (#tempRetValue <> 0) THEN
+	          #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	          #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_LEN_COMP_NEXT;
+	          #LKinCtrl_OffsetContour.subBlockNumber := 35070;
+	          #LKinCtrl_OffsetContour.internalNumber := 602;
+	          RETURN;
+	        END_IF;
+	        
+	      ELSIF (#tempNextCmdOut.circleMode = "CM_CENTER") THEN
+	        
+	        #tempRetValue := "LKinCtrl_CalcToolLengthCompensation"(toolLength := #toolLength,
+	                                                               pathPlane := #pathPlane,
+	                                                               point := #tempNextCmdOut.circleCenterPoint);
+	        IF (#tempRetValue <> 0) THEN
+	          #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	          #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_LEN_COMP_NEXT;
+	          #LKinCtrl_OffsetContour.subBlockNumber := 35070;
+	          #LKinCtrl_OffsetContour.internalNumber := 603;
+	          RETURN;
+	        END_IF;
+	        
+	      ELSIF (#tempNextCmdOut.circleMode = "CM_RADIUS") THEN
+	        ;
+	      ELSE
+	        #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_INTERNAL; // Internal error
+	        #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_LEN_COMP_NEXT;
+	        #LKinCtrl_OffsetContour.internalNumber := 604;
+	        RETURN;
+	      END_IF;
+	    END_IF;
+	    
+	    // Intermediate command
+	    // -------------------------------------------------------------------------------------
+	    // Compensate coordinates of according to path plane
+	    IF (#tempIntermediateCmdOut.cmdType <> -1) THEN
+	      
+	      // End point
+	      #tempRetValue := "LKinCtrl_CalcToolLengthCompensation"(toolLength := #toolLength,
+	                                                             pathPlane := #pathPlane,
+	                                                             point := #tempIntermediateCmdOut.endPoint);
+	      IF (#tempRetValue <> 0) THEN
+	        #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	        #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_LEN_COMP_INTER_CMD;
+	        #LKinCtrl_OffsetContour.subBlockNumber := 35070;
+	        #LKinCtrl_OffsetContour.internalNumber := 605;
+	        RETURN;
+	      END_IF;
+	      
+	      // Always circle by intemdiate point and end point
+	      #tempRetValue := "LKinCtrl_CalcToolLengthCompensation"(toolLength := #toolLength,
+	                                                             pathPlane := #pathPlane,
+	                                                             point := #tempIntermediateCmdOut.circleIntermediatePoint);
+	      IF (#tempRetValue <> 0) THEN
+	        #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	        #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_LEN_COMP_INTER_CMD;
+	        #LKinCtrl_OffsetContour.subBlockNumber := 35070;
+	        #LKinCtrl_OffsetContour.internalNumber := 606;
+	        RETURN;
+	      END_IF;
+	    END_IF;
+	    
+	    // Next but one command - not needed - no output
+	    // -------------------------------------------------------------------------------------
+	    (*
+	    // Compensate coordinates of according to path plane
+	    // End point
+	    #tempRetValue := "LKinCtrl_CalcToolLengthCompensation"(toolLength := #toolLength,
+	                                                           pathPlane := #pathPlane,
+	                                                           point := #tempNextButOneCmdOut.endPoint);
+	    IF (#tempRetValue <> 0) THEN
+	      #LKinCtrl_OffsetContour.returnValue := #tempRetValue;
+	      #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_LEN_COMP_NEXT_BUT_ONE_CMD;
+	      #LKinCtrl_OffsetContour.subBlockNumber := 35070;
+	      #LKinCtrl_OffsetContour.internalNumber := 607
+	      RETURN;
+	    END_IF;
+	    *)
+	  END_IF;
+	END_REGION
+	
+	REGION Output data
+	  
+	  // ############# O U T P U T   D A T A  #############
+	  // ###################################### 
+	  IF (#tempToolRadiusComp OR #tempToolLengthComp) THEN
+	    // Next command
+	    
+	    #nextCommandOut.cmdType := #tempNextCmdOut.cmdType;
+	    #nextCommandOut.cmdCoordinates.cartesianPosition := "LKinCtrl_3DPointToCartesianCoord"(#tempNextCmdOut.endPoint);
+	    
+	    IF (#tempNextCmdOut.cmdType = "LKINCTRL_MC_MOVECIRCULARABS") THEN
+	      #nextCommandOut.cmdParameters.circleParameters.circMode := #tempNextCmdOut.circleMode;
+	      
+	      IF (#tempNextCmdOut.circleMode = "CM_BORDER") THEN
+	        #nextCommandOut.cmdParameters.circleParameters.auxPoint[1] := #tempNextCmdOut.circleIntermediatePoint.x;
+	        #nextCommandOut.cmdParameters.circleParameters.auxPoint[2] := #tempNextCmdOut.circleIntermediatePoint.y;
+	        #nextCommandOut.cmdParameters.circleParameters.auxPoint[3] := #tempNextCmdOut.circleIntermediatePoint.z;
+	        // *** AW 2022-05-29 - debugging only - compensated angle
+	        #nextCommandOut.cmdParameters.circleParameters.arc := #tempNextCmdOut.circleAngle;
+	        
+	      ELSIF (#tempNextCmdOut.circleMode = "CM_CENTER") THEN
+	        #nextCommandOut.cmdParameters.circleParameters.pathChoice := #tempNextCmdIn.pathChoice;
+	        #nextCommandOut.cmdParameters.circleParameters.circlePlane := #tempNextCmdIn.circlePlane;
+	        #nextCommandOut.cmdParameters.circleParameters.auxPoint[1] := #tempNextCmdOut.circleCenterPoint.x;
+	        #nextCommandOut.cmdParameters.circleParameters.auxPoint[2] := #tempNextCmdOut.circleCenterPoint.y;
+	        #nextCommandOut.cmdParameters.circleParameters.auxPoint[3] := #tempNextCmdOut.circleCenterPoint.z;
+	        #nextCommandOut.cmdParameters.circleParameters.arc := #tempNextCmdOut.circleAngle; // #tempNextCmdIn.circleAngle;
+	        
+	      ELSIF (#tempNextCmdOut.circleMode = "CM_RADIUS") THEN
+	        #nextCommandOut.cmdParameters.circleParameters.pathChoice := #tempNextCmdIn.pathChoice;
+	        #nextCommandOut.cmdParameters.circleParameters.circlePlane := #tempNextCmdIn.circlePlane;
+	        #nextCommandOut.cmdParameters.circleParameters.radius := #tempNextCmdIn.circleRadius;
+	        
+	      ELSE
+	        #LKinCtrl_OffsetContour.returnValue := #ERR_COFF_INTERNAL; // Internal error
+	        #LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_OUTPUT_DATA;
+	        RETURN;
+	      END_IF;
+	    END_IF;
+	    
+	    // Coordinate a
+	    // ------------
+	    // Linear absolute
+	    IF (#tempNextCmdIn.cmdType = "LKINCTRL_MC_MOVELINEARABS") THEN
+	      // Absolute coordinates
+	      #nextCommandOut.cmdCoordinates.cartesianPosition.a := #nextCommandIn.cmdCoordinates.cartesianPosition.a;
+	      // Linear relative
+	    ELSIF (#tempNextCmdIn.cmdType = "LKINCTRL_MC_MOVELINEARREL") THEN
+	      // Relative coordinates -> calculate absolute coordinate (always)
+	      #nextCommandOut.cmdCoordinates.cartesianPosition.a := #currentPosIn.positionAbsolute.a + #nextCommandIn.cmdCoordinates.cartesianPosition.a;
+	      // Circular absolute  
+	    ELSIF (#tempNextCmdIn.cmdType = "LKINCTRL_MC_MOVECIRCULARABS") THEN
+	      // Absolute coordinates
+	      #nextCommandOut.cmdCoordinates.cartesianPosition.a := #nextCommandIn.cmdCoordinates.cartesianPosition.a;
+	      // Circular relative  
+	    ELSIF (#tempNextCmdIn.cmdType = "LKINCTRL_MC_MOVECIRCULARREL") THEN
+	      // Relative coordinates -> calculate absolute coordinate (always)
+	      #nextCommandOut.cmdCoordinates.cartesianPosition.a := #currentPosIn.positionAbsolute.a + #nextCommandIn.cmdCoordinates.cartesianPosition.a;
+	    END_IF;
+	    
+	    // Output absolute end point for next cycle (including coordinate a)
+	    #nextPositionAbsoluteOut := "LKinCtrl_3DPointToCartesianCoord"(#tempNextCmdIn.endPoint);
+	    #nextPositionAbsoluteOut.a := #nextCommandOut.cmdCoordinates.cartesianPosition.a;
+	    
+	    // Output absolute end point (radius compensated) for next cycle (including coordinate a)
+	    // V01.00.01
+	    // nextPositionAbsoluteRadCompOut := "LKinCtrl_3DPointToCartesianCoord"(#tempNextCmdOut.endPoint);
+	    #nextPositionAbsoluteRadCompOut.a := #nextCommandOut.cmdCoordinates.cartesianPosition.a;
+	    
+	    // Intermediate command
+	    IF (#tempIntermediateCmdOut.cmdType <> -1) THEN
+	      
+	      // Take all parameter preliminary
+	      #intermediateCommandOut := #nextCommandIn;
+	      
+	      #intermediateCommandOut.cmdType := #tempIntermediateCmdOut.cmdType;
+	      #intermediateCommandOut.cmdParameters.circleParameters.circMode := #tempIntermediateCmdOut.circleMode;
+	      
+	      // Circle by intemdiate point and end point
+	      #intermediateCommandOut.cmdCoordinates.cartesianPosition := "LKinCtrl_3DPointToCartesianCoord"(#tempIntermediateCmdOut.endPoint);
+	      #intermediateCommandOut.cmdParameters.circleParameters.auxPoint[1] := #tempIntermediateCmdOut.circleIntermediatePoint.x;
+	      #intermediateCommandOut.cmdParameters.circleParameters.auxPoint[2] := #tempIntermediateCmdOut.circleIntermediatePoint.y;
+	      #intermediateCommandOut.cmdParameters.circleParameters.auxPoint[3] := #tempIntermediateCmdOut.circleIntermediatePoint.z;
+	      
+	      // Coordinate a
+	      #intermediateCommandOut.cmdCoordinates.cartesianPosition.a := #nextCommandOut.cmdCoordinates.cartesianPosition.a;
+	    ELSE
+	      #intermediateCommandOut.cmdType := -1;
+	    END_IF;
+	    
+	    // Next but one command
+	    //nextButOneCommandOut.cmdType := #tempNextButOneCmdIn.cmdType;
+	    //nextButOneCommandOut.cmdCoordinates.cartesianPosition := "LKinCtrl_3DPointToCartesianCoord"(#tempNextButOneCmdOut.endPoint);
+	    #nextButOneCommandOut.transitionParameter[1] := #tempNextButOneCmdOut.transitionParameter1;
+	  ELSE
+	    // Next command
+	    #nextCommandOut := #nextCommandIn;
+	  END_IF;
+	  
+	END_REGION
+	
+	#LKinCtrl_OffsetContour.returnValue := 16#0;
+	#LKinCtrl_OffsetContour."region" := #COFF_REGION_TYPE_NONE;
+	#LKinCtrl_OffsetContour.subBlockNumber := 16#0;
+	#LKinCtrl_OffsetContour.internalNumber := 0;
+	
+	
+END_FUNCTION
+

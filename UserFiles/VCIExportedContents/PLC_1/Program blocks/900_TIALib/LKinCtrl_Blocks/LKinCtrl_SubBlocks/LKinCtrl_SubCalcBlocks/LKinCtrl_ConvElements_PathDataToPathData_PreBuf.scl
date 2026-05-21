@@ -1,0 +1,130 @@
+﻿FUNCTION "LKinCtrl_ConvElements_PathDataToPathData_PreBuf" : Void
+TITLE = LKinCtrl_ConvElements_PathDataToPathData_PreBuf
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//The FC converts PathData commands to elements fitting the PathData_PreBuf structure
+   VAR_INPUT 
+      copyCompensatedParametes : Bool;   // copy selection compensated parameters
+      copyTransitionParameters : Bool;   // copy selection transition parameters
+      copyFlags : Bool;   // copy selection flags
+   END_VAR
+
+   VAR_IN_OUT 
+      pathDataElement : "LKinCtrl_typePathDataElement";   // in: pathDataElement to be copied
+      pathDataPreBufElement : "LKinCtrl_typePathDataElement_PreBuf";   // out: pathDataElement_PreBuf to be written
+      pathDataName : String;   // name of PathData to be copied (separate from element)
+   END_VAR
+
+   VAR_TEMP 
+      tempFlagCtr : Int;
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN/DP
+	// Engineering: TIA Portal V15
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 2.5
+	// Functionality: LKinCtrl_ConvElements_PathDataToPathData_PreBuf
+	// The FC converts PathData commands to elements fitting the PathData_PreBuf structure
+	//
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   20.02.2019    JR                  First release version v1.0
+	// 01.00.01   16.08.2019    JR                  added setFlags edit code: flagMode: 3 -> 2
+	// 01.00.02   28.01.2020    FR                  added value flags to copyFlags
+	// 01.01.00   04.03.2021    FR                  added all cmd parameters
+	// 01.01.01   03.01.2024    SF                  added PickAndPlace parameters
+	//===========================================================================================
+	
+	// General info
+	#pathDataPreBufElement.pathDataName := #pathDataName;
+	#pathDataPreBufElement.cmdType := #pathDataElement.cmdType;
+	#pathDataPreBufElement.cmdName := #pathDataElement.cmdName;
+	
+	
+	// Target coordinates / circle parameter
+	IF #copyCompensatedParametes THEN // copy target positions
+	    #pathDataPreBufElement.cmdCoordinates.targetPosition[1] := #pathDataElement.cmdCoordinates.cartesianPosition.x;
+	    #pathDataPreBufElement.cmdCoordinates.targetPosition[2] := #pathDataElement.cmdCoordinates.cartesianPosition.y;
+	    #pathDataPreBufElement.cmdCoordinates.targetPosition[3] := #pathDataElement.cmdCoordinates.cartesianPosition.z;
+	    #pathDataPreBufElement.cmdCoordinates.targetPosition[4] := #pathDataElement.cmdCoordinates.cartesianPosition.a;
+	    #pathDataPreBufElement.cmdCoordinates.targetPosition[5] := #pathDataElement.cmdCoordinates.cartesianPosition.b;
+	    #pathDataPreBufElement.cmdCoordinates.targetPosition[6] := #pathDataElement.cmdCoordinates.cartesianPosition.c;
+	    #pathDataPreBufElement.cmdCoordinates.coordSystem := #pathDataElement.cmdCoordinates.coordSystem;
+	    
+	    #pathDataPreBufElement.cmdParameters.circleParameters := #pathDataElement.cmdParameters.circleParameters;
+	END_IF;
+	
+	// Cmd parameter - general
+	#pathDataPreBufElement.cmdParameters.pathDynamics := #pathDataElement.cmdParameters.pathDynamics;
+	#pathDataPreBufElement.cmdParameters.orientationDynamics := #pathDataElement.cmdParameters.orientationDynamics;
+	#pathDataPreBufElement.cmdParameters.orientationDirection := #pathDataElement.cmdParameters.orientationDirection;
+	#pathDataPreBufElement.cmdParameters.dynamicAdaption := #pathDataElement.cmdParameters.dynamicAdaption;
+	#pathDataPreBufElement.cmdParameters.toolNumber := #pathDataElement.cmdParameters.toolNumber;
+	#pathDataPreBufElement.cmdParameters.bufferMode := #pathDataElement.cmdParameters.bufferMode;
+	#pathDataPreBufElement.cmdParameters.conveyorParameters := #pathDataElement.cmdParameters.conveyorParameters;
+	#pathDataPreBufElement.cmdParameters.moveDirectParameters := #pathDataElement.cmdParameters.moveDirectParameters;
+	#pathDataPreBufElement.cmdParameters.offsetParameters := #pathDataElement.cmdParameters.offsetParameters;
+	#pathDataPreBufElement.cmdParameters.zoneParameters := #pathDataElement.cmdParameters.zoneParameters;
+	#pathDataPreBufElement.cmdParameters.pickAndPlaceParameters := #pathDataElement.cmdParameters.pickAndPlaceParameters;
+	
+	//Measurement Cmd
+	#pathDataPreBufElement.measurementCmd := #pathDataElement.measurementCmd;
+	
+	// Transition parameter
+	IF #copyTransitionParameters THEN
+	    #pathDataPreBufElement.cmdParameters.transitionParameters := #pathDataElement.cmdParameters.transitionParameters;
+	END_IF;
+	
+	// Flags
+	IF #copyFlags THEN
+	    // ---------------------------------------------------------------
+	    // Set flags (bool)
+	    // ---------------------------------------------------------------
+	    #pathDataPreBufElement.setFlags := #pathDataElement.setFlags;
+	    // change flagMode 3 to flagMode 2 as functionality is equal
+	    // check for cmd to be flagOnly cmd
+	    // check for cmd to implement flag and flagMode to be flagMode 3
+	    FOR #tempFlagCtr := 1 TO "LKINCTRL_NO_OF_CMD_SETFLAGS" DO
+	        IF #pathDataPreBufElement.cmdType = "LKINCTRL_CMD_FLAG_ONLY"
+	            AND #pathDataPreBufElement.setFlags[#tempFlagCtr].flag <> -1
+	            AND #pathDataPreBufElement.setFlags[#tempFlagCtr].flagMode = "LKINCTRL_FM_SET_BEFORE_AND_RESET_AFTER_ONE_CYCLE"
+	        THEN
+	            // change flagMode to flagMode 2
+	            #pathDataPreBufElement.setFlags[#tempFlagCtr].flagMode := "LKINCTRL_FM_SET_BEFORE_AND_RESET_AFTER";
+	        END_IF;
+	    END_FOR;
+	    // ---------------------------------------------------------------
+	    
+	    // ---------------------------------------------------------------
+	    // Value flags (LReal)
+	    // ---------------------------------------------------------------
+	    #pathDataPreBufElement.valueFlags := #pathDataElement.valueFlags;
+	    // change flagMode 3 to flagMode 2 as functionality is equal
+	    // check for cmd to be flagOnly cmd
+	    // check for cmd to implement flag and flagMode to be flagMode 3
+	    FOR #tempFlagCtr := 1 TO "LKINCTRL_NO_OF_CMD_VALUEFLAGS" DO
+	        IF #pathDataPreBufElement.cmdType = "LKINCTRL_CMD_FLAG_ONLY"
+	            AND #pathDataPreBufElement.valueFlags[#tempFlagCtr].flag <> -1
+	            AND #pathDataPreBufElement.valueFlags[#tempFlagCtr].flagMode = "LKINCTRL_FM_SET_BEFORE_AND_RESET_AFTER_ONE_CYCLE"
+	        THEN
+	            // change flagMode to flagMode 2
+	            #pathDataPreBufElement.valueFlags[#tempFlagCtr].flagMode := "LKINCTRL_FM_SET_BEFORE_AND_RESET_AFTER";
+	        END_IF;
+	    END_FOR;
+	    // ---------------------------------------------------------------
+	END_IF;
+	
+END_FUNCTION
+

@@ -29,3 +29,6 @@ hmiDemoSCARA_ABCDE.info
 
 # JetBrains IDE metadata
 .idea/
+
+# Archived old VCI export (kept local; old state is in git history)
+UserFiles/VCIExportedContents/old_vci/

@@ -1,0 +1,35 @@
+﻿FUNCTION "LKinCtrl_VecScalProd" : LReal
+TITLE = LKinCtrl_VecScalProd
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculate scalar product of coordinates (X, Y, Z) of "LKinCtrl_typeCOff3DPoint"
+   VAR_INPUT 
+      vIn1 : "LKinCtrl_typeCOff3DPoint";   // Input vector 1
+      vIn2 : "LKinCtrl_typeCOff3DPoint";   // Input vector 2
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library: - 
+	// Tested with: S7-1516T-3 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.5
+	// Functionality: Calculate scalar product of coordinates (X, Y, Z) of "LKinCtrl_typeCOff3DPoint"
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 2019-01-25 AW               created
+	//=============================================================================
+	
+	#LKinCtrl_VecScalProd := #vIn1.x * #vIn2.x  //   X1*X2
+	+ #vIn1.y * #vIn2.y  // + Y1*Y2
+	+ #vIn1.z * #vIn2.z; // + Z1*Z2
+END_FUNCTION
+

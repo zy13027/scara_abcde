@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Document>
   <Engineering version="V20" />
   <SW.Blocks.GlobalDB ID="0">
@@ -18,8 +18,10 @@
   </Section>
 </Sections></Interface>
       <MemoryLayout>Optimized</MemoryLayout>
+      <MemoryReserve>100</MemoryReserve>
       <Name>GDB_PalletizingPath</Name>
       <Namespace />
+      <Number>15</Number>
       <ProgrammingLanguage>DB</ProgrammingLanguage>
     </AttributeList>
     <ObjectList>

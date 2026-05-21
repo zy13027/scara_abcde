@@ -1,0 +1,60 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="velocityFactor" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Factor for the velocity of axis movements in relation to the respective maximum velocity of the axes. Permitted value range: -1.0 &lt; Factor ≤ 1.0</MultiLanguageText>
+      </Comment>
+      <StartValue>-1.0</StartValue>
+    </Member>
+    <Member Name="accelerationFactor" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Factor for the acceleration of axis movements in relation to the respective maximum acceleration of the axis. Permitted value range: -1.0 &lt; Factor ≤ 1.0</MultiLanguageText>
+      </Comment>
+      <StartValue>-1.0</StartValue>
+    </Member>
+    <Member Name="decelerationFactor" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Factor for the deceleration of the axis movements in relation to the respective maximum deceleration of the axis. Permitted value range: -1.0 &lt; Factor ≤ 1.0</MultiLanguageText>
+      </Comment>
+      <StartValue>-1.0</StartValue>
+    </Member>
+    <Member Name="jerkFactor" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Factor for the jerk of axis movements in relation to the respective maximum jerk of the axis. Permitted value range: -1.0 &lt;Factor ≤ 0.0 and 0.1 &lt; Factor ≤ 0.9</MultiLanguageText>
+      </Comment>
+      <StartValue>-1.0</StartValue>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>LKinCtrl_typeSPTPDynamics</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

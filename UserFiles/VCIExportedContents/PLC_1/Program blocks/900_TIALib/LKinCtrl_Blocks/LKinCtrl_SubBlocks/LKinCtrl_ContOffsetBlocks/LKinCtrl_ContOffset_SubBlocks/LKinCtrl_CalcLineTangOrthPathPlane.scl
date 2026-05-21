@@ -1,0 +1,144 @@
+﻿FUNCTION "LKinCtrl_CalcLineTangOrthPathPlane" : Word
+TITLE = LKinCtrl_CalcLineTangOrthPathPlane
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculate orthogonal and tangential vector of a line with respect ot the path plane
+   VAR_INPUT 
+      pathPlane : Int;   // Path plane: XZ= 0, YZ=1, XY= 2
+      compDirection : Int;   // Tool radius compensation direction: left=1, right = 0
+      vInFirst : "LKinCtrl_typeCOff3DPoint";   // Next position
+      vInSecond : "LKinCtrl_typeCOff3DPoint";   // Current position
+   END_VAR
+
+   VAR_OUTPUT 
+      vUnitTangentialPathPlane : "LKinCtrl_typeCOff3DPoint";   // Output tangential vector - path plane - unit vector
+      vUnitOrthogonalPathPlane : "LKinCtrl_typeCOff3DPoint";   // Output orthogonal vector - path plane - unit vector
+   END_VAR
+
+   VAR_TEMP 
+      tempVOrthogonal : "LKinCtrl_typeCOff3DPoint";   // Othogonal vector
+      tempVTangential : "LKinCtrl_typeCOff3DPoint";   // Tangential vector
+   END_VAR
+
+   VAR CONSTANT 
+      ERR_COFF_INVALID_PATH_PLANE : Word := 16#8303;   // Error - invalid path plane
+      ERR_COFF_INVALID_COMPENSATION_DIRECTION : Word := 16#8304;   // Error - invalid compensation direction
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library: - 
+	// Tested with: S7-1516T-3 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.5
+	// Functionality: Calculate orthogonal and tangential vector of a line
+	// with respect ot the path plane
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 2019-02-05 AW               created
+	//=============================================================================
+	
+	REGION PLAUSIBILITY_CHECK
+	// Check path plane
+	  IF ((#pathPlane >= "CP_XZ") AND (#pathPlane <= "CP_XY"))
+	THEN
+	  // Check compensation direction
+	  IF ((#compDirection >= "LKINCTRL_COMP_LEFT") AND (#compDirection <= "LKINCTRL_COMP_RIGHT"))
+	  THEN
+	    ;
+	  ELSE
+	    #LKinCtrl_CalcLineTangOrthPathPlane := #ERR_COFF_INVALID_COMPENSATION_DIRECTION; // Invalid compensation direction
+	    RETURN;
+	  END_IF;
+	ELSE
+	  #LKinCtrl_CalcLineTangOrthPathPlane := #ERR_COFF_INVALID_PATH_PLANE; // Invalid path plane
+	  RETURN;
+	END_IF;
+	
+	END_REGION PLAUSIBILITY_CHECK
+	
+	REGION CALCULATION
+	  // Calculate difference vector (take care of path plane) - tangential vector
+	  #tempVTangential := "LKinCtrl_VecSub"(vIn1 := #vInFirst,
+	                                        vIn2 := #vInSecond);
+	  
+	  // Take care of path plane
+	  CASE #pathPlane OF
+	    "CP_XY":
+	      #tempVTangential.z := 0.0;
+	      
+	    "CP_XZ":
+	      #tempVTangential.y := 0.0;
+	      
+	    "CP_YZ":
+	      #tempVTangential.x := 0.0;
+	  END_CASE;
+	  
+	  // Normalize vector
+	  #tempVTangential := "LKinCtrl_VecUnit"(vIn := #tempVTangential);
+	  
+	  
+	// Calculate orthogonal vector to current vector depending on path plane and compensation direction
+	CASE #pathPlane OF
+	  "CP_XY":
+	    IF (#compDirection = "LKINCTRL_COMP_LEFT") THEN
+	      #tempVOrthogonal.x := - #tempVTangential.y;
+	      #tempVOrthogonal.y := #tempVTangential.x;
+	      #tempVOrthogonal.z := 0.0;
+	    ELSE
+	      #tempVOrthogonal.x := #tempVTangential.y;
+	      #tempVOrthogonal.y := - #tempVTangential.x;
+	      #tempVOrthogonal.z := 0.0;          
+	    END_IF;
+	    
+	  "CP_XZ":
+	    (*
+	    IF (#compDirection = "LKINCTRL_COMP_LEFT") THEN
+	      #tempVOrthogonal.x := #tempVTangential.z;
+	      #tempVOrthogonal.y := 0.0;
+	      #tempVOrthogonal.z := - #tempVTangential.x;
+	    ELSE
+	      #tempVOrthogonal.x := - #tempVTangential.z;
+	      #tempVOrthogonal.y := 0.0;
+	      #tempVOrthogonal.z := #tempVTangential.x;
+	    END_IF;*)
+	    
+	    IF (#compDirection = "LKINCTRL_COMP_LEFT") THEN
+	      #tempVOrthogonal.x := -#tempVTangential.z;
+	      #tempVOrthogonal.y := 0.0;
+	      #tempVOrthogonal.z := #tempVTangential.x;
+	    ELSE
+	      #tempVOrthogonal.x := #tempVTangential.z;
+	      #tempVOrthogonal.y := 0.0;
+	      #tempVOrthogonal.z := -#tempVTangential.x;
+	    END_IF;
+	    
+	  "CP_YZ":
+	    IF (#compDirection = "LKINCTRL_COMP_LEFT") THEN
+	      #tempVOrthogonal.x := 0.0;
+	      #tempVOrthogonal.y := - #tempVTangential.z;
+	      #tempVOrthogonal.z := #tempVTangential.y;
+	    ELSE
+	      #tempVOrthogonal.x := 0.0;
+	      #tempVOrthogonal.y := #tempVTangential.z;
+	      #tempVOrthogonal.z := - #tempVTangential.y;
+	    END_IF;
+	END_CASE;
+	END_REGION CALCULATION
+	
+	#vUnitTangentialPathPlane := #tempVTangential;
+	#vUnitOrthogonalPathPlane := #tempVOrthogonal;
+	#LKinCtrl_CalcLineTangOrthPathPlane := 0;
+	
+	
+	
+END_FUNCTION
+

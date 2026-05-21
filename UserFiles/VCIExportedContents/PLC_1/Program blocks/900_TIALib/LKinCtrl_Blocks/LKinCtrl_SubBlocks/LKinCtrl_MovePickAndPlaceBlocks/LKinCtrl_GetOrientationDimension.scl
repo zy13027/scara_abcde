@@ -1,0 +1,107 @@
+﻿FUNCTION "LKinCtrl_GetOrientationDimension" : Word
+TITLE = LKinCtrl_GetOrientationDimension
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Get number of orientation axes for used kinematics object
+   VAR_INPUT 
+      axesGroup {InstructionName := 'TO_Kinematics'; LibVersion := '9.0'} : TO_Kinematics;   // Axes group
+   END_VAR
+
+   VAR_OUTPUT 
+      orientationDimension : Int;   // 0: No orientation; 1: A; 2: A, B; 3: A, B, C
+   END_VAR
+
+   VAR CONSTANT 
+      STATUS_NO_ERR : Word := 16#0000;   // No error
+      ERR_KIN_TYPE_UNKNOWN : Word := 16#8000;   // Error - Kinematics type unkown
+      ORI_NO_ORI : Int := 0;   // No orientation
+      ORI_A : Int := 1;   // Orientation A
+      ORI_AB : Int := 2;   // Orientation A, B
+      ORI_ABC : Int := 3;   // Orientation A, B, C
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2023
+	//-----------------------------------------------------------------------------
+	// Library:       LKinCtrl
+	// Tested with:   S7-1518TF-4 PN/DP, FW V3.1
+	// Engineering:   TIA Portal V19
+	// Restrictions:  ---
+	// Requirements:  S7-1500T, FW V3.0
+	// Functionality: This block is returning the Degrees of Freedom (DOF) for orientation
+	//                of the input kinematics type
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 21.09.2023 SF               First released version
+	//=============================================================================
+	
+	REGION KINEMATICS_TYPE
+	  // Kinematics type
+	  // 1 - Cartesian portal 2D
+	  // 2 - Cartesian portal 2D with orientation
+	  // 3 - Cartesian portal 3D
+	  // 4 - Cartesian portal 3D with orientation
+	  // 5 - Roller picker 2D
+	  // 6 - Roller picker 2D with orientation
+	  // 7 - Roller picker 3D (vertical)
+	  // 8 - Roller picker 3D with orientation (vertical)
+	  // 9 - Roller picker 3D with orientation (horizontal)
+	  // 10 - SCARA 3D with orientation
+	  // 11 - Articulated arm 2D
+	  // 12 - Articulated arm 2D with orientation
+	  // 13 - Articulated arm 3D
+	  // 14 - Articulated arm 3D with orientation
+	  // 15 - Delta picker 2D
+	  // 16 - Delta picker 2D with orientation
+	  // 17 - Delta picker 3D
+	  // 18 - Delta picker 3D with orientation
+	  // 19 - Reserved
+	  // 20 - SCARA 2D with orientation
+	  // 21 - Cylindrical robot 3D
+	  // 22 - Cylindrical robot 3D with orientation
+	  // 23 - Tripod 3D
+	  // 24 - Tripod 3D with orientation
+	  // 25 - 6-axis articulated arm with central hand (Kin+)
+	  // 26 - Cartesian portal 3D with 2 orientations A, B (Kin+)
+	  // 27 - Delta picker 3D with 2 orientations A, B (Kin+)
+	  // 28 - Reserved
+	  // 29 - Reserved
+	  // 30 - Reserved
+	  // 31 - User-defined 2D
+	  // 32 - User-defined 2D with orientation A
+	  // 33 - User-defined 3D
+	  // 34 - User-defined 3D with orientation A
+	  // 35 - User-defined kinematics systems 3D with 2 orientations A, B (Kin+)
+	  // 36 - User-defined kinematics systems 3D with 3 orientations (Kin+)
+	END_REGION
+	
+	//Preset
+	#LKinCtrl_GetOrientationDimension := #STATUS_NO_ERR;
+	
+	CASE #axesGroup.Kinematics.TypeOfKinematics OF
+	  1, 5, 11, 15, 31:  // 2D kinematics
+	    #orientationDimension := #ORI_NO_ORI;
+	  2, 6, 12, 16, 20, 32:  // 2D + orientation axis A;
+	    #orientationDimension := #ORI_A;
+	  3, 7, 13, 17, 21, 23, 33:  // 3D kinematics
+	    #orientationDimension := #ORI_NO_ORI;
+	  4, 8, 9, 10, 14, 18, 22, 24, 34:  // 3D + orientation axis A
+	    #orientationDimension := #ORI_A;
+	  26, 27, 35: // 3D + orientation axis A, B
+	    #orientationDimension := #ORI_AB;
+	  25, 36: // 3D + orientation axis A, B, C
+	    #orientationDimension := #ORI_ABC;
+	  ELSE  // invalid kinematics type
+	    #LKinCtrl_GetOrientationDimension := #ERR_KIN_TYPE_UNKNOWN;
+	END_CASE;
+	
+END_FUNCTION
+

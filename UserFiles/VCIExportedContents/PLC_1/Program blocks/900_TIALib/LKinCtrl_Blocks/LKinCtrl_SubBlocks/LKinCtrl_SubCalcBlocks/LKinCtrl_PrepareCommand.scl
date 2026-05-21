@@ -1,0 +1,467 @@
+﻿FUNCTION_BLOCK "LKinCtrl_PrepareCommand"
+TITLE = LKinCtrl_PrepareCommand
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//This FB takes a command and prepares it, so it can be executed. 
+   VAR_INPUT 
+      startPosition { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..6] of LReal;   // start point in given CS
+      startPositionCoordSystem { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // Last coordinate system
+      startLinkConstellation { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // Starting link constellation
+   END_VAR
+
+   VAR_OUTPUT 
+      status { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Word;   // Status of the FB
+      cmdLengthZero { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // TRUE: Command has no length
+      resultingLinkConstellation { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // Resulting link constellation
+      resultingDistance { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..6] of LReal;   // distance between start and endpoint in given CS
+      resultingPosition { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..6] of LReal;   // Last target position
+      resultingAuxPoint { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..3] of LReal;   // Last auxiliary position (for circular commands)
+   END_VAR
+
+   VAR_IN_OUT 
+      cmdType { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int;   // Command type
+      coordinates : Variant;   // Command coordinates
+      coordSystem { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // Command coordinate system
+      circleParameters : "LKinCtrl_typeCircleParameters";   // Command circle parameter
+      moveDirectParameter : "LKinCtrl_typeMoveDirectParameter";   // Command move direct parameter
+      parameterValid : Array[1.."LKINCTRL_NO_OF_VALID_BITS"] of Bool;   // Command parameter valid bits
+      OCSFrames : Array[1..3] of "LKinCtrl_typeFrame";   // OCS frames
+      userFrames : Array["LKINCTRL_CS_NO_OF_FIRST_USER_FRAME".."LKINCTRL_CS_NO_OF_LAST_USER_FRAME"] of "LKinCtrl_typeFrame";   // User frames
+      relativeShift : "LKinCtrl_typeRelShift";   // Realtive shift settings
+      kinematicsTransformation {InstructionName := 'MC_KINEMATICSTRANSFORMATION'; LibVersion := '9.0'} : MC_KINEMATICSTRANSFORMATION;   // Instance of forward kinematics transformation
+      inverseKinematicsTransformation {InstructionName := 'MC_INVERSEKINEMATICSTRANSFORMATION'; LibVersion := '9.0'} : MC_INVERSEKINEMATICSTRANSFORMATION;   // Instanve of inverse kinematics transformation
+      toKinematics {InstructionName := 'TO_Kinematics'; LibVersion := '9.0'} : TO_Kinematics;   // Kinematics technology object
+   END_VAR
+
+   VAR 
+      statStartPosition { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..6] of LReal;   // Array for start position
+      statCommandPosition { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..6] of LReal;   // Array for target position from command
+   END_VAR
+
+   VAR_TEMP 
+      tempRetVal : Word;   // Temporary return value
+      tempIndex : DInt;   // Temporary counter
+      tempAuxPoint : Array[1..6] of LReal;   // Temporary position
+      tempPosArray : REF_TO Array[1..6] of LReal;   // Reference to coordinates from PreBuffer element
+      tempPosStruct : REF_TO "LKinCtrl_typeCartesianPosition";   // Reference to coordinates from normal element
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2021
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN/DP
+	// Engineering: TIA Portal V16
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 2.8
+	// Functionality: LKinCtrl_CalcRemainingDist
+	// This FB takes a command and prepares it, so it can be executed. 
+	//
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   19.05.2021    FR                  First released version
+	// 01.00.01   12.10.2021    FR                  Fix for sPTP positionMode 2
+	// 02.00.00   18.01.2022    FR                  Update to 6 axis, added distance
+	// 02.00.01   21.02.2023    FR                  Fixed transformation calculation for JCS
+	// 03.01.00   13.10.2023    AH                  Added shift handling
+	// 03.01.01   09.02.2024    FR                  Fix for relative shift of CS
+	// 03.01.02   08.04.2024    FR                  Reset status output
+	// 04.02.00   11.07.2024    AH                  Fix for sPTP positionMode 2
+	// 04.02.01   10.09.2024    FR                  Check valid bits for MovePickPlace
+	//===========================================================================================
+	
+	// Reset status output
+	#status := 16#0;
+	
+	//------------------------------------------------------------------------------------------
+	// Transform coordinates in/out to array[1..6]
+	//------------------------------------------------------------------------------------------
+	
+	IF TypeOf(#coordinates) = "LKinCtrl_typeCartesianPosition" THEN
+	  // Assignment
+	  #tempPosStruct ?= #coordinates;
+	  
+	  // Assign temp with values
+	  #statCommandPosition[1] := #tempPosStruct^.x;
+	  #statCommandPosition[2] := #tempPosStruct^.y;
+	  #statCommandPosition[3] := #tempPosStruct^.z;
+	  #statCommandPosition[4] := #tempPosStruct^.a;
+	  #statCommandPosition[5] := #tempPosStruct^.b;
+	  #statCommandPosition[6] := #tempPosStruct^.c;
+	  
+	ELSIF TypeOfElements(#coordinates) = LReal AND IS_ARRAY(#coordinates) AND CountOfElements(#coordinates) = 6 THEN
+	  // Assignment
+	  #tempPosArray ?= #coordinates;
+	  
+	  // Assign temp with values
+	  #statCommandPosition := #tempPosArray^;
+	ELSE
+	  // Wrong input
+	  RETURN;
+	END_IF;
+	
+	// assign values to statics
+	#statStartPosition := #startPosition;
+	
+	//------------------------------------------------------------------------------------------
+	// Transform startPosition into correct CS
+	//------------------------------------------------------------------------------------------
+	IF (#coordSystem = "CS_MCS" AND #startPositionCoordSystem = "CS_JCS")
+	  OR (#coordSystem = "CS_JCS" AND #startPositionCoordSystem = "CS_MCS")
+	THEN
+	  // JCS to MCS or MCS to JCS
+	  // Transform axis CS to WCS
+	  #kinematicsTransformation(AxesGroup         := #toKinematics,
+	                            Enable            := TRUE,
+	                            AxesPosition      := #statStartPosition,
+	                            CoordSystem       := "CS_WCS",
+	                            AxesCoordSystem   := #startPositionCoordSystem,
+	                            ErrorId           => #tempRetVal,
+	                            Position          => #statStartPosition,
+	                            LinkConstellation => #resultingLinkConstellation);
+	  
+	  // Transform WCS to axis CS
+	  #inverseKinematicsTransformation(AxesGroup         := #toKinematics,
+	                                   Enable            := TRUE,
+	                                   Position          := #statStartPosition,
+	                                   CoordSystem       := "CS_WCS",
+	                                   AxesCoordSystem   := #coordSystem,
+	                                   LinkConstellation := #resultingLinkConstellation,
+	                                   ErrorId           => #tempRetVal,
+	                                   AxesPosition      => #statStartPosition);
+	  
+	ELSIF (#coordSystem = "CS_MCS" AND #startPositionCoordSystem <> "CS_MCS")
+	  OR (#coordSystem = "CS_JCS" AND #startPositionCoordSystem <> "CS_JCS")
+	THEN
+	  // Transform cartesian lastPos to MCS or JCS
+	  #inverseKinematicsTransformation(AxesGroup         := #toKinematics,
+	                                   Enable            := TRUE,
+	                                   Position          := #statStartPosition,
+	                                   CoordSystem       := #startPositionCoordSystem,
+	                                   AxesCoordSystem   := #coordSystem,
+	                                   LinkConstellation := #startLinkConstellation,
+	                                   ErrorId           => #tempRetVal,
+	                                   AxesPosition      => #statStartPosition);
+	  
+	  // check for error in last position calculation
+	  IF #tempRetVal <> 16#0 THEN
+	    #status := #tempRetVal;
+	    RETURN;
+	  END_IF;
+	  
+	ELSIF (#coordSystem <> "CS_MCS" AND #startPositionCoordSystem = "CS_MCS")
+	  OR (#coordSystem <> "CS_JCS" AND #startPositionCoordSystem = "CS_JCS")
+	THEN
+	  // Transform axial lastPos to target cartesian CS
+	  #kinematicsTransformation(AxesGroup         := #toKinematics,
+	                            Enable            := TRUE,
+	                            AxesPosition      := #statStartPosition,
+	                            CoordSystem       := #coordSystem,
+	                            AxesCoordSystem   := #startPositionCoordSystem,
+	                            ErrorId           => #tempRetVal,
+	                            Position          => #statStartPosition,
+	                            LinkConstellation => #resultingLinkConstellation);
+	  
+	  // check for error in last position calculation
+	  IF #tempRetVal <> 16#0 THEN
+	    #status := #tempRetVal;
+	    RETURN;
+	  END_IF;
+	  
+	ELSE
+	  // Transform Start position to correct CS 
+	  "LKinCtrl_FrameTrans"(coordSystem    := #coordSystem, // Actual/Target CS
+	                        coordSystemOld := #startPositionCoordSystem, // Last CS
+	                        OCSFrames      := #OCSFrames, // OCS frames
+	                        userFrames     := #userFrames,
+	                        position       := #statStartPosition); // Position to be transformed
+	END_IF;
+	
+	
+	//------------------------------------------------------------------------------------------
+	// Update linkConstellation
+	//------------------------------------------------------------------------------------------
+	// LinkConstellation can only be set at sPTP command in WCS/OCS
+	IF #coordSystem <> "CS_MCS"
+	  AND #coordSystem <> "CS_JCS"
+	  AND #moveDirectParameter.linkConstellation <> 16#FFFF_FFFF
+	  AND (#cmdType = "LKINCTRL_MC_MOVEDIRECTABS"
+	  OR #cmdType = "LKINCTRL_MC_MOVEDIRECTREL")
+	THEN
+	  // LinkConstellation is changed
+	  #resultingLinkConstellation := DWORD_TO_DINT(#moveDirectParameter.linkConstellation);
+	END_IF;
+	
+	//------------------------------------------------------------------------------------------
+	// Update PositionMode
+	//------------------------------------------------------------------------------------------
+	// PositionMode is only valid for absolute SPTP command in WCS/OCS
+	IF #coordSystem <> "CS_MCS"
+	  AND #moveDirectParameter.positionMode = "PM_ABS_REL" // Relative A coordinate
+	  AND #cmdType = "LKINCTRL_MC_MOVEDIRECTABS"
+	THEN
+	  // Calc correct orientation position
+	    #resultingPosition[4] := #statStartPosition[4] + #statCommandPosition[4];
+	  //#statCommandPosition[4] := #resultingPosition[4]; // update tempPosition
+	    ;
+	END_IF;
+	
+	//------------------------------------------------------------------------------------------
+	// ParameterValid bit check -> Check if all positions are valid -> LKinLang mechanism
+	//------------------------------------------------------------------------------------------
+	CASE #cmdType OF
+	  "LKINCTRL_MC_MOVELINEARABS", "LKINCTRL_MC_MOVECIRCULARABS", "LKINCTRL_MC_MOVEDIRECTABS", "LKINCTRL_MC_MOVELINEARPICKANDPLACE":  // Absolute commands
+	    FOR #tempIndex := 1 TO "LKINCTRL_NO_OF_VALID_BITS" DO
+	      // Check valid bits and copy last pos (X,Y,Z,A) where missing
+	      IF #parameterValid[#tempIndex] = FALSE THEN
+	        #statCommandPosition[#tempIndex] := #statStartPosition[#tempIndex]; // write lastPos as target pos if invalid
+	      ELSE
+	        CONTINUE;
+	      END_IF;
+	    END_FOR;
+	    
+	  "LKINCTRL_MC_MOVELINEARREL", "LKINCTRL_MC_MOVECIRCULARREL", "LKINCTRL_MC_MOVEDIRECTREL":  // Relative commands
+	    FOR #tempIndex := 1 TO "LKINCTRL_NO_OF_VALID_BITS" DO
+	      // Check valid bits and set absolute pos to 0.0 (X,Y,Z,A)
+	      IF #parameterValid[#tempIndex] = FALSE THEN
+	        #statCommandPosition[#tempIndex] := 0.0; // write no increment as relative target pos if invalid
+	      ELSE
+	        CONTINUE;
+	      END_IF;
+	    END_FOR;
+	    
+	  ELSE  // Nothing to do for this cmdType
+	    ;
+	END_CASE;
+	
+	//------------------------------------------------------------------------------------------
+	// Convert circle mode 3 (Gcode notation) to circle mode 1 (arc + endPoint)
+	//------------------------------------------------------------------------------------------
+	// --> CmdType = 3 (always absolute as result)
+	// --> CircleParameters = calculated arc, updated auxPoint, circMode 1
+	IF #circleParameters.circMode = "LKINCTRL_CIRCMODE_GCODE" THEN
+	  #tempRetVal := "LKinCtrl_ConvCircMode3To1"(coordinates := #statCommandPosition,
+	                                             startPosition := #statStartPosition,
+	                                             cmdType := #cmdType,
+	                                             circleParameters := #circleParameters);
+	  
+	  // check for error in circle calculation
+	  IF #tempRetVal <> 16#0 THEN
+	    #status := #tempRetVal;
+	    RETURN;
+	  END_IF;
+	END_IF;
+	
+	//------------------------------------------------------------------------------------------
+	// Handle relative shift
+	//------------------------------------------------------------------------------------------
+	IF #relativeShift.shiftActive = TRUE
+	  AND #relativeShift.coordinateSystem = #coordSystem
+	THEN
+	  IF #cmdType = "LKINCTRL_MC_MOVELINEARABS"
+	    OR #cmdType = "LKINCTRL_MC_MOVEDIRECTABS"
+	    OR #cmdType = "LKINCTRL_MC_MOVECIRCULARABS"
+	    OR #cmdType = "LKINCTRL_MC_MOVELINEARPICKANDPLACE"
+	  THEN
+	    // Translation and rotation (end point)
+	    "LKinCtrl_OcsToWcs"(ocsX      := #relativeShift.coordinates[1],
+	                        ocsY      := #relativeShift.coordinates[2],
+	                        ocsZ      := #relativeShift.coordinates[3],
+	                        ocsA      := #relativeShift.coordinates[4],
+	                        ocsB      := #relativeShift.coordinates[5],
+	                        ocsC      := #relativeShift.coordinates[6],
+	                        pointXOcs := #statCommandPosition[1],
+	                        pointYOcs := #statCommandPosition[2],
+	                        pointZOcs := #statCommandPosition[3],
+	                        pointAOcs := #statCommandPosition[4],
+	                        pointBOcs := #statCommandPosition[5],
+	                        pointCOcs := #statCommandPosition[6],
+	                        pointXWcs => #statCommandPosition[1],
+	                        pointYWcs => #statCommandPosition[2],
+	                        pointZWcs => #statCommandPosition[3],
+	                        pointAWcs => #statCommandPosition[4],
+	                        pointBWcs => #statCommandPosition[5],
+	                        pointCWcs => #statCommandPosition[6]);
+	    
+	    // Translation and rotation (aux point)
+	    "LKinCtrl_OcsToWcs"(ocsX      := #relativeShift.coordinates[1],
+	                        ocsY      := #relativeShift.coordinates[2],
+	                        ocsZ      := #relativeShift.coordinates[3],
+	                        ocsA      := #relativeShift.coordinates[4],
+	                        ocsB      := #relativeShift.coordinates[5],
+	                        ocsC      := #relativeShift.coordinates[6],
+	                        pointXOcs := #circleParameters.auxPoint[1],
+	                        pointYOcs := #circleParameters.auxPoint[2],
+	                        pointZOcs := #circleParameters.auxPoint[3],
+	                        pointAOcs := 0.0,
+	                        pointBOcs := 0.0,
+	                        pointCOcs := 0.0,
+	                        pointXWcs => #circleParameters.auxPoint[1],
+	                        pointYWcs => #circleParameters.auxPoint[2],
+	                        pointZWcs => #circleParameters.auxPoint[3],
+	                        pointAWcs => #tempAuxPoint[4],
+	                        pointBWcs => #tempAuxPoint[5],
+	                        pointCWcs => #tempAuxPoint[6]);
+	    
+	  ELSIF #cmdType = "LKINCTRL_MC_MOVELINEARREL"
+	    OR #cmdType = "LKINCTRL_MC_MOVEDIRECTREL"
+	    OR #cmdType = "LKINCTRL_MC_MOVECIRCULARREL"
+	  THEN
+	    // Only rotation (end point)
+	    "LKinCtrl_OcsToWcs"(ocsX      := 0.0,
+	                        ocsY      := 0.0,
+	                        ocsZ      := 0.0,
+	                        ocsA      := #relativeShift.coordinates[4],
+	                        ocsB      := #relativeShift.coordinates[5],
+	                        ocsC      := #relativeShift.coordinates[6],
+	                        pointXOcs := #statCommandPosition[1],
+	                        pointYOcs := #statCommandPosition[2],
+	                        pointZOcs := #statCommandPosition[3],
+	                        pointAOcs := 0.0,
+	                        pointBOcs := 0.0,
+	                        pointCOcs := 0.0,
+	                        pointXWcs => #statCommandPosition[1],
+	                        pointYWcs => #statCommandPosition[2],
+	                        pointZWcs => #statCommandPosition[3],
+	                        pointAWcs => #tempAuxPoint[4],
+	                        pointBWcs => #tempAuxPoint[5],
+	                        pointCWcs => #tempAuxPoint[6]);
+	    
+	    // Only rotation (aux point)
+	    "LKinCtrl_OcsToWcs"(ocsX      := 0.0,
+	                        ocsY      := 0.0,
+	                        ocsZ      := 0.0,
+	                        ocsA      := #relativeShift.coordinates[4],
+	                        ocsB      := #relativeShift.coordinates[5],
+	                        ocsC      := #relativeShift.coordinates[6],
+	                        pointXOcs := #circleParameters.auxPoint[1],
+	                        pointYOcs := #circleParameters.auxPoint[2],
+	                        pointZOcs := #circleParameters.auxPoint[3],
+	                        pointAOcs := 0.0,
+	                        pointBOcs := 0.0,
+	                        pointCOcs := 0.0,
+	                        pointXWcs => #circleParameters.auxPoint[1],
+	                        pointYWcs => #circleParameters.auxPoint[2],
+	                        pointZWcs => #circleParameters.auxPoint[3],
+	                        pointAWcs => #tempAuxPoint[4],
+	                        pointBWcs => #tempAuxPoint[5],
+	                        pointCWcs => #tempAuxPoint[6]);
+	  ELSE
+	    ;// No calculation necessary
+	  END_IF;
+	END_IF;
+	
+	//------------------------------------------------------------------------------------------
+	// Calculate resulting absoulte position
+	//------------------------------------------------------------------------------------------
+	#tempRetVal := "LKinCtrl_CalcResultingPos"(cmdType := #cmdType,
+	                                           cartesianPos := #statCommandPosition,
+	                                           circleParameters := #circleParameters,
+	                                           startPosition := #statStartPosition,
+	                                           commandLengthIsZero => #cmdLengthZero,
+	                                           resultingDistance => #resultingDistance,
+	                                           resultingPosition => #resultingPosition,
+	                                           resultingAuxPoint => #resultingAuxPoint);  
+	
+	// check for error in resulting position calculation
+	IF #tempRetVal <> 16#0 THEN
+	  #status := #tempRetVal;
+	  RETURN;
+	END_IF;
+	
+	//------------------------------------------------------------------------------------------
+	// Transform UCS commands into WCS
+	// At this point all coordinates are calauclated in UCS -> Transform them in WCS to be able to execute system commands
+	//------------------------------------------------------------------------------------------
+	IF #coordSystem >= "LKINCTRL_CS_NO_OF_FIRST_USER_FRAME"
+	  AND #coordSystem <= "LKINCTRL_CS_NO_OF_LAST_USER_FRAME"
+	THEN
+	  CASE #cmdType OF
+	    "LKINCTRL_MC_MOVELINEARABS", "LKINCTRL_MC_MOVECIRCULARABS", "LKINCTRL_MC_MOVEDIRECTABS",  // Absolute commands
+	    "LKINCTRL_MC_MOVELINEARREL", "LKINCTRL_MC_MOVECIRCULARREL", "LKINCTRL_MC_MOVEDIRECTREL":  // Relative commands
+	      // Up to this point all positions (start, resulting & distance) are in UCS
+	      // --> Calculate new values in WCS
+	      
+	      // Transform start position into WCS
+	      "LKinCtrl_OcsToWcs"(ocsX      := #userFrames[#coordSystem].x,
+	                          ocsY      := #userFrames[#coordSystem].y,
+	                          ocsZ      := #userFrames[#coordSystem].z,
+	                          ocsA      := #userFrames[#coordSystem].a,
+	                          ocsB      := #userFrames[#coordSystem].b,
+	                          ocsC      := #userFrames[#coordSystem].c,
+	                          pointXOcs := #statStartPosition[1],
+	                          pointYOcs := #statStartPosition[2],
+	                          pointZOcs := #statStartPosition[3],
+	                          pointAOcs := #statStartPosition[4],
+	                          pointBOcs := #statStartPosition[5],
+	                          pointCOcs := #statStartPosition[6],
+	                          pointXWcs => #statStartPosition[1],
+	                          pointYWcs => #statStartPosition[2],
+	                          pointZWcs => #statStartPosition[3],
+	                          pointAWcs => #statStartPosition[4],
+	                          pointBWcs => #statStartPosition[5],
+	                          pointCWcs => #statStartPosition[6]);
+	      
+	      // Transform resulting position into WCS
+	      "LKinCtrl_OcsToWcs"(ocsX      := #userFrames[#coordSystem].x,
+	                          ocsY      := #userFrames[#coordSystem].y,
+	                          ocsZ      := #userFrames[#coordSystem].z,
+	                          ocsA      := #userFrames[#coordSystem].a,
+	                          ocsB      := #userFrames[#coordSystem].b,
+	                          ocsC      := #userFrames[#coordSystem].c,
+	                          pointXOcs := #resultingPosition[1],
+	                          pointYOcs := #resultingPosition[2],
+	                          pointZOcs := #resultingPosition[3],
+	                          pointAOcs := #resultingPosition[4],
+	                          pointBOcs := #resultingPosition[5],
+	                          pointCOcs := #resultingPosition[6],
+	                          pointXWcs => #resultingPosition[1],
+	                          pointYWcs => #resultingPosition[2],
+	                          pointZWcs => #resultingPosition[3],
+	                          pointAWcs => #resultingPosition[4],
+	                          pointBWcs => #resultingPosition[5],
+	                          pointCWcs => #resultingPosition[6]);
+	      
+	      // Transform resulting aux position into WCS
+	      "LKinCtrl_OcsToWcs"(ocsX      := #userFrames[#coordSystem].x,
+	                          ocsY      := #userFrames[#coordSystem].y,
+	                          ocsZ      := #userFrames[#coordSystem].z,
+	                          ocsA      := #userFrames[#coordSystem].a,
+	                          ocsB      := #userFrames[#coordSystem].b,
+	                          ocsC      := #userFrames[#coordSystem].c,
+	                          pointXOcs := #resultingAuxPoint[1],
+	                          pointYOcs := #resultingAuxPoint[2],
+	                          pointZOcs := #resultingAuxPoint[3],
+	                          pointAOcs := 0,
+	                          pointBOcs := 0,
+	                          pointCOcs := 0,
+	                          pointXWcs => #resultingAuxPoint[1],
+	                          pointYWcs => #resultingAuxPoint[2],
+	                          pointZWcs => #resultingAuxPoint[3],
+	                          pointAWcs => #tempAuxPoint[4],
+	                          pointBWcs => #tempAuxPoint[5],
+	                          pointCWcs => #tempAuxPoint[6]);
+	      
+	      // Calc resulting distance in WCS
+	      FOR #tempIndex := 1 TO 6 DO
+	        #resultingDistance[#tempIndex] := #resultingPosition[#tempIndex] - #statStartPosition[#tempIndex];
+	      END_FOR;
+	      
+	      #coordSystem := "CS_WCS"; // Set CS to WCS
+	  END_CASE;
+	END_IF;
+	
+	
+	
+	
+	
+END_FUNCTION_BLOCK
+

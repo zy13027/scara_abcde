@@ -1,0 +1,68 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="pathDataName" Datatype="String[&quot;LKINCTRL_LENGTH_OF_PATHDATA_NAME&quot;]">
+      <Comment>
+        <MultiLanguageText Lang="en-US">PathData name of specific command</MultiLanguageText>
+      </Comment>
+      <StartValue>''</StartValue>
+    </Member>
+    <Member Name="pathDataIdentifier" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">PathData identifier counter of specific command</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="cmdId" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">cmdId of command in PathData</MultiLanguageText>
+      </Comment>
+      <StartValue>0</StartValue>
+    </Member>
+    <Member Name="isIntermediateCmd" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">TRUE: command is intermediate command</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="setFlags" Datatype="Array[1..&quot;LKINCTRL_NO_OF_CMD_SETFLAGS&quot;] of &quot;LKinCtrl_typeSetFlagElement_Bool&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">setFlags structure equal to PathData command entry</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="valueFlags" Datatype="Array[1..&quot;LKINCTRL_NO_OF_CMD_VALUEFLAGS&quot;] of &quot;LKinCtrl_typeSetFlagElement_LReal&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">setFlags structure equal to PathData command entry</MultiLanguageText>
+      </Comment>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>LKinCtrl_typeFlagBufferElement</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

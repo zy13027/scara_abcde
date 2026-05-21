@@ -1,0 +1,138 @@
+﻿FUNCTION "LKinCtrl_CalcCircCenterByRadiusAndEndPoint" : Word
+TITLE = LKinCtrl_CalcCircCenterByRadiusAndEndPoint
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculate circle center point with given start point, end point and radius
+   VAR_INPUT 
+      circleStartPoint : "LKinCtrl_typeCOff3DPoint";   // Circle start point
+      circleEndPoint : "LKinCtrl_typeCOff3DPoint";   // Circle end point
+      pathPlane : Int;   // Path plane: XZ= 0, YZ=1, XY= 2
+      circleRadius : LReal;   // Circle radius
+      pathChoice : DInt;   // Circle path choice: positive= 0, negative= 1
+   END_VAR
+
+   VAR_OUTPUT 
+      circCenterPoint : "LKinCtrl_typeCOff3DPoint";   // Circle center point
+   END_VAR
+
+   VAR_TEMP 
+      tempRetValue : Word;
+      tempPa : "LKinCtrl_typeCOff3DPoint";
+      tempPb : "LKinCtrl_typeCOff3DPoint";
+      tempVEndStart : "LKinCtrl_typeCOff3DPoint";
+      tempVPaStart : "LKinCtrl_typeCOff3DPoint";
+      tempCrossVec : "LKinCtrl_typeCOff3DPoint";
+   END_VAR
+
+   VAR CONSTANT 
+      ERR_COFF_INVALID_PATH_PLANE : Word := 16#8303;   // Error - invalid path plane
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library: - 
+	// Tested with: S7-1516T-3 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.5
+	// Functionality: Calculate circle center point with given start point, end point and radius
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 2019-01-24 AW               created
+	//=============================================================================
+	
+	REGION PLAUSIBILITY_CHECK
+	  // Check path plane
+	  IF ((#pathPlane >= "CP_XZ") AND (#pathPlane <= "CP_XY"))
+	  THEN
+	    ;
+	  ELSE
+	    #LKinCtrl_CalcCircCenterByRadiusAndEndPoint := #ERR_COFF_INVALID_PATH_PLANE; // Invalid path plane
+	    RETURN;
+	  END_IF;
+	END_REGION PLAUSIBILITY_CHECK
+	
+	REGION CALCULATION
+	  
+	  
+	  // Calculate circle center point by letting the following two circles intersect
+	  // 1st circle around start point with radius
+	  // 2nd circle around end point with radius
+	  #tempRetValue := "LKinCtrl_CalcCircleCircleIntersectionPoint"(circleCenterPoint1 := #circleStartPoint,
+	                                                                circleCenterPoint2 := #circleEndPoint,
+	                                                                circleRadius1 := #circleRadius,
+	                                                                circleRadius2 := #circleRadius,
+	                                                                pathPlane := #pathPlane,
+	                                                                intersectionPointA => #tempPa,
+	                                                                intersectionPointB => #tempPb);
+	
+	  IF (#tempRetValue <> 16#0) THEN
+	    #LKinCtrl_CalcCircCenterByRadiusAndEndPoint := #tempRetValue;
+	    RETURN;
+	  END_IF;
+	  
+	  // Which one ist the correct circle center point? Calculate left and right
+	  
+	  // Difference vectors
+	  #tempVEndStart := "LKinCtrl_VecSub"(vIn1 := #circleEndPoint, vIn2 := #circleStartPoint);
+	  #tempVPaStart := "LKinCtrl_VecSub"(vIn1 := #tempPa, vIn2 := #circleStartPoint);
+	  #tempCrossVec := "LKinCtrl_VecCrossProd"(vIn1 := #tempVEndStart,
+	                                           vIn2 := #tempVPaStart);
+	
+	  // Check path plane
+	  IF (#pathPlane = "CP_XY") THEN
+	    IF (#tempCrossVec.z > 0.0) THEN
+	      IF (#pathChoice = 0) THEN
+	        #circCenterPoint := #tempPa;
+	      ELSE
+	        #circCenterPoint := #tempPb;
+	      END_IF;
+	    ELSE
+	      // Todo - is the else necessary?
+	      IF (#pathChoice = 0) THEN
+	        #circCenterPoint := #tempPb;
+	      ELSE
+	        #circCenterPoint := #tempPa;
+	      END_IF;
+	    END_IF;
+	  ELSIF (#pathPlane = "CP_XZ") THEN
+	    IF (#tempCrossVec.y > 0.0) THEN
+	      IF (#pathChoice = 0) THEN
+	        #circCenterPoint := #tempPa;
+	      ELSE
+	        #circCenterPoint := #tempPb;
+	      END_IF;
+	    ELSE
+	      IF (#pathChoice = 0) THEN
+	        #circCenterPoint := #tempPb;
+	      ELSE
+	        #circCenterPoint := #tempPa;
+	      END_IF;
+	    END_IF;
+	  ELSIF (#pathPlane = "CP_YZ") THEN
+	    IF (#tempCrossVec.x > 0.0) THEN
+	      IF (#pathChoice = 0) THEN
+	        #circCenterPoint := #tempPa;
+	      ELSE
+	        #circCenterPoint := #tempPb;
+	      END_IF;
+	    ELSE
+	      IF (#pathChoice = 0) THEN
+	        #circCenterPoint := #tempPb;
+	      ELSE
+	        #circCenterPoint := #tempPa;
+	      END_IF;
+	    END_IF;
+	  END_IF;
+	  
+	END_REGION ; 
+	#LKinCtrl_CalcCircCenterByRadiusAndEndPoint := 0; // o.k.
+END_FUNCTION
+

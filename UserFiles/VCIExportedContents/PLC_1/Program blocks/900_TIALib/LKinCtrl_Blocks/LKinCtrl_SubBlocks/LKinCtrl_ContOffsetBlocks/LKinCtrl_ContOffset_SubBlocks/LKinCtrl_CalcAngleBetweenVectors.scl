@@ -1,0 +1,97 @@
+﻿FUNCTION "LKinCtrl_CalcAngleBetweenVectors" : Word
+TITLE = LKinCtrl_CalcAngleBetweenVectors
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculate angle between two intersecting vectors
+   VAR_INPUT 
+      point1 : "LKinCtrl_typeCOff3DPoint";   // Point 1
+      point2 : "LKinCtrl_typeCOff3DPoint";   // Point 2
+      intersectionPoint : "LKinCtrl_typeCOff3DPoint";   // Common point
+   END_VAR
+
+   VAR_OUTPUT 
+      angle : LReal;   // Calculated angle
+   END_VAR
+
+   VAR_TEMP 
+      tempVecP1InterPoint : "LKinCtrl_typeCOff3DPoint";
+      tempVecP2InterPoint : "LKinCtrl_typeCOff3DPoint";
+      tempValue : LReal;
+      tempVecP1P2 : "LKinCtrl_typeCOff3DPoint";
+      tempVecP3P4 : "LKinCtrl_typeCOff3DPoint";
+      tempLengthVecP1P2 : LReal;
+      tempLengthVecP3P4 : LReal;
+      tempUnitVecP1P2 : "LKinCtrl_typeCOff3DPoint";
+      tempUnitVecP3P4 : "LKinCtrl_typeCOff3DPoint";
+      tempP12 : "LKinCtrl_typeCOff3DPoint";
+      tempP34 : "LKinCtrl_typeCOff3DPoint";
+      tempP123 : "LKinCtrl_typeCOff3DPoint";
+      tempP341 : "LKinCtrl_typeCOff3DPoint";
+      tempOrthVecP1P2 : "LKinCtrl_typeCOff3DPoint";
+      tempOrthVecP3P4 : "LKinCtrl_typeCOff3DPoint";
+      tempRetValue : Int;
+      tempPa1 : "LKinCtrl_typeCOff3DPoint";
+      tempPb1 : "LKinCtrl_typeCOff3DPoint";
+      tempMua : LReal;
+      TempMub : LReal;
+   END_VAR
+
+   VAR CONSTANT 
+      ERR_COFF_VECTOR_LENGTH_ZERO : Word := 16#8310;   // Error - vector length is zero
+      ERR_COFF_INVALID_ACOS_ARGUMENT : Word := 16#8311;   // Error - invalid ACOS argument
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library: - 
+	// Tested with: S7-1516T-3 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.5
+	// Functionality: Calculate angle between two intersecting vectors
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 2019-02-05 AW               created
+	//=============================================================================
+	REGION PLAUSIBILITY_CHECK
+	END_REGION PLAUSIBILITY_CHECK
+	
+	REGION CALCULATION
+	  
+	  // Difference vectors
+	  // Point 1 - intersection point
+	  #tempVecP1InterPoint := "LKinCtrl_VecSub"(vIn1:= #point1, vIn2:= #intersectionPoint);
+	  // Point 2 - intersection point
+	  #tempVecP2InterPoint := "LKinCtrl_VecSub"(vIn1 := #point2, vIn2 := #intersectionPoint);
+	  
+	  #tempValue := "LKinCtrl_VecAbs"(#tempVecP1InterPoint) * "LKinCtrl_VecAbs"(#tempVecP2InterPoint);
+	  
+	  IF (#tempValue = 0.0) THEN
+	    #LKinCtrl_CalcAngleBetweenVectors := #ERR_COFF_VECTOR_LENGTH_ZERO; // division by zero
+	    RETURN;
+	  END_IF;
+	  
+	  #tempValue := "LKinCtrl_VecScalProd"(vIn1:=#tempVecP1InterPoint, vIn2:=#tempVecP2InterPoint) / #tempValue;
+	  
+	  IF ((#tempValue < -1.0) OR (#tempValue > 1.0)) THEN
+	    #LKinCtrl_CalcAngleBetweenVectors := #ERR_COFF_INVALID_ACOS_ARGUMENT; // acos only defined for -1 ... +1
+	    RETURN;
+	  ELSE
+	    // Angle between vector 1 and vector 2
+	    #angle := ACOS(#tempValue) * 180.0 / "LKINCTRL_PI";
+	  END_IF;
+	
+	END_REGION CALCULATION
+	
+	
+	
+	#LKinCtrl_CalcAngleBetweenVectors := 0; // o.k.
+END_FUNCTION
+

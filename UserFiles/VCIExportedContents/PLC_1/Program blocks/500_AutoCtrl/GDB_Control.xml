@@ -38,7 +38,6 @@
     <Member Name="axesReady" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">Phase G (C67, 2026-05-18) — derived: axesEnabled AND axesHomed AND NOT axesError. Computed in FB_AxisCtrl REGION StatusDerived. Per HMI cycle-7.1 BackColor Q2 ACK: single Bool tag enables HMI lmpKinReady_Ubp BackColor Range "1:1" binding without multi-tag JS compute.</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">PLC 衍生: 运动学组就绪 (使能 AND 已回零 AND 无故障)</MultiLanguageText>
       </Comment>
     </Member>
     <Member Name="robotStandstill" Datatype="Bool">
@@ -74,13 +73,11 @@
     <Member Name="bo_gripperGrip" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">V3.0 (2026-05-19): suction-cup GRIP command (level, TRUE while box attached). Maps to MCD signal `sScaraGrip` (SignalAdapter, Input bool, MCD reads). Driven by FB_AutoCtrl_Palletizing V3.0: latched TRUE from PICK_DESCEND.Done through PLACE_DESCEND.Done; FALSE elsewhere.</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">V3.0 吸盘吸气指令: 抓取期间保持TRUE</MultiLanguageText>
       </Comment>
     </Member>
     <Member Name="bo_gripperRelease" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">V3.0 (2026-05-19): suction-cup RELEASE command (pulse, TRUE briefly during active release). Maps to MCD signal `sScaraRelease` (SignalAdapter, Input bool, MCD reads). Driven by FB_AutoCtrl_Palletizing V3.0: pulses TRUE for lr_GripperOpenMs duration after PLACE_DESCEND.Done; FALSE elsewhere. Provides positive box-detach signal beyond just turning off vacuum.</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">V3.0 吸盘释放指令: 释放瞬间脉冲TRUE</MultiLanguageText>
       </Comment>
     </Member>
   </Section>

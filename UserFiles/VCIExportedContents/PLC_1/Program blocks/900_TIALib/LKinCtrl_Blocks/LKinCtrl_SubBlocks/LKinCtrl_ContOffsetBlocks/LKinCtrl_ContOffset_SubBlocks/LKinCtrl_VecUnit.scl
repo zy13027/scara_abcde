@@ -1,0 +1,36 @@
+﻿FUNCTION "LKinCtrl_VecUnit" : "LKinCtrl_typeCOff3DPoint"
+TITLE = LKinCtrl_VecUnit
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Create unit vector of coordinates (X, Y, Z) of "LKinCtrl_typeCOff3DPoint"
+   VAR_INPUT 
+      vIn : "LKinCtrl_typeCOff3DPoint";   // Input vector
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2018 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library: - 
+	// Tested with: S7-1516T-3 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.5
+	// Functionality: Create unit vector of coordinates (X, Y, Z) of "LKinCtrl_typeCOff3DPoint"
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 2018-08-27 SF               created
+	//=============================================================================
+	
+	//Out = In/abs(In)
+	#LKinCtrl_VecUnit := "LKinCtrl_VecDivScal"(vIn := #vIn,
+	                                           sIn := "LKinCtrl_VecAbs"(#vIn));
+	
+	
+END_FUNCTION
+

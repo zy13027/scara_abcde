@@ -1,0 +1,153 @@
+﻿FUNCTION "LKinCtrl_FrameTransTool" : Void
+TITLE = LKinCtrl_FrameTransTool
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Transform postion into different coordinate systems
+   VAR_INPUT 
+      toolResult : DInt;   // resulting tool coordinate system
+      toolInitial : DInt;   // initial tool coordinate system
+      kinPlusKinematics : Bool;   // 4D and lower have an implicit rotation of C = -180°.
+      toolFrames : Array[1..3] of "LKinCtrl_typeFrame";   // tool frames
+   END_VAR
+
+   VAR_IN_OUT 
+      positionInitialAndResult : Array[1..6] of LReal;   // position to be transformed in cartesian CS
+   END_VAR
+
+   VAR_TEMP 
+      tempPosition : Array[1..6] of LReal;
+      tempWcsToTCSInitial : Array[1..3, 1..3] of LReal;
+      tempTCSInitialToFCS : Array[1..3, 1..3] of LReal;
+      tempFCSToTCSResult : Array[1..3, 1..3] of LReal;
+      tempWcsToFCS : Array[1..3, 1..3] of LReal;
+      tempWcsToTCSResult : Array[1..3, 1..3] of LReal;
+      tempPFCSToTCSResult : Array[1..3, 1..1] of LReal;
+      tempPTCSInitialToFCS : Array[1..3, 1..1] of LReal;
+      tempPWCSToTCSInitial : Array[1..3, 1..1] of LReal;
+      tempPResult : Array[1..3, 1..1] of LReal;
+      tempBool : Bool;
+      tempWord : Word;
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2020 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN/DP
+	// Engineering: TIA Portal V19
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 3.1
+	// Functionality: LKinCtrl_FrameTransTool
+	// The FC transforms a given WCS position of a tool into the WCS position of another tool  
+	//
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   08.08.2024    JH                  First release version v1.0
+	//===========================================================================================
+	
+	// Check if last CS differs from actual CS
+	IF #toolResult = #toolInitial
+	  OR #toolInitial < 1 OR #toolInitial > 3
+	  OR #toolResult < 1 OR #toolResult > 3
+	THEN
+	  // No calculation needed --> Return
+	  RETURN;
+	END_IF;
+	
+	// WCS is just a placeholder and describes the cartesian coordinate system of the input frame, e.g. OCS 1-3 or UCS
+	REGION CREATE_ROTATION_MATRICES
+	  // Create rotation matrix WCS in TCS initial
+	  // Rxyz(A,B,C) = [Rz(A) * Ry(B) * Rx(C)]
+	  "LKinCtrl_RotXYZ"(angleA       := #positionInitialAndResult[4],
+	                    angleB       := #positionInitialAndResult[5],
+	                    angleC       := SEL(G := #kinPlusKinematics, IN0 := -180, IN1 := #positionInitialAndResult[6]), // implicit rotation of C = -180 for 4D and lower
+	                    resultMatrix := #tempWcsToTCSInitial);
+	  
+	  // Create rotation matrix TCS initial in FCS
+	  // Rxyz(A,B,C) = [Rz(A) * Ry(B) * Rx(C)]^T
+	  "LKinCtrl_RotXYZTranspose"(angleA       := #toolFrames[#toolInitial].a,
+	                             angleB       := #toolFrames[#toolInitial].b,
+	                             angleC       := #toolFrames[#toolInitial].c,
+	                             resultMatrix := #tempTCSInitialToFCS);
+	  
+	  // Create rotation matrix FCS in TCS result
+	  // Rxyz(A,B,C) = [Rz(A) * Ry(B) * Rx(C)]
+	  "LKinCtrl_RotXYZ"(angleA       := #toolFrames[#toolResult].a,
+	                    angleB       := #toolFrames[#toolResult].b,
+	                    angleC       := #toolFrames[#toolResult].c,
+	                    resultMatrix := #tempFCSToTCSResult);
+	  
+	  // Rotation WCS to FCS
+	  "LKinCtrl_MatrixMultiplication"(status       => #tempWord,
+	                                  matrix1      := #tempWcsToTCSInitial,
+	                                  matrix2      := #tempTCSInitialToFCS,
+	                                  matrixResult := #tempWcsToFCS,
+	                                  error        => #tempBool);
+	  
+	  // Rotation WCS to TCS result
+	  "LKinCtrl_MatrixMultiplication"(status       => #tempWord,
+	                                  matrix1      := #tempWcsToFCS,
+	                                  matrix2      := #tempFCSToTCSResult,
+	                                  matrixResult := #tempWcsToTCSResult,
+	                                  error        => #tempBool);
+	END_REGION
+	
+	REGION TRANSLATION
+	  // Translation from TCS initial to FCS (in FCS)
+	  #tempPTCSInitialToFCS[1, 1] := - #toolFrames[#toolInitial].x;
+	  #tempPTCSInitialToFCS[2, 1] := - #toolFrames[#toolInitial].y;
+	  #tempPTCSInitialToFCS[3, 1] := - #toolFrames[#toolInitial].z;
+	  // Translation from TCS initial to FCS (in WCS)
+	  "LKinCtrl_MatrixMultiplication"(status       => #tempWord,
+	                                  matrix1      := #tempWcsToFCS,
+	                                  matrix2      := #tempPTCSInitialToFCS,
+	                                  matrixResult := #tempPResult,
+	                                  error        => #tempBool);
+	  #tempPTCSInitialToFCS := #tempPResult;
+	  
+	  //Translation from FCS to TCS result (in FCS)
+	  #tempPFCSToTCSResult[1, 1] := #toolFrames[#toolResult].x;
+	  #tempPFCSToTCSResult[2, 1] := #toolFrames[#toolResult].y;
+	  #tempPFCSToTCSResult[3, 1] := #toolFrames[#toolResult].z;
+	  //Translation from FCS to TCS result (in WCS)
+	  "LKinCtrl_MatrixMultiplication"(status       => #tempWord,
+	                                  matrix1      := #tempWcsToFCS,
+	                                  matrix2      := #tempPFCSToTCSResult,
+	                                  matrixResult := #tempPResult,
+	                                  error        => #tempBool);
+	  #tempPFCSToTCSResult := #tempPResult;
+	  
+	  //Translation from WCS to TCS initial (in WCS)
+	  #tempPWCSToTCSInitial[1, 1] := #positionInitialAndResult[1];
+	  #tempPWCSToTCSInitial[2, 1] := #positionInitialAndResult[2];
+	  #tempPWCSToTCSInitial[3, 1] := #positionInitialAndResult[3];
+	  
+	  // translation (all expressed in WCS)
+	  #positionInitialAndResult[1] := #tempPWCSToTCSInitial[1, 1] + #tempPTCSInitialToFCS[1, 1] + #tempPFCSToTCSResult[1, 1];
+	  #positionInitialAndResult[2] := #tempPWCSToTCSInitial[2, 1] + #tempPTCSInitialToFCS[2, 1] + #tempPFCSToTCSResult[2, 1];
+	  #positionInitialAndResult[3] := #tempPWCSToTCSInitial[3, 1] + #tempPTCSInitialToFCS[3, 1] + #tempPFCSToTCSResult[3, 1];
+	END_REGION
+	
+	REGION ROTATION
+	  // inverse problem from rotation matrix back to A,B,C
+	  "LKinCtrl_InvRotXYZ"(rotMatrix := #tempWcsToTCSResult,
+	                       A         => #positionInitialAndResult[4],
+	                       B         => #positionInitialAndResult[5],
+	                       C         => #positionInitialAndResult[6]);
+	  
+	  // force b and c to 0 for 4D and lower - also resets implicit rotation of C = -180 for 4D and lower
+	  #positionInitialAndResult[5] := SEL(G := #kinPlusKinematics, IN0 := 0, IN1 := #positionInitialAndResult[5]);
+	  #positionInitialAndResult[6] := SEL(G := #kinPlusKinematics, IN0 := 0, IN1 := #positionInitialAndResult[6]);
+	END_REGION
+	
+	
+END_FUNCTION
+

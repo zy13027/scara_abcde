@@ -1,0 +1,128 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="input" Datatype="Struct">
+      <Member Name="bo_estop" Datatype="Bool" />
+      <Member Name="bo_enable" Datatype="Bool" />
+      <Member Name="bo_reset" Datatype="Bool" />
+      <Member Name="bo_home" Datatype="Bool" />
+      <Member Name="jogframe" Datatype="Struct">
+        <Member Name="jogX+" Datatype="Bool" />
+        <Member Name="jogX-" Datatype="Bool" />
+        <Member Name="jogY+" Datatype="Bool" />
+        <Member Name="jogY-" Datatype="Bool" />
+        <Member Name="jogZ+" Datatype="Bool" />
+        <Member Name="jogZ-" Datatype="Bool" />
+        <Member Name="jogA+" Datatype="Bool" />
+        <Member Name="jogA-" Datatype="Bool" />
+        <Member Name="jogB+" Datatype="Bool" />
+        <Member Name="jogB-" Datatype="Bool" />
+        <Member Name="jogC+" Datatype="Bool" />
+        <Member Name="jogC-" Datatype="Bool" />
+        <Member Name="bo_jogtoposition" Datatype="Bool" />
+      </Member>
+      <Member Name="bo_movepathstart" Datatype="Bool" />
+      <Member Name="bo_movepathstop" Datatype="Bool" />
+      <Member Name="bo_movepathhalt" Datatype="Bool" />
+      <Member Name="configuration" Datatype="Struct">
+        <Member Name="home" Datatype="Struct">
+          <AttributeList>
+            <BooleanAttribute Name="ExternalWritable" SystemDefined="true">false</BooleanAttribute>
+          </AttributeList>
+          <Member Name="i16_mode" Datatype="Array[1..6] of Int" />
+          <Member Name="r64_homeposition" Datatype="Array[1..6] of LReal" />
+        </Member>
+        <Member Name="jogframe" Datatype="Struct">
+          <Member Name="targetposition" Datatype="Struct">
+            <Member Name="x" Datatype="LReal" />
+            <Member Name="y" Datatype="LReal" />
+            <Member Name="z" Datatype="LReal" />
+            <Member Name="a" Datatype="LReal" />
+            <Member Name="b" Datatype="LReal" />
+            <Member Name="c" Datatype="LReal" />
+          </Member>
+          <Member Name="dynamics" Datatype="&quot;LKinCtrl_typeDynamics&quot;">
+            <Comment>
+              <MultiLanguageText Lang="en-US">Specification of the jog dynamics</MultiLanguageText>
+            </Comment>
+            <Sections>
+              <Section Name="None">
+                <Member Name="sPTP" Datatype="&quot;LKinCtrl_typeSPTPDynamics&quot;">
+                  <Sections>
+                    <Section Name="None">
+                      <Member Name="velocityFactor" Datatype="LReal">
+                        <StartValue>-1.0</StartValue>
+                      </Member>
+                      <Member Name="accelerationFactor" Datatype="LReal">
+                        <StartValue>-1.0</StartValue>
+                      </Member>
+                      <Member Name="decelerationFactor" Datatype="LReal">
+                        <StartValue>-1.0</StartValue>
+                      </Member>
+                      <Member Name="jerkFactor" Datatype="LReal">
+                        <StartValue>-1.0</StartValue>
+                      </Member>
+                    </Section>
+                  </Sections>
+                </Member>
+              </Section>
+            </Sections>
+          </Member>
+        </Member>
+      </Member>
+    </Member>
+    <Member Name="output" Datatype="Struct">
+      <Member Name="bo_enabled" Datatype="Bool" />
+      <Member Name="bo_homed" Datatype="Bool" />
+      <Member Name="bo_fault" Datatype="Bool" />
+      <Member Name="bo_done" Datatype="Bool" />
+      <Member Name="i16_activeCmdNo" Datatype="Int" />
+      <Member Name="actualposition" Datatype="Struct">
+        <Member Name="x" Datatype="LReal" />
+        <Member Name="y" Datatype="LReal" />
+        <Member Name="z" Datatype="LReal" />
+        <Member Name="a" Datatype="LReal" />
+        <Member Name="b" Datatype="LReal" />
+        <Member Name="c" Datatype="LReal" />
+      </Member>
+    </Member>
+    <Member Name="inout" Datatype="Struct">
+      <Member Name="PathData" Datatype="&quot;LKinCtrl_typePathData&quot;">
+        <AttributeList>
+          <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+        </AttributeList>
+      </Member>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>UDT_typeKinCtrl</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

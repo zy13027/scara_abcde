@@ -1,0 +1,84 @@
+﻿FUNCTION "LKinCtrl_InvRotXYZ" : Void
+TITLE = LKinCtrl_InvRotXYZ
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Given a rotation matrix, calculate the Euler angles A, B and C for an XYZ (ZY'X'') rotation
+   VAR_OUTPUT 
+      A : LReal;
+      B : LReal;
+      C : LReal;
+   END_VAR
+
+   VAR_IN_OUT 
+      rotMatrix : Array[1..3, 1..3] of LReal;
+   END_VAR
+
+   VAR_TEMP 
+      tempARadians : LReal;
+      tempBRadians : LReal;
+      tempCRadians : LReal;
+      tempStatus : Word;
+      tempError : Bool;
+      tempRadDeg : LReal;
+   END_VAR
+
+   VAR CONSTANT 
+      PI : LReal := 3.14159265358979;
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// (company)
+	// (c)Copyright (year)
+	//-----------------------------------------------------------------------------
+	// Library:       (that the source is dedicated to)
+	// Tested with:   (test system with FW version)
+	// Engineering:   TIA Portal (SW version)
+	// Restrictions:  (OB types, etc.)
+	// Requirements:  (hardware, technological package, memory needed, etc.)
+	// Functionality: Given a rotation matrix, calculate the Euler angles A, B and C for an XYZ (ZY'X'') rotation
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 19.01.2022 JH               First released version
+	//=============================================================================
+	
+	IF NOT (#rotMatrix[3, 1] = 1) AND NOT (#rotMatrix[3, 1] = -1) THEN // no gimbal lock
+	  
+	  #tempBRadians := "LKinCtrl_ATan2"(opp := - #rotMatrix[3, 1],
+	                                    adj := SQRT_LREAL(IN := (SQR_LREAL(IN := #rotMatrix[3, 2]) + SQR_LREAL(IN := #rotMatrix[3, 3]))));
+	  
+	  #tempARadians := "LKinCtrl_ATan2"(opp := #rotMatrix[2, 1],
+	                                    adj := #rotMatrix[1, 1]);
+	  
+	  #tempCRadians := "LKinCtrl_ATan2"(opp := #rotMatrix[3, 2],
+	                                    adj := #rotMatrix[3, 3]);
+	ELSE // gimbal lock
+	  #tempCRadians := 0; // arbitrarily choosen
+	  IF #rotMatrix[3, 1] = -1 THEN // B = 90°
+	    #tempBRadians := #PI / 2.0;
+	    #tempARadians := - "LKinCtrl_ATan2"(opp := #rotMatrix[1, 2], adj := #rotMatrix[2, 2]);
+	  ELSE // B = -90°
+	    #tempBRadians := - #PI / 2.0;
+	    #tempARadians := - "LKinCtrl_ATan2"(opp := #rotMatrix[1, 2], adj := #rotMatrix[2, 2]);
+	  END_IF;
+	END_IF;
+	
+	#tempRadDeg := 180.0 / #PI;
+	#A := #tempARadians * #tempRadDeg;
+	#B := #tempBRadians * #tempRadDeg;
+	#C := #tempCRadians * #tempRadDeg;
+	
+	IF #A = 180.0 THEN
+	  #A := - 180.0;
+	END_IF;
+	
+	IF #C = 180.0 THEN
+	  #C := - 180.0;
+	END_IF;
+	
+END_FUNCTION
+

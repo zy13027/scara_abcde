@@ -1,0 +1,718 @@
+﻿FUNCTION "LKinCtrl_CheckPathDataCmd" : Word
+TITLE = LKinCtrl_CheckPathDataCmd
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//The FC checks a PathData command to be configured correctly
+   VAR_INPUT 
+      firstFlag : DInt;
+      lastFlag : DInt;
+      firstValueFlag : DInt;
+      lastValueFlag : DInt;
+   END_VAR
+
+   VAR_OUTPUT 
+      cmdIsMotionCmd : Bool;   // TRUE: Command is a motion command
+   END_VAR
+
+   VAR_IN_OUT 
+      pathDataCmd : Variant;   // variant for PathData command
+   END_VAR
+
+   VAR_TEMP 
+      tempFlagCtr : Int;   // temporary counter for flags
+      tempPathDataCmd_regular : REF_TO "LKinCtrl_typePathDataElement";   // temporary reference to PathData element
+      tempPathDataCmd_PreBuf : REF_TO "LKinCtrl_typePathDataElement_PreBuf";   // temporary reference to PathData_PreBuf element
+      tempPathDataCmd_checking : "LKinCtrl_typePathDataElement" := ((), (), (), (), (), (((), (), (), (), (), ()), ()), (((), (), (), ()), ((), (), (), ()), (), (), [-1.0], (), (), ((), (), [()]), ((), ()), (()), ((), (), [()], (), (), (), ()), ((), (), ()), (([()], (), (), ()), ([()], (), (), ()))), [((), (), ()), ((), (), ()), ((), (), ())], [((), (), (), ()), ((), (), (), ()), ((), (), (), ()), ((), (), (), ())], [6(TRUE)]);   // temporary variable for PathDataElement being checked
+   END_VAR
+
+   VAR CONSTANT 
+      STATUS_NO_ERROR_IN_COMMAND : Word := 16#0000;   // status no error found command
+      ERR_PATHDATA_CMDTYPE : Word := 16#80A0;   // error due to wrong cmdType
+      ERR_PATHDATA_COORDSYSTEM : Word := 16#80B1;   // error due to wrong coordinate system
+      ERR_PATHDATA_VELOCITY : Word := 16#8003;   // error due to wrong velocity
+      ERR_PATHDATA_ACCELERATION : Word := 16#8004;   // error due to wrong acceleration
+      ERR_PATHDATA_DECELERATION : Word := 16#8005;   // error due to wrong deceleration
+      ERR_PATHDATA_JERK : Word := 16#8006;   // error due to wrong jerk
+      ERR_PATHDATA_ORIENTATIONDIRECTION : Word := 16#8007;   // error due to wrong orientation direction
+      ERR_PATHDATA_BUFFERMODE : Word := 16#80B2;   // error due to wrong buffer mode
+      ERR_PATHDATA_DYNAMICADAPTION : Word := 16#80B5;   // error due to wrong dynamic adaption
+      ERR_PATHDATA_CIRCMODE : Word := 16#80B6;   // error due to wrong circle mode
+      ERR_PATHDATA_PATHCHOICE : Word := 16#80B9;   // error due to wrong path choice
+      ERR_PATHDATA_CIRCLEPLANE : Word := 16#80BA;   // error due to wrong circle plane
+      ERR_PATHDATA_RADIUS : Word := 16#80BB;   // error due to wrong radius
+      ERR_PATHDATA_ARC : Word := 16#80BC;   // error due to wrong arc
+      ERR_PATHDATA_SETFLAGS_FLAG : Word := 16#80D1;   // error due to wrong set flag definition
+      ERR_PATHDATA_SETFLAGS_FLAGMODE : Word := 16#80D2;   // error due to wrong set flag mode definition
+      ERR_PATHDATA_VALUEFLAGS_FLAG : Word := 16#80D3;   // error due to wrong value flag definition
+      ERR_PATHDATA_VALUEFLAGS_FLAGMODE : Word := 16#80D4;   // error due to wrong value flag mode definition
+      ERR_PATHDATA_OFFSET_PARA_NO : Word := 16#80A1;   // error due to wrong offset parameter set number
+      ERR_PATHDATA_OFFSET_MAINPATHPLANE : Word := 16#80A2;   // error due to wrong main path plane
+      ERR_PATHDATA_POSITIONMODE : Word := 16#80A3;   // error due to wrong position mode
+      ERR_PATHDATA_LINK_CONSTELLATION : Word := 16#80A4;   // error due to wrong link constellation
+      ERR_PATHDATA_CONVEYOR_PARA_NO : Word := 16#80A5;   // error due to wrong conveyor parameter set number
+      ERR_PATHDATA_TOOLNUMBER : Word := 16#80A6;   // error due to wrong tool number
+      ERR_PATHDATA_COORDINATES : Word := 16#80A7;   // error due to wrong coordinates
+      ERR_PATHDATA_ZONENUMBER : Word := 16#80A8;   // error due to wrong zone number
+      ERR_PATHDATA_ZONECONFIGURATIONINDEX : Word := 16#80A9;   // error due to wrong zone configuration index
+      ERR_PATHDATA_ZONEDEACTIVATIONMODE : Word := 16#80AA;   // error due to wrong zone de-/activation mode
+      ERR_PATHDATA_PICKANDPLACE_STARTVECTOR : Word := 16#80AB;   // error due to wrong pick and place start vector parametrization
+      ERR_PATHDATA_PICKANDPLACE_TARGETVECTOR : Word := 16#80AC;   // error due to wrong pick and place target vector parametrization
+      ERR_PATHDATA_PICKANDPLACE_BLENDING_NOT_POSSIBLE : Word := 16#80AD;   // error due to invalid buffer mode
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2020 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN/DP
+	// Engineering: TIA Portal V15
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 2.8
+	// Functionality: LKinCtrl_CheckPathDataCmd
+	// The FC checks a PathData command to be configured correctly
+	//
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   26.02.2019    JR                  First release version v1.0
+	// 01.01.00   14.06.2019    JR                  added flagOnly command
+	// 01.02.00   03.12.2019    JR                  added command checks for value flags
+	// 01.02.01   30.01.2020    FR                  separate constant for flag arrays
+	// 01.02.02   09.04.2020    FR                  copy valueFlags & CS to temp also
+	// 01.03.00   16.04.2020    FR                  added moveDirect & trackConveyor
+	// 01.03.01   14.01.2021    FR                  added check for wait time 
+	// 01.04.00   25.01.2021    FR                  added SetFrame cmd and restructured FC
+	// 01.04.01   29.10.2021    FR                  allow FM25 & FM26
+	// 01.04.02   03.01.2024    SF                  added check for PickAndPlace command
+	// 02.00.00   28.10.2024    JH                  removed dependency from _reduced and _advanced path data types
+	//===========================================================================================
+	
+	// FC initialization
+	//====================================================================================================================================
+	#LKinCtrl_CheckPathDataCmd := #STATUS_NO_ERROR_IN_COMMAND;
+	
+	// PathData conversion (reduced, regular(no suffix), advanced)
+	//===========================================================================================
+	REGION PATHDATA_ELEMENT_CONVERSION
+	  // regular PathDataCommand
+	  IF TypeOf(#pathDataCmd) = "LKinCtrl_typePathDataElement" THEN
+	    // reference internal PathDataCommand to attached Variant
+	    #tempPathDataCmd_regular ?= #pathDataCmd;
+	    // copy to internal PathData (full version)
+	    #tempPathDataCmd_checking.cmdType := #tempPathDataCmd_regular^.cmdType;
+	    #tempPathDataCmd_checking.cmdCoordinates.cartesianPosition := #tempPathDataCmd_regular^.cmdCoordinates.cartesianPosition;
+	    #tempPathDataCmd_checking.cmdCoordinates.coordSystem := #tempPathDataCmd_regular^.cmdCoordinates.coordSystem;
+	    #tempPathDataCmd_checking.cmdParameters := #tempPathDataCmd_regular^.cmdParameters;
+	    #tempPathDataCmd_checking.setFlags := #tempPathDataCmd_regular^.setFlags;
+	    #tempPathDataCmd_checking.valueFlags := #tempPathDataCmd_regular^.valueFlags;
+	    
+	    // PathDataPreBuffered PathDataCommand
+	  ELSIF TypeOf(#pathDataCmd) = "LKinCtrl_typePathDataElement_PreBuf" THEN
+	    #tempPathDataCmd_PreBuf ?= #pathDataCmd;
+	    // copy to internal PathData (full version)
+	    #tempPathDataCmd_checking.cmdType := #tempPathDataCmd_PreBuf^.cmdType;
+	    #tempPathDataCmd_checking.cmdCoordinates.cartesianPosition.x := #tempPathDataCmd_PreBuf^.cmdCoordinates.targetPosition[1];
+	    #tempPathDataCmd_checking.cmdCoordinates.cartesianPosition.y := #tempPathDataCmd_PreBuf^.cmdCoordinates.targetPosition[2];
+	    #tempPathDataCmd_checking.cmdCoordinates.cartesianPosition.z := #tempPathDataCmd_PreBuf^.cmdCoordinates.targetPosition[3];
+	    #tempPathDataCmd_checking.cmdCoordinates.cartesianPosition.a := #tempPathDataCmd_PreBuf^.cmdCoordinates.targetPosition[4];
+	    #tempPathDataCmd_checking.cmdCoordinates.cartesianPosition.b := #tempPathDataCmd_PreBuf^.cmdCoordinates.targetPosition[5];
+	    #tempPathDataCmd_checking.cmdCoordinates.cartesianPosition.c := #tempPathDataCmd_PreBuf^.cmdCoordinates.targetPosition[6];
+	    #tempPathDataCmd_checking.cmdCoordinates.coordSystem := #tempPathDataCmd_PreBuf^.cmdCoordinates.coordSystem;
+	    #tempPathDataCmd_checking.cmdParameters := #tempPathDataCmd_PreBuf^.cmdParameters;
+	    #tempPathDataCmd_checking.setFlags := #tempPathDataCmd_PreBuf^.setFlags;
+	    #tempPathDataCmd_checking.valueFlags := #tempPathDataCmd_PreBuf^.valueFlags;
+	    
+	  //   // advanced PathDataCommand
+	  // ELSIF TypeOf(#pathDataCmd) = "LKinCtrl_typePathDataElement_advanced" THEN
+	  //   // reference internal PathDataCommand to attached Variant
+	  //   #tempPathDataCmd_advanced ?= #pathDataCmd;
+	  //   // copy to internal PathData (full version)
+	  //   #tempPathDataCmd_checking.cmdType := #tempPathDataCmd_advanced^.cmdType;
+	  //   #tempPathDataCmd_checking.cmdCoordinates.cartesianPosition := #tempPathDataCmd_advanced^.cmdCoordinates.cartesianPosition;
+	  //   #tempPathDataCmd_checking.cmdCoordinates.coordSystem := #tempPathDataCmd_advanced^.cmdCoordinates.coordSystem;
+	  //   #tempPathDataCmd_checking.cmdParameters := #tempPathDataCmd_advanced^.cmdParameters;
+	  //   #tempPathDataCmd_checking.setFlags := #tempPathDataCmd_advanced^.setFlags;
+	  //   #tempPathDataCmd_checking.valueFlags := #tempPathDataCmd_advanced^.valueFlags;
+	    
+	  //   // reduced PathDataCommand
+	  // ELSIF TypeOf(#pathDataCmd) = "LKinCtrl_typePathDataElement_reduced" THEN
+	  //   // reference internal PathDataCommand to attached Variant
+	  //   #tempPathDataCmd_reduced ?= #pathDataCmd;
+	  //   // copy to internal PathData (full version)
+	  //   #tempPathDataCmd_checking.cmdType := #tempPathDataCmd_reduced^.cmdType;
+	  //   #tempPathDataCmd_checking.cmdCoordinates.cartesianPosition := #tempPathDataCmd_reduced^.cmdCoordinates.cartesianPosition;
+	  //   #tempPathDataCmd_checking.cmdCoordinates.coordSystem := #tempPathDataCmd_reduced^.cmdCoordinates.coordSystem;
+	  //   #tempPathDataCmd_checking.cmdParameters.pathDynamics := #tempPathDataCmd_reduced^.cmdParameters.pathDynamics;
+	  //   #tempPathDataCmd_checking.cmdParameters.orientationDirection := #tempPathDataCmd_reduced^.cmdParameters.orientationDirection;
+	  //   #tempPathDataCmd_checking.cmdParameters.bufferMode := #tempPathDataCmd_reduced^.cmdParameters.bufferMode;
+	  //   #tempPathDataCmd_checking.cmdParameters.transitionParameters := #tempPathDataCmd_reduced^.cmdParameters.transitionParameters;
+	  //   #tempPathDataCmd_checking.cmdParameters.dynamicAdaption := #tempPathDataCmd_reduced^.cmdParameters.dynamicAdaption;
+	  //   #tempPathDataCmd_checking.setFlags := #tempPathDataCmd_reduced^.setFlags;
+	  //   #tempPathDataCmd_checking.valueFlags := #tempPathDataCmd_reduced^.valueFlags;
+	    
+	  ELSE
+	    // Invalid data type 
+	    RETURN;
+	    
+	  END_IF;
+	END_REGION PATHDATA_CONVERSION 
+	
+	
+	
+	
+	REGION CHECK_COMMAND
+	  // Init motionCmd to false
+	  #cmdIsMotionCmd := FALSE;
+	  
+	  // --------------------------------------------------------
+	  // Check settings depending on cmd type
+	  // --------------------------------------------------------
+	  REGION CMD_SPECIFIC
+	    
+	    CASE #tempPathDataCmd_checking.cmdType OF
+	      "LKINCTRL_CMD_FLAG_ONLY":  // cmdType = 0
+	        ;
+	        
+	      "LKINCTRL_MC_MOVELINEARABS", "LKINCTRL_MC_MOVELINEARREL":  // cmdType = 1,2
+	        REGION LINEAR
+	          // Set motion cmd to true
+	          #cmdIsMotionCmd := TRUE;
+	          
+	          // Check coordinate system
+	          CASE #tempPathDataCmd_checking.cmdCoordinates.coordSystem OF
+	            "CS_WCS".."CS_OCS3",  // Regular frames
+	            "LKINCTRL_CS_NO_OF_FIRST_USER_FRAME".."LKINCTRL_CS_NO_OF_LAST_USER_FRAME":  // User frames
+	              ; // OK -> do nothing
+	            ELSE  // Invalid CS for linear command
+	              #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_COORDSYSTEM;
+	              RETURN;
+	          END_CASE;
+	          
+	          // Check dynamics
+	          IF #tempPathDataCmd_checking.cmdParameters.pathDynamics.velocity = 0.0 THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_VELOCITY;
+	            RETURN;
+	          END_IF;
+	          IF #tempPathDataCmd_checking.cmdParameters.pathDynamics.acceleration = 0.0 THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_ACCELERATION;
+	            RETURN;
+	          END_IF;
+	          IF #tempPathDataCmd_checking.cmdParameters.pathDynamics.deceleration = 0.0 THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_DECELERATION;
+	            RETURN;
+	          END_IF;
+	        END_REGION
+	        
+	      "LKINCTRL_MC_MOVECIRCULARABS", "LKINCTRL_MC_MOVECIRCULARREL": // cmdType 3,4
+	        REGION CIRCULAR
+	          // Set motion cmd to true
+	          #cmdIsMotionCmd := TRUE;
+	          
+	          // Check coordinate system
+	          CASE #tempPathDataCmd_checking.cmdCoordinates.coordSystem OF
+	            "CS_WCS".."CS_OCS3",  // Regular frames
+	            "LKINCTRL_CS_NO_OF_FIRST_USER_FRAME".."LKINCTRL_CS_NO_OF_LAST_USER_FRAME":  // User frames
+	              ; // OK -> do nothing
+	            ELSE  // Invalid CS for linear command
+	              #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_COORDSYSTEM;
+	              RETURN;
+	          END_CASE;
+	          
+	          // Check dynamics
+	          IF #tempPathDataCmd_checking.cmdParameters.pathDynamics.velocity = 0.0 THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_VELOCITY;
+	            RETURN;
+	          END_IF;
+	          IF #tempPathDataCmd_checking.cmdParameters.pathDynamics.acceleration = 0.0 THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_ACCELERATION;
+	            RETURN;
+	          END_IF;
+	          IF #tempPathDataCmd_checking.cmdParameters.pathDynamics.deceleration = 0.0 THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_DECELERATION;
+	            RETURN;
+	          END_IF;
+	          
+	          //PathData - command - circleParameter - circMode
+	          IF #tempPathDataCmd_checking.cmdParameters.circleParameters.circMode < "CM_BORDER"
+	            OR #tempPathDataCmd_checking.cmdParameters.circleParameters.circMode > "LKINCTRL_CIRCMODE_GCODE" //"CM_RADIUS"
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_CIRCMODE;
+	            RETURN;
+	          END_IF;
+	          
+	          //PathData - command - circleParameter - pathChoice
+	          IF #tempPathDataCmd_checking.cmdParameters.circleParameters.pathChoice < "PC_POSITIVE"
+	            OR #tempPathDataCmd_checking.cmdParameters.circleParameters.pathChoice > "PC_LONG_RUN_NEGATIVE"
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_PATHCHOICE;
+	            RETURN;
+	          END_IF;
+	          
+	          //PathData - command - circleParameter - circlePlane
+	          IF #tempPathDataCmd_checking.cmdParameters.circleParameters.circlePlane < "CP_XZ"
+	            OR #tempPathDataCmd_checking.cmdParameters.circleParameters.circlePlane > "CP_XY"
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_CIRCLEPLANE;
+	            RETURN;
+	          END_IF;
+	          
+	          //PathData - command - circleParameter - radius
+	          IF #tempPathDataCmd_checking.cmdParameters.circleParameters.radius < 0.0 THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_RADIUS;
+	            RETURN;
+	          END_IF;
+	          
+	          //PathData - command - circleParameter - arc
+	          IF #tempPathDataCmd_checking.cmdParameters.circleParameters.arc < 0.0 THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_ARC;
+	            RETURN;
+	          END_IF;
+	        END_REGION
+	        
+	      "LKINCTRL_MC_MOVEDIRECTABS", "LKINCTRL_MC_MOVEDIRECTREL": // cmdType = 5,6
+	        REGION MOVE_DIRECT
+	          // Set motion cmd to true
+	          #cmdIsMotionCmd := TRUE;
+	          
+	          // Check coordinate system
+	          CASE #tempPathDataCmd_checking.cmdCoordinates.coordSystem OF
+	            "CS_WCS".."CS_OCS3",  // Regular frames
+	            "LKINCTRL_CS_NO_OF_FIRST_USER_FRAME".."LKINCTRL_CS_NO_OF_LAST_USER_FRAME",  // User frames
+	            "CS_MCS", // MCS also allowed
+	            "CS_JCS": // JCS also allowed
+	              ; // OK -> do nothing
+	            ELSE  // Invalid CS for linear command
+	              #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_COORDSYSTEM;
+	              RETURN;
+	          END_CASE;
+	          
+	          // Check MoveDirect dynamics
+	          IF #tempPathDataCmd_checking.cmdParameters.pathDynamics.velocity > 1.0
+	            OR #tempPathDataCmd_checking.cmdParameters.pathDynamics.velocity = 0.0
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_VELOCITY;
+	            RETURN;
+	          END_IF;
+	          IF #tempPathDataCmd_checking.cmdParameters.pathDynamics.acceleration > 1.0
+	            OR #tempPathDataCmd_checking.cmdParameters.pathDynamics.acceleration = 0.0
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_ACCELERATION;
+	            RETURN;
+	          END_IF;
+	          IF #tempPathDataCmd_checking.cmdParameters.pathDynamics.deceleration > 1.0
+	            OR #tempPathDataCmd_checking.cmdParameters.pathDynamics.deceleration = 0.0
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_DECELERATION;
+	            RETURN;
+	          END_IF;
+	          IF (#tempPathDataCmd_checking.cmdParameters.pathDynamics.jerk > 0.0
+	            AND #tempPathDataCmd_checking.cmdParameters.pathDynamics.jerk < 0.1)
+	            OR #tempPathDataCmd_checking.cmdParameters.pathDynamics.jerk > 0.9
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_JERK;
+	            RETURN;
+	          END_IF;
+	          
+	          // PathData - command - moveDirect Parameters - linkConstellation
+	          // IF #tempPathDataCmd_checking.cmdParameters.moveDirectParameters.linkConstellation <> 16#FFFF_FFFF
+	          //   AND #tempPathDataCmd_checking.cmdParameters.moveDirectParameters.linkConstellation > 16#0000_0007
+	          // THEN
+	          //   #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_LINK_CONSTELLATION;
+	          //   RETURN;
+	          // END_IF;
+	          
+	          //PathData - command - moveDirect Parameters - positionMode
+	          IF #tempPathDataCmd_checking.cmdParameters.moveDirectParameters.positionMode < "PM_ABS_ABS"
+	            OR #tempPathDataCmd_checking.cmdParameters.moveDirectParameters.positionMode > "PM_ABS_REL"
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_POSITIONMODE;
+	            RETURN;
+	          END_IF;
+	        END_REGION
+	        
+	      "LKINCTRL_MC_TRACKCONVEYORBELT": // cmdType = 10
+	        REGION TRACK_CONVEYOR
+	          //PathData - command - conveyorParameters - conveyorParaNo
+	          IF #tempPathDataCmd_checking.cmdParameters.conveyorParameters.conveyorParaNo < 1
+	            OR #tempPathDataCmd_checking.cmdParameters.conveyorParameters.conveyorParaNo > "LKINCTRL_NO_OF_CONVEYOR"
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_CONVEYOR_PARA_NO;
+	            RETURN;
+	          END_IF;
+	          
+	          // Check conveyTracking coordinate system to be OCS1-3
+	          IF #tempPathDataCmd_checking.cmdCoordinates.coordSystem < "CS_OCS1"
+	            OR #tempPathDataCmd_checking.cmdCoordinates.coordSystem > "CS_OCS3"
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_COORDSYSTEM;
+	            RETURN;
+	          END_IF;
+	        END_REGION
+	        
+	      "LKINCTRL_MC_MOVELINEARPICKANDPLACE": // cmdType = 11
+	        REGION LINEAR_PICK_AND_PLACE
+	          
+	          // Set motion cmd to true
+	          #cmdIsMotionCmd := TRUE;
+	          
+	          // Check conveyor config
+	          IF #tempPathDataCmd_checking.cmdParameters.conveyorParameters.conveyorParaNo < 0
+	            OR #tempPathDataCmd_checking.cmdParameters.conveyorParameters.conveyorParaNo > "LKINCTRL_NO_OF_CONVEYOR"
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_CONVEYOR_PARA_NO;
+	            RETURN;
+	          END_IF;
+	          
+	          // Check coordinate system
+	          CASE #tempPathDataCmd_checking.cmdCoordinates.coordSystem OF
+	            "CS_WCS".."CS_OCS3":  // Regular frames
+	              ; // OK -> do nothing
+	            ELSE  // Invalid CS for linear command
+	              #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_COORDSYSTEM;
+	              RETURN;
+	          END_CASE;
+	          
+	          // Check dynamics
+	          IF #tempPathDataCmd_checking.cmdParameters.pathDynamics.velocity = 0.0
+	            OR #tempPathDataCmd_checking.cmdParameters.orientationDynamics.velocity = 0.0
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_VELOCITY;
+	            RETURN;
+	          END_IF;
+	          IF #tempPathDataCmd_checking.cmdParameters.pathDynamics.acceleration = 0.0
+	            OR #tempPathDataCmd_checking.cmdParameters.orientationDynamics.acceleration = 0.0
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_ACCELERATION;
+	            RETURN;
+	          END_IF;
+	          IF #tempPathDataCmd_checking.cmdParameters.pathDynamics.deceleration = 0.0
+	            OR #tempPathDataCmd_checking.cmdParameters.orientationDynamics.deceleration = 0.0
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_DECELERATION;
+	            RETURN;
+	          END_IF;
+	          
+	          //Check if start vector is existent
+	          IF NOT (#tempPathDataCmd_checking.cmdParameters.pickAndPlaceParameters.startParameter.direction[1] = 0.0
+	            AND #tempPathDataCmd_checking.cmdParameters.pickAndPlaceParameters.startParameter.direction[2] = 0.0
+	            AND #tempPathDataCmd_checking.cmdParameters.pickAndPlaceParameters.startParameter.direction[3] = 0.0)
+	          THEN
+	            //start vector existent
+	            //check working heigth and dynamics factor
+	            IF #tempPathDataCmd_checking.cmdParameters.pickAndPlaceParameters.startParameter.workingHeight < 0.0 THEN
+	              #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_PICKANDPLACE_STARTVECTOR;
+	              RETURN;
+	            END_IF;
+	            //Check buffer mode
+	            IF #tempPathDataCmd_checking.cmdParameters.bufferMode <> "BM_BUFFERED" THEN
+	              #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_PICKANDPLACE_BLENDING_NOT_POSSIBLE;
+	              RETURN;
+	            END_IF;
+	          END_IF;
+	          //Check if target vector is existent
+	          IF NOT (#tempPathDataCmd_checking.cmdParameters.pickAndPlaceParameters.targetParameter.direction[1] = 0.0
+	            AND #tempPathDataCmd_checking.cmdParameters.pickAndPlaceParameters.targetParameter.direction[2] = 0.0
+	            AND #tempPathDataCmd_checking.cmdParameters.pickAndPlaceParameters.targetParameter.direction[3] = 0.0)
+	          THEN
+	            //target vector existent
+	            //check working heigth and dynamics factor
+	            IF #tempPathDataCmd_checking.cmdParameters.pickAndPlaceParameters.targetParameter.workingHeight < 0.0 THEN
+	              #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_PICKANDPLACE_TARGETVECTOR;
+	              RETURN;
+	            END_IF;
+	          END_IF;
+	        END_REGION LINEAR_PICK_AND_PLACE
+	        
+	      "LKINCTRL_MC_SET_OCS_FRAME": // cmdType = 20
+	        REGION SET_OCS_FRAME
+	          // Check frame to be a OCS
+	          IF (#tempPathDataCmd_checking.cmdCoordinates.coordSystem < "CS_OCS1" // First OCS
+	            OR #tempPathDataCmd_checking.cmdCoordinates.coordSystem > "CS_OCS3") // Last OCS
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_COORDSYSTEM;
+	            RETURN;
+	          END_IF;
+	        END_REGION
+	        
+	      "LKINCTRL_MC_SET_USER_FRAME": // cmdType = 21
+	        REGION SET_USER_FRAME
+	          // Check frame to be a user frame
+	          IF (#tempPathDataCmd_checking.cmdCoordinates.coordSystem < "LKINCTRL_CS_NO_OF_FIRST_USER_FRAME" // First user frame
+	            OR #tempPathDataCmd_checking.cmdCoordinates.coordSystem > "LKINCTRL_CS_NO_OF_LAST_USER_FRAME") // Last user frame
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_COORDSYSTEM;
+	            RETURN;
+	          END_IF;
+	        END_REGION
+	        
+	    "LKINCTRL_MC_SHIFT_CS_REL": //cmdType 60
+	      REGION SHIFT_CS_REL
+	        ; // Nothing to check?
+	      END_REGION
+	      
+	    "LKINCTRL_MC_RESET_SHIFT": //cmdType 61
+	      REGION RESET_CS_SHIFT
+	        ; // Nothing to check?
+	      END_REGION
+	      
+	      "LKINCTRL_MC_ACTIVATE_TOOL": // cmdType = 22
+	        REGION SET_TOOL
+	          // Check tool number (1..3)
+	          IF (#tempPathDataCmd_checking.cmdParameters.toolNumber < 1 // First Tool
+	            OR #tempPathDataCmd_checking.cmdParameters.toolNumber > 3) // Last Tool
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_TOOLNUMBER;
+	            RETURN;
+	          END_IF;
+	        END_REGION
+	        
+	      "LKINCTRL_MC_SET_TOOL_FRAME": // cmdType = 23
+	        REGION DEFINE_TOOL
+	          // Check frame (only X,Y,Z,A allowed) --> B and C allowed in 6D
+	          // IF (#tempPathDataCmd_checking.cmdCoordinates.cartesianPosition.b <> 0.0) // B
+	          //   OR (#tempPathDataCmd_checking.cmdCoordinates.cartesianPosition.c <> 0.0) // C
+	          // THEN
+	          //   #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_COORDINATES;
+	          //   RETURN;
+	          // END_IF;
+	            ;
+	        END_REGION
+	        
+	        
+	      "LKINCTRL_MC_DEFINE_WS_ZONE":
+	        REGION DEFINE_WS_ZONE
+	          // Check configuration index
+	          IF #tempPathDataCmd_checking.cmdParameters.zoneParameters.zoneConfigurationIndex < 1
+	            OR #tempPathDataCmd_checking.cmdParameters.zoneParameters.zoneConfigurationIndex > "LKINCTRL_NO_OF_ZONES"
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_ZONECONFIGURATIONINDEX;
+	            RETURN;
+	          END_IF;
+	          
+	          
+	          // Check zone number
+	          IF #tempPathDataCmd_checking.cmdParameters.zoneParameters.zoneNumber < 1
+	            OR #tempPathDataCmd_checking.cmdParameters.zoneParameters.zoneNumber > 10
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_ZONENUMBER;
+	            RETURN;
+	          END_IF;
+	        END_REGION
+	        
+	      "LKINCTRL_MC_ACTIVATE_WS_ZONE":
+	        REGION ACTIVATE_WS_ZONE
+	          // Check zone number
+	          IF #tempPathDataCmd_checking.cmdParameters.zoneParameters.zoneNumber < 1
+	            OR #tempPathDataCmd_checking.cmdParameters.zoneParameters.zoneNumber > 10
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_ZONENUMBER;
+	            RETURN;
+	          END_IF;
+	        END_REGION
+	        
+	      "LKINCTRL_MC_DEACTIVATE_WS_ZONE":
+	        REGION DEACTIVATE_WS_ZONE
+	          CASE #tempPathDataCmd_checking.cmdParameters.zoneParameters.deactivationMode OF
+	            "ZONE_DEACTIVATION_MODE_SPECIFIC": // Set a specific zone to inactive
+	              // Check zone number
+	              IF #tempPathDataCmd_checking.cmdParameters.zoneParameters.zoneNumber < 1
+	                OR #tempPathDataCmd_checking.cmdParameters.zoneParameters.zoneNumber > 10
+	              THEN
+	                #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_ZONENUMBER;
+	                RETURN;
+	              END_IF;
+	              
+	            "ZONE_DEACTIVATION_MODE_ALL", // Set all workspace zones to inactive
+	            "ZONE_DEACTIVATION_MODE_BLOCKED", // Set all blocked zones to inactive
+	            "ZONE_DEACTIVATION_MODE_SIGNAL", // Set all signal zones to inactive
+	            "ZONE_DEACTIVATION_MODE_WORKSPACE": // Set workspace to inactive
+	              ; // Do not check number
+	              
+	            ELSE  // Invalid mode
+	              #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_ZONEDEACTIVATIONMODE;
+	              RETURN;
+	          END_CASE;
+	        END_REGION
+	        
+	      "LKINCTRL_MC_DEFINE_KIN_ZONE":
+	        REGION DEFINE_KIN_ZONE
+	          // Check configuration index
+	          IF #tempPathDataCmd_checking.cmdParameters.zoneParameters.zoneConfigurationIndex < 1
+	            OR #tempPathDataCmd_checking.cmdParameters.zoneParameters.zoneConfigurationIndex > "LKINCTRL_NO_OF_ZONES"
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_ZONECONFIGURATIONINDEX;
+	            RETURN;
+	          END_IF;
+	          
+	          // Check zone number
+	          IF #tempPathDataCmd_checking.cmdParameters.zoneParameters.zoneNumber < 2
+	            OR #tempPathDataCmd_checking.cmdParameters.zoneParameters.zoneNumber > 10
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_ZONENUMBER;
+	            RETURN;
+	          END_IF;
+	        END_REGION
+	        
+	      "LKINCTRL_MC_ACTIVATE_KIN_ZONE":
+	        REGION ACTIAVTE_KIN_ZONE
+	          // Check zone number
+	          IF #tempPathDataCmd_checking.cmdParameters.zoneParameters.zoneNumber < 2
+	            OR #tempPathDataCmd_checking.cmdParameters.zoneParameters.zoneNumber > 10
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_ZONENUMBER;
+	            RETURN;
+	          END_IF;
+	        END_REGION
+	        
+	      "LKINCTRL_MC_DEACTIVATE_KIN_ZONE":
+	        REGION DEACTIVATE_KIN_ZONE
+	          CASE #tempPathDataCmd_checking.cmdParameters.zoneParameters.deactivationMode OF
+	            "ZONE_DEACTIVATION_MODE_SPECIFIC": // Set a specific zone to inactive
+	              // Check zone number
+	              IF #tempPathDataCmd_checking.cmdParameters.zoneParameters.zoneNumber < 2
+	                OR #tempPathDataCmd_checking.cmdParameters.zoneParameters.zoneNumber > 10
+	              THEN
+	                #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_ZONENUMBER;
+	                RETURN;
+	              END_IF;
+	              
+	            "ZONE_DEACTIVATION_MODE_ALL": // Set all zones to inactive
+	              ; // Do not check number
+	              
+	            ELSE  // Invalid mode
+	              #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_ZONEDEACTIVATIONMODE;
+	              RETURN;
+	          END_CASE;
+	        END_REGION
+	        
+	      "LKINCTRL_CONFIG_END_OFFSET_COMP": // cmdType = 40
+	        ;
+	        
+	      "LKINCTRL_CONFIG_START_OFFSET_COMP_LEFT", "LKINCTRL_CONFIG_START_OFFSET_COMP_RIGHT": // cmdType = 41,42
+	        REGION CONTOUR_OFFSET
+	          //PathData - command - offsetParameters - offSetParaNo
+	          IF #tempPathDataCmd_checking.cmdParameters.offsetParameters.offsetParaNo < 1
+	            OR #tempPathDataCmd_checking.cmdParameters.offsetParameters.offsetParaNo > "LKINCTRL_NO_OF_OFFSETS"
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_OFFSET_PARA_NO;
+	            RETURN;
+	          END_IF;
+	          
+	          //PathData - command - offsetParameters - mainPathPlane
+	          IF #tempPathDataCmd_checking.cmdParameters.offsetParameters.mainPathPlane < "CP_XZ"
+	            OR #tempPathDataCmd_checking.cmdParameters.offsetParameters.mainPathPlane > "CP_XY"
+	          THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_OFFSET_MAINPATHPLANE;
+	            RETURN;
+	          END_IF;
+	        END_REGION CONTOUR_OFFSET
+	        
+	      "LKINCTRL_CMD_WAIT_TIME": // cmdType = 100
+	        REGION WAIT_TIME
+	          // Check waitTime to be at least 1ms
+	          IF #tempPathDataCmd_checking.cmdParameters.pathDynamics.velocity < 1.0 THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_VELOCITY;
+	          END_IF;
+	        END_REGION WAIT_TIME
+	        
+	      "LKINCTRL_MC_DESYNC_CONVEYOR":
+	        REGION DESYNC_CONVEYOR
+	          // Check dynamics
+	          IF #tempPathDataCmd_checking.cmdParameters.pathDynamics.velocity = 0.0 THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_VELOCITY;
+	            RETURN;
+	          END_IF;
+	          IF #tempPathDataCmd_checking.cmdParameters.pathDynamics.acceleration = 0.0 THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_ACCELERATION;
+	            RETURN;
+	          END_IF;
+	          IF #tempPathDataCmd_checking.cmdParameters.pathDynamics.deceleration = 0.0 THEN
+	            #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_DECELERATION;
+	            RETURN;
+	          END_IF;
+	      END_REGION DESYNC_CONVEYOR
+	      
+	      
+	      
+	
+	      ELSE  // Wrong cmdType
+	        #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_CMDTYPE;
+	        RETURN;
+	    END_CASE;
+	    
+	  END_REGION
+	  
+	  // --------------------------------------------------------
+	  // Check settings independent of cmd type
+	  // --------------------------------------------------------
+	  REGION CMD_INDEPENDENT
+	    //PathData - command - cmdParameters - orientationDirection
+	    IF #tempPathDataCmd_checking.cmdParameters.orientationDirection < "DIRA_POSITIVE"
+	      OR #tempPathDataCmd_checking.cmdParameters.orientationDirection > "DIRA_SHORTEST"
+	    THEN
+	      #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_ORIENTATIONDIRECTION;
+	      RETURN;
+	    END_IF;
+	    
+	    //PathData - command - cmdParameters - bufferMode
+	    IF #tempPathDataCmd_checking.cmdParameters.bufferMode <> "BM_BUFFERED"
+	      AND #tempPathDataCmd_checking.cmdParameters.bufferMode <> "BM_BLENDING_LOW"
+	      AND #tempPathDataCmd_checking.cmdParameters.bufferMode <> "BM_BLENDING_HIGH"
+	    THEN
+	      #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_BUFFERMODE;
+	      RETURN;
+	    END_IF;
+	    
+	    //PathData - command - cmdParameters - dynamicAdaption
+	    IF #tempPathDataCmd_checking.cmdParameters.dynamicAdaption > "DA_WITH_CONSTANT_LIMITS"
+	    THEN
+	      #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_DYNAMICADAPTION;
+	      RETURN;
+	    END_IF;
+	    
+	    //PathData - command - setFlags
+	    FOR #tempFlagCtr := 1 TO "LKINCTRL_NO_OF_CMD_SETFLAGS" DO
+	      // check flag to be in range of flags InOut array at LKinCtrl_MC_MovePath
+	      IF #tempPathDataCmd_checking.setFlags[#tempFlagCtr].flag <> -1
+	        AND (#tempPathDataCmd_checking.setFlags[#tempFlagCtr].flag < #firstFlag OR #tempPathDataCmd_checking.setFlags[#tempFlagCtr].flag > #lastFlag)
+	      THEN
+	        #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_SETFLAGS_FLAG;
+	        RETURN;
+	      END_IF;
+	      
+	      // check flagMode to be valid
+	      IF "LKinCtrl_CheckFlagMode"(#tempPathDataCmd_checking.setFlags[#tempFlagCtr].flagMode) = FALSE THEN
+	        #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_SETFLAGS_FLAGMODE;
+	        RETURN;
+	      END_IF;
+	    END_FOR;
+	    
+	    //PathData - command - valueFlags
+	    FOR #tempFlagCtr := 1 TO "LKINCTRL_NO_OF_CMD_VALUEFLAGS" DO
+	      // check flag to be in range of flags InOut array at LKinCtrl_MC_MovePath
+	      IF #tempPathDataCmd_checking.valueFlags[#tempFlagCtr].flag <> -1
+	        AND (#tempPathDataCmd_checking.valueFlags[#tempFlagCtr].flag < #firstFlag OR #tempPathDataCmd_checking.valueFlags[#tempFlagCtr].flag > #lastFlag)
+	      THEN
+	        #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_VALUEFLAGS_FLAG;
+	        RETURN;
+	      END_IF;
+	      
+	      // check flagMode to be valid
+	      IF "LKinCtrl_CheckFlagMode"(#tempPathDataCmd_checking.valueFlags[#tempFlagCtr].flagMode) = FALSE THEN
+	        #LKinCtrl_CheckPathDataCmd := #ERR_PATHDATA_VALUEFLAGS_FLAGMODE;
+	        RETURN;
+	      END_IF;
+	    END_FOR;
+	  END_REGION
+	END_REGION CHECK_COMMAND
+	
+	
+END_FUNCTION
+

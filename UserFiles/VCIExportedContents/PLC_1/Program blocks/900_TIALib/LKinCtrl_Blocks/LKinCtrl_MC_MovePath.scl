@@ -1,0 +1,1605 @@
+﻿FUNCTION_BLOCK "LKinCtrl_MC_MovePath"
+TITLE = LKinCtrl_MC_MovePath
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Core function block of LKinCtrl library:
+//executes path motion provided by PathData command list
+   VAR_INPUT 
+      execute : Bool;   // rising edge starts action once
+      stop : Bool;   // abort path motion
+      interrupt : Bool;   // interrupt path motion
+      reset : Bool;   // reset FB / acknowledge errors
+      sequenceMode : Int;   // activate sequence mode (0) / single step mode (1)
+      pathTransition : DInt;   // initial transition configuration for new path motion (1: use bufferMode and transitionParameter)
+      bufferMode : DInt := 1;   // inital bufferMode for new path motion
+      transitionParameter : Array[1..5] of LReal := [-1.0];   // initial transitionParameter for new path motion
+      configuration : "LKinCtrl_typeConfiguration";   // configuration structure
+      abortMeasurementCmd : Bool;   // TRUE: abort active command if measurement command
+   END_VAR
+
+   VAR_OUTPUT 
+      done { ExternalWritable := 'False'} : Bool;   // TRUE: Commanded functionality has been completed successfully
+      busy { ExternalWritable := 'False'} : Bool;   // TRUE: FB is not finished and new output values can be expected
+      active { ExternalWritable := 'False'} : Bool;   // FB in control of axesGroup / kinematic in motion
+      commandAborted { ExternalWritable := 'False'} : Bool;   // TRUE: Commanded functionality has been aborted by another command
+      error { ExternalWritable := 'False'} : Bool;   // TRUE: An error occurred during the execution of the FB
+      status { ExternalWritable := 'False'} : Word := #STATUS_NO_CALL;   // status of the FB
+      diagnostics { ExternalWritable := 'False'} : "LKinCtrl_typeMovePathDiagnostics";   // diagnostics information of FB
+      activePathData { ExternalWritable := 'False'} : String["LKINCTRL_LENGTH_OF_PATHDATA_NAME"];   // name of actual PathData
+      activeCmdNo { ExternalWritable := 'False'} : DInt := 0;   // number of actual PathData set
+      remainingDistanceActCmd { ExternalWritable := 'False'} : LReal;   // remaining distance of actual PathData set
+      readyForNextPath { ExternalWritable := 'False'} : Bool := TRUE;   // TRUE: Next PathData can be triggered
+      activeUserFrames { ExternalWritable := 'False'; S7_HiddenAssignment := 'Show'} : Array["LKINCTRL_CS_NO_OF_FIRST_USER_FRAME".."LKINCTRL_CS_NO_OF_LAST_USER_FRAME"] of "LKinCtrl_typeFrame";   // Currently acitve user frames
+   END_VAR
+
+   VAR_IN_OUT 
+      axesGroup {InstructionName := 'TO_Kinematics'; LibVersion := '9.0'} : TO_Kinematics;   // reference to the axesGroup
+      pathData : "LKinCtrl_typePathData";   // reference to the PathData
+      pointTable : Array[*] of "LKinCtrl_typePoint";   // reference to point table
+      flags : Array[*] of Bool;   // boolean defined by setFlags in PathCommand
+      valueFlags : Array[*] of LReal;   // value defined by valueFlags in PathCommand
+   END_VAR
+
+   VAR 
+      statExecuteOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // old value of 'execute' input for edge detection
+      statStopOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // old value of 'stop' input for edge detection
+      statInterruptOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // old value of 'interrupt' input for edge detection
+      statResetOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // old value of 'reset' input for edge detection
+      statDone { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static value for output 'done'
+      statBusy { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static value for output 'busy'
+      statCommandAborted { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static value for output 'commandAborted'
+      statError { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static value for output 'error'
+      statStatus { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Word := #STATUS_NO_CALL;   // static value for output 'status'
+      statErrorID { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Word;   // static value for diagnostics output: errorID
+      statSubfunctionStatus { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Word;   // status or return value of called FBs, FCs and system blocks
+      statReadyForNextPath { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool := TRUE;   // static value for output 'readyForNextPath'
+      statActivePathData { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : String["LKINCTRL_LENGTH_OF_PATHDATA_NAME"];   // static value for active path data name
+      statActiveCmdNo { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // static value for output "activeCmdNo"
+      statRemainingDistanceActCmd { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : LReal;   // static value for output "remainingDistActCmd"
+      statInterruptedAtStart { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static to store if interrupt was executed at start of path
+      statStateExecution { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt := #EX_NO_PROCESSING;   // state in the state machine of the FB
+      statStatePreBuffering { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt := #PB_NO_PROCESSING;   // state in the state machine of the FB
+      statDebugState { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static variable to debug IF state machine if needed
+      statEmptyDiagnostics { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typeMovePathDiagnostics";   // empty diagnostics information (for initialization purposes only)
+      statPreBufferCmdCtr { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int;   // static counter to run FB LKinCtrl_PreBuffer multiple times
+      statLastCmdIdPathdata { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // static value to store last detected cmd in PathData
+      statStoreInterruptStateExecution { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // static store variable for state machine status on interrupt
+      statPathDataIdentifier { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : USInt;   // static to identify PathDatas independent of given name
+      statWrittenActiveCmdNo { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // static to store the last written active command number
+      statMCExecuteWasDone { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static to store done output of MC_Execute in case of wait flags at end of path
+      statExecutionWaitSingleStep { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static bit to wait for execution due to sequenceMode
+      statPauseExecution { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static bit to wait for execution due to wait time or tool ommands running
+      statWaitMain { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static bit to wait for execution due to wait flags
+      statWaitValueMain { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static bit to wait for execution due to wait value flags
+      statPreBufferError { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static to store error output of prebuffer
+      statPreBufferedPathDataNameOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : String["LKINCTRL_LENGTH_OF_PATHDATA_NAME"];   // static to store old PathDataName in PathDataPreBuffered
+      statPreBufferedCmdIdOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // static to store old cmdId value from PathDataPreBuffered
+      statPathDataPreBufferAddPointerOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int;   // old value of 'addPointer' in PathDataPreBuffer
+      statSetFlagsBufferWriteBufferElement_old { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int;   // static to store old setFlagsBuffer write element pointer value
+      statFirstCycle { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static indicating first cycle
+      statInitStartPos { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // static start position
+      statIsMeasurementCmd { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : USInt;   // output value of ExecuteKinMotionCmd
+      statStateOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // static to store the last execution state
+      statAbortOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool := false;   // static bit to store aborted state
+      statActiveCmdNoOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // old value of activeCmdNo
+      statFlagsBuffer { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Struct   // buffer to store flag information for past and actual commands
+         writeBufferElement { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int := 1;   // pointer on entry to be written
+         bufferElement { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : Array[1.."LKINCTRL_NO_OF_SETFLAGS_BUFFER_ELEMENTS"] of "LKinCtrl_typeFlagBufferElement";   // flag information for one specific command (see cmdId)
+      END_STRUCT;
+      statPathDataPreBuffered { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typePathData_PreBuf" := ((), [((), (), (), (), (), (), (), ([()], [()], [()], ()), (((), (), (), ()), ((), (), (), ()), (), (), [-1.0], (), (), ((), (), [()]), ((), ()), (()), ((), (), [()], (), (), (), ()), ((), (), ()), (([()], (), (), ()), ([()], (), (), ()))), [((), (), ()), ((), (), ()), ((), (), ())], [((), (), (), ()), ((), (), (), ()), ((), (), (), ()), ((), (), (), ())], [6(TRUE)]), ((), (), (), (), (), (), (), ([()], [()], [()], ()), (((), (), (), ()), ((), (), (), ()), (), (), [-1.0], (), (), ((), (), [()]), ((), ()), (()), ((), (), [()], (), (), (), ()), ((), (), ()), (([()], (), (), ()), ([()], (), (), ()))), [((), (), ()), ((), (), ()), ((), (), ())], [((), (), (), ()), ((), (), (), ()), ((), (), (), ()), ((), (), (), ())], [6(TRUE)]), ((), (), (), (), (), (), (), ([()], [()], [()], ()), (((), (), (), ()), ((), (), (), ()), (), (), [-1.0], (), (), ((), (), [()]), ((), ()), (()), ((), (), [()], (), (), (), ()), ((), (), ()), (([()], (), (), ()), ([()], (), (), ()))), [((), (), ()), ((), (), ()), ((), (), ())], [((), (), (), ()), ((), (), (), ()), ((), (), (), ()), ((), (), (), ())], [6(TRUE)]), ((), (), (), (), (), (), (), ([()], [()], [()], ()), (((), (), (), ()), ((), (), (), ()), (), (), [-1.0], (), (), ((), (), [()]), ((), ()), (()), ((), (), [()], (), (), (), ()), ((), (), ()), (([()], (), (), ()), ([()], (), (), ()))), [((), (), ()), ((), (), ()), ((), (), ())], [((), (), (), ()), ((), (), (), ()), ((), (), (), ()), ((), (), (), ())], [6(TRUE)]), ((), (), (), (), (), (), (), ([()], [()], [()], ()), (((), (), (), ()), ((), (), (), ()), (), (), [-1.0], (), (), ((), (), [()]), ((), ()), (()), ((), (), [()], (), (), (), ()), ((), (), ()), (([()], (), (), ()), ([()], (), (), ()))), [((), (), ()), ((), (), ()), ((), (), ())], [((), (), (), ()), ((), (), (), ()), ((), (), (), ()), ((), (), (), ())], [6(TRUE)])], (), (), ());   // preBuffered PathData elements (internal buffer of path motion commands)
+      statPathDataElementPreBuffered { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typePathDataElement_PreBuf" := ((), (), (), (), (), (), (), ([()], [()], [()], ()), (((), (), (), ()), ((), (), (), ()), (), (), [-1.0], (), (), ((), (), [()]), ((), ()), (()), ((), (), [()], (), (), (), ()), ((), (), ()), (([()], (), (), ()), ([()], (), (), ()))), [((), (), ()), ((), (), ()), ((), (), ())], [((), (), (), ()), ((), (), (), ()), ((), (), (), ()), ((), (), (), ())], [6(TRUE)]);   // PathData element  to be executed by FB_ExecutePathMotion
+      statWaitFlags { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Struct   // static struct to store wait flag information
+         waitCtr { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int;   // counter for number of wait flags in one command
+         waitFlag { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1.."LKINCTRL_NO_OF_CMD_SETFLAGS"] of Int;   // flag number as identifier for flag active as wait flag
+      END_STRUCT;
+      statWaitValueFlags { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Struct   // static struct to store wait valueFlag information
+         waitCtr { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int;   // counter for number of wait flags in one command
+         waitFlag { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1.."LKINCTRL_NO_OF_CMD_VALUEFLAGS"] of Int;   // flag number as identifier for flag active as wait valueFlag
+      END_STRUCT;
+      statEmptyPathDataElementPreBuffered { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typePathDataElement_PreBuf" := ((), (), (), (), (), (), (), ([()], [()], [()], ()), (((), (), (), ()), ((), (), (), ()), (), (), [-1.0], (), (), ((), (), [()]), ((), ()), (()), ((), (), [()], (), (), (), ()), ((), (), ()), (([()], (), (), ()), ([()], (), (), ()))), [((), (), ()), ((), (), ()), ((), (), ())], [((), (), (), ()), ((), (), (), ()), ((), (), (), ()), ((), (), (), ())], [6(TRUE)]);   // static for empty pre buffer element
+      statEmptyFlagBufferElement { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typeFlagBufferElement";   // static for empty flagBuffer element
+      instLKinCtrl_SetFlagCtrl { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_SetFlagCtrl";   // instance of flag controls for setFlags
+      instLKinCtrl_ValueFlagCtrl { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_ValueFlagCtrl";   // instance of flag controls for valueFlags
+      instLKinCtrl_PreBuffer { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_PreBuffer";
+      instLKinCtrl_MC_ExecuteKinMotionCmd { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_MC_ExecuteKinMotionCmd";
+   END_VAR
+
+   VAR_TEMP 
+      tempExecute : Bool;   // Temporary value for input 'execute'
+      tempStop : Bool;   // Temporary value for input 'stop'
+      tempInterrupt : Bool;   // Temporary value for input 'interrupt'
+      tempReset : Bool;   // Temporary value for input 'stop'
+      tempSequenceMode : Int;   // Temporary value for input 'sequenceMode'
+      tempCtr : DInt;   // Temporary command counter
+      tempPreBufferPtrOk : Bool;   // Temporary bit for pointer checks
+      tempExecutionWaiting : Bool;   // Temporary bit to disable triggering commands
+      tempKinematicsStatusWord : DWord;   // Temporary copy of TO Kinematics status word
+      tempMotionQueueCommands : DInt;   // Temporary copy of TO Kinematics number of commands in motion queue
+      tempExecCtr : DInt;   // Temporary counter
+      tempWaitFlagFound : Bool;   // Temporary bit to signal a wait flag was found
+      tempFlagBufferElement : "LKinCtrl_typeFlagBufferElement";   // Temporary storing for a flagBuffer element
+      tempAbortMeasurementCmd : Bool;   // Temporary value for input 'abortMeasurementCmd'
+      tempStopMeasure : Bool;   // Temporary value to trigger executer stop
+   END_VAR
+
+   VAR CONSTANT 
+      EX_NO_PROCESSING : Int := 0;   // state machine constant
+      EX_RESETTING : Int := 5;   // state machine constant
+      EX_INTERRUPT_AT_START : Int := 10;   // state machine constant
+      EX_CONTINUE_AT_START : Int := 11;   // state machine constant
+      EX_GET_CMD : Int := 30;   // state machine constant
+      EX_TRIGGERING_CMD : Int := 50;   // state machine constant
+      EX_TRIGGERED_CMD : Int := 55;   // state machine constant
+      EX_INTERRUPTING : Int := 70;   // state machine constant
+      EX_INTERRUPTED : Int := 75;   // state machine constant
+      EX_CONTINUEING : Int := 77;   // state machine constant
+      EX_CONTINUED : Int := 78;   // state machine constant
+      EX_STOPPING : Int := 80;   // state machine constant
+      EX_STOPPED_STATE : Int := 85;   // state machine constant
+      EX_ERROR_STATE : Int := 90;   // state machine constant
+      EX_ALL_TRIGGERED : Int := 100;   // state machine constant
+      EX_ABORT_MEAS_CMD : Int := 105;   // state machine constant
+      EX_MEAS_CMD_ABORTED : Int := 110;   // state machine constant
+      PB_NO_PROCESSING : Int := 0;   // state machine constant
+      PB_ENABLED : Int := 10;   // state machine constant
+      PB_OFF_COMP : Int := 15;   // state machine constant
+      PB_DISABLED : Int := 20;   // state machine constant
+      STATUS_EXECUTION_FINISHED : Word := 16#0000;   // status execution finished without errors
+      STATUS_NO_CALL : Word := 16#7000;   // status no job being currently processed
+      STATUS_FIRST_CALL : Word := 16#7001;   // status first call after incoming new job (rising edge 'execute')
+      STATUS_SUBSEQUENT_CALL : Word := 16#7002;   // status subsequent call during active processing without further details
+      STATUS_FB_RESETTING : Word := 16#7010;   // status FB resetting
+      STATUS_WAITING_FOR_PREBUFFERED_CMD : Word := 16#7070;   // status waiting for new command in PathData_Prebuffered
+      STATUS_PREBUFFERED_FULL : Word := 16#7071;   // status internal cmd buffer filled completely
+      STATUS_CMD_LIN_ACTIVE : Word := 16#7301;   // status linear motion command active at axesgroup
+      STATUS_CMD_CIRC_ACTIVE : Word := 16#7302;   // status circular motion command active at axesgroup
+      STATUS_PATHMOTION_INTERRUPTED : Word := 16#7303;   // status path motion interrupted
+      STATUS_PATHMOTION_STOPPING : Word := 16#7304;   // status path motion stopping
+      STATUS_READYFORNEXTPATH : Word := 16#7305;   // status FB ready for next path execution
+      STATUS_PATHMOTION_RUNNING : Word := 16#7306;   // status path motion running
+      STATUS_EXECUTION_WAITING : Word := 16#7307;   // status path execution waiting due to wait flag, wait time or single step mode
+      STATUS_CMD_MOVE_DIRECT_ACTIVE : Word := 16#7308;   // status move direct motion command active at axesgroup
+      STATUS_STOP_DUE_TO_ERROR : Word := 16#7309;   // status kinematics is stopped due to an error in FB Executer
+      STATUS_CMD_CONFIGURATION_ACTIVE : Word := 16#730A;   // status configuration command active at axesgroup
+      STATUS_COMMAND_ABORTED : Word := 16#7FFF;   // status commanded functionality has been aborted by another command
+      ERR_UNDEFINED_STATE : Word := 16#8600;   // error due to an undefined state in state machine
+      ERR_EXECUTE_KINMOTIONCMD : Word := 16#8201;   // error due to error in FB LKinCtrl_ExecuteKinMotionCmd
+      ERR_WRONG_SEQUENCEMODE : Word := 16#8203;   // error due to invalid sequenceMode on input
+      ERR_PATHDATA_PARAMETERS : Word := 16#8204;   // error due to malconfiguration in motion command parameters
+      ERR_OFFSET_CALCULATION : Word := 16#8205;   // error due to calculation error in offset compensation
+      ERR_ERROR_STILL_PENDING : Word := 16#8207;   // error due to previous not acknowledged error (reset MovePath to acknowledge)
+      ERR_SET_FLAG_CONTROL : Word := 16#8208;   // error due to error in set flag control FB
+      ERR_VALUE_FLAG_CONTROL : Word := 16#8209;   // error due to error in value flag control FB
+      ERR_TRIGGER_NOT_POSSIBLE : Word := 16#820A;   // error due to new execute not possible
+      INTERRUPT_AT_START : Bool := FALSE;   // interrupt at start of new path to preload commands
+      NO_OF_COMMANDS_PRELOADING : USInt := 3;   // number of commands to be preloaded
+      CONTINUE_AT_START : Bool := TRUE;   // continue at start of new path
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2020 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN/DP
+	// Engineering: TIA Portal V16
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 2.8
+	// Functionality: LKinCtrl_MC_MovePath
+	// The FB is executing a sequence to drive a path defined by the user in form of a
+	// command list of points and motion commands.
+	//
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   06.02.2018    JR                  First release version v1.0
+	// 02.00.00   18.04.2019    JR / FR             V2.0
+	// 02.01.00   28.05.2019    JR / FR             V2.1 for LKinLang
+	// 02.02.00   28.01.2020    JR / FR             V2.2: Added valueFlags and flagOnlyCmd 
+	// 02.02.01   07.02.2020    FR / DF             V2.2.1: Disable Prebuffer when MovePath is stopping/reseting/(done)
+	// 02.02.02   12.02.2020    FR                  Fix for loops using wrong flag constant
+	// 02.03.00   18.03.2020    FR                  Rework Flag FBs; Fix for interrupt/continue
+	// 02.04.00   25.03.2020    FR                  Added preprocessing stop for LKinLang
+	// 02.04.01   07.05.2020    FR                  Fix 360° circle with circMode 3
+	// 02.04.02   16.07.2020    FR                  Several bugfixes
+	// 03.00.00   04.08.2020    FR                  Added MoveDirect and ConveyorTracking; V16/FW2.8.2 required!
+	// 03.00.01   06.08.2020    FR                  Bugfix
+	// 03.00.02   19.10.2020    FR                  Updated ContourOffset; Updated FlagControl; Bugfixes
+	// 03.00.03   23.11.2020    FR                  Updated ContourOffset; Fix in MC_ExecuteKinMotionCmd
+	// 03.00.05   01.06.2021    FR                  Fixes in FlagCtrl FBs
+	// 03.01.00   01.07.2021    FR                  Added Frame, Tool and Zone commands; code cleanup
+	// 03.01.02   20.10.2021    FR                  Changed interrupt/Continue handling & Bugfixes
+	// 03.01.03   16.11.2021    FR                  Updated contourOffset; Bugfixes
+	// 03.02.00   16.02.2022    FR                  Bugfix for Interrupt & Continue, Bugfix for Flags, Option to execute multiple commands per cycle
+	// 03.03.00   17.08.2022    FR                  Added orientation dynamics to pathData, New FlagModes, Bugfixes
+	// 04.00.00   26.01.2023    FR                  Support MC Version 7.0, Added PointTable
+	// 04.00.01   23.02.2023    FR                  Updated valid bits, Bugfixes
+	// 04.01.00   02.02.2024    FR / AH             Structural changes
+	// 04.01.01   07.02.2024    AH                  Bugfix
+	// 04.01.02   09.02.2024    FR                  Bugfixes in command preparation
+	// 04.01.03   11.04.2024    FR                  Bugfixes
+	// 04.01.05   02.05.2024    FR                  Bugfixes
+	// 04.02.00   11.07.2024    AH                  Added measurement functionality - additional input "abortMeasurementCmd" & Bugfixes
+	// 05.00.00   05.09.2024    FR                  Switch pathData from variant to "LKinCtrl_typePathData"
+	//===========================================================================================
+	
+	// Work with temporary value / create process image
+	#tempExecute := #execute;
+	#tempStop := #stop;
+	#tempInterrupt := #interrupt;
+	#tempReset := #reset;
+	#tempSequenceMode := #sequenceMode;
+	#tempKinematicsStatusWord := #axesGroup.StatusWord;
+	#tempMotionQueueCommands := #axesGroup.StatusMotionQueue.NumberOfCommands;
+	#tempAbortMeasurementCmd := #abortMeasurementCmd;
+	
+	// Reset first cycle
+	#statFirstCycle := FALSE;
+	
+	
+	REGION TRIGGERING
+	  //-----------------------------------------------------------------------------
+	  // check for SEQUENCEMODE to be activated
+	  //-----------------------------------------------------------------------------
+	  IF #tempSequenceMode = 1 THEN
+	    // set execution wait bit to stop cmds from being executed (wait in EX_TRIGGERING_CMD)
+	    #statExecutionWaitSingleStep := TRUE;
+	    // check for incorrect sequenceMode to be selected
+	  ELSIF (#tempSequenceMode <> 0 AND #tempSequenceMode <> 1)
+	    // only check if execution is triggered
+	    AND #tempExecute = TRUE
+	  THEN
+	    // set status accordingly
+	    #statStatus := #ERR_WRONG_SEQUENCEMODE;
+	    // set execution state machine
+	    #statStateExecution := #EX_ERROR_STATE;
+	  END_IF;
+	  //===========================================================================================
+	  
+	  //-----------------------------------------------------------------------------
+	  // check for rising edge of STOP input
+	  //-----------------------------------------------------------------------------
+	  IF (#tempStop = TRUE) AND (#statStopOld = FALSE) THEN
+	    // perform stop procedure
+	    #statStateExecution := #EX_STOPPING;
+	    // FR 08.04.2020: Set status and bits here to avoid return when status = STATUS_NO_CALL
+	    #statStatus := #STATUS_PATHMOTION_STOPPING;
+	    #statDone := FALSE;
+	    #statBusy := TRUE;
+	    #statCommandAborted := FALSE;
+	    #statError := FALSE;
+	    #statErrorID := 16#0;
+	    //===========================================================================================
+	    
+	    //-----------------------------------------------------------------------------
+	    // check for rising edge of INTERRUPT input
+	    //-----------------------------------------------------------------------------
+	    // FR 17.03.2020: Added "statDone" to condition
+	    // FR 09.04.2020: Added stopping status to condition
+	  ELSIF (#tempInterrupt = TRUE) AND (#statInterruptOld = FALSE)
+	    AND (#statDone = FALSE)
+	    AND (#statError = FALSE)
+	    AND #statStatus <> #STATUS_PATHMOTION_STOPPING
+	    AND #statStatus <> #STATUS_COMMAND_ABORTED
+	    AND #statStatus <> #STATUS_NO_CALL
+	  THEN
+	    
+	    // FR 11.03.2020: Only save state in some cases
+	    IF #statStateExecution < #EX_INTERRUPTING
+	      OR #statStateExecution > #EX_CONTINUED
+	    THEN
+	      // store states of interruption for later continue
+	      #statStoreInterruptStateExecution := #statStateExecution;
+	    END_IF;
+	    
+	    // perform interrupt procedure
+	    #statStateExecution := #EX_INTERRUPTING;
+	    
+	    //-----------------------------------------------------------------------------
+	    // check for rising edge of RESET input
+	    //-----------------------------------------------------------------------------
+	  ELSIF (#tempReset = TRUE) AND (#statResetOld = FALSE)
+	    AND (#statBusy = FALSE) // interlock reset during execution
+	  THEN
+	    // perform reset procedure
+	    #statStateExecution := #EX_RESETTING;
+	    #statStatePreBuffering := #PB_NO_PROCESSING;
+	    // set status accordingly
+	    #statStatus := #STATUS_FB_RESETTING;
+	    
+	    
+	    //-----------------------------------------------------------------------------
+	    // check for rising edge of EXECUTE input
+	    //-----------------------------------------------------------------------------
+	  ELSIF (#tempExecute = TRUE) AND (#statExecuteOld = FALSE)
+	    AND (#tempStop = FALSE) AND (#tempInterrupt = FALSE)
+	  THEN
+	    //-----------------------------------------------------------------------------
+	    // ERROR on start
+	    //-----------------------------------------------------------------------------
+	    // check for state machine to be in error state from previous (not acknowledged) error
+	    IF #statStateExecution = #EX_ERROR_STATE THEN
+	      // State machine - do not start cmd execution and wait in error state
+	      #statStateExecution := #EX_ERROR_STATE;
+	      #statStatePreBuffering := #PB_NO_PROCESSING;
+	      
+	      // check for error already detected before execute in this cycle (e.g. wrong sequenceMode / other faulty inputs)
+	      IF #statStatus = #ERR_WRONG_SEQUENCEMODE THEN
+	        #statBusy := FALSE; // reset statBusy to avoid interlock of reset
+	      ELSE
+	        #statStatus := #ERR_ERROR_STILL_PENDING; // set status to set error bit
+	      END_IF;
+	      //===========================================================================================
+	      
+	      //-----------------------------------------------------------------------------
+	      // continue motion in SINGLESTEP mode
+	      //-----------------------------------------------------------------------------
+	      // check for execution to be waiting for new rising edge
+	    ELSIF #statStateExecution = #EX_TRIGGERING_CMD
+	      AND #statExecutionWaitSingleStep = TRUE
+	    THEN
+	      #statBusy := TRUE; // set FB state to busy
+	      #statExecutionWaitSingleStep := FALSE; // reset execution wait bit stopping cmds from being executed (wait in EX_TRIGGERING_CMD)
+	      //===========================================================================================
+	      
+	      //-----------------------------------------------------------------------------
+	      // CONTINUE after interrupt
+	      //-----------------------------------------------------------------------------
+	      // check for path motion to be interrupted
+	    ELSIF #statStateExecution = #EX_INTERRUPTED
+	      OR #statStateExecution = #EX_INTERRUPTING // FR 12.10.2021
+	    THEN
+	      // State machine - continue path motion and sequence
+	      // no changes to PreBuffer state machine
+	      #statStateExecution := #EX_CONTINUEING;
+	      // no setting of FB state to busy necessary, interrupt does not reset busy
+	      // ==========================================================================================
+	      
+	      //-----------------------------------------------------------------------------
+	      // RETRIGGER during running path motion
+	      //-----------------------------------------------------------------------------
+	      // check for path motion to be running with all previous cmds executed
+	    ELSIF #statStateExecution = #EX_ALL_TRIGGERED THEN
+	      #statBusy := TRUE; // set FB state to busy
+	      #statLastCmdIdPathdata := 0; // reset last cmdId in PathData depending on type of attached PathData
+	      #statMCExecuteWasDone := FALSE; // Reset bit to memorize done output of MC_ExecuteKinMotionCmd
+	      // state machines - reStart processing
+	      #statStatePreBuffering := #PB_ENABLED;
+	      #statStateExecution := #EX_GET_CMD;
+	      // initialize variables
+	      #statReadyForNextPath := FALSE;
+	      // set status - added JR 2019/04/16
+	      #statStatus := #STATUS_SUBSEQUENT_CALL;
+	      
+	      #instLKinCtrl_PreBuffer.flagLimits.firstFlag := LOWER_BOUND(ARR := #flags, DIM := 1);
+	      #instLKinCtrl_PreBuffer.flagLimits.lastFlag := UPPER_BOUND(ARR := #flags, DIM := 1);
+	      
+	      #instLKinCtrl_PreBuffer.flagLimits.firstValueFlag := LOWER_BOUND(ARR := #valueFlags, DIM := 1);
+	      #instLKinCtrl_PreBuffer.flagLimits.lastValueFlag := UPPER_BOUND(ARR := #valueFlags, DIM := 1);
+	      
+	      #instLKinCtrl_MC_ExecuteKinMotionCmd.flagLimits.firstFlag := LOWER_BOUND(ARR := #flags, DIM := 1);
+	      #instLKinCtrl_MC_ExecuteKinMotionCmd.flagLimits.lastFlag := UPPER_BOUND(ARR := #flags, DIM := 1);
+	      
+	      #instLKinCtrl_MC_ExecuteKinMotionCmd.flagLimits.firstValueFlag := LOWER_BOUND(ARR := #valueFlags, DIM := 1);
+	      #instLKinCtrl_MC_ExecuteKinMotionCmd.flagLimits.lastValueFlag := UPPER_BOUND(ARR := #valueFlags, DIM := 1);
+	      
+	      //===========================================================================================
+	      
+	      //-----------------------------------------------------------------------------
+	      // START of path motion (initial)
+	      //-----------------------------------------------------------------------------
+	      // check for path motion not to be running already
+	    ELSIF #tempMotionQueueCommands = 0                      // no commands in MotionQueue
+	      AND #tempKinematicsStatusWord.%X12 = TRUE             // TO Kinematics in constant velocity
+	      AND #axesGroup.StatusPath.Velocity = 0.0              // TO Kinematics standing still
+	      AND (#tempKinematicsStatusWord.%X6                    // no motion job in progress
+	      OR #axesGroup.StatusConveyor[1].TrackingState <> 0    // If kinematics is in tracking then done (.X6) is not set
+	      OR #axesGroup.StatusConveyor[2].TrackingState <> 0
+	      OR #axesGroup.StatusConveyor[3].TrackingState <> 0)
+	      AND #statStatus <> #STATUS_EXECUTION_WAITING          // Added FR 2019.03.28
+	    THEN
+	      // Initialize variables, diagnostics, etc.
+	      #statStatus := #STATUS_FIRST_CALL;
+	      #statStateExecution := #EX_RESETTING;
+	      
+	      #instLKinCtrl_PreBuffer.flagLimits.firstFlag := LOWER_BOUND(ARR := #flags, DIM := 1);
+	      #instLKinCtrl_PreBuffer.flagLimits.lastFlag := UPPER_BOUND(ARR := #flags, DIM := 1);
+	      
+	      #instLKinCtrl_PreBuffer.flagLimits.firstValueFlag := LOWER_BOUND(ARR := #valueFlags, DIM := 1);
+	      #instLKinCtrl_PreBuffer.flagLimits.lastValueFlag := UPPER_BOUND(ARR := #valueFlags, DIM := 1);
+	      
+	      #instLKinCtrl_MC_ExecuteKinMotionCmd.flagLimits.firstFlag := LOWER_BOUND(ARR := #flags, DIM := 1);
+	      #instLKinCtrl_MC_ExecuteKinMotionCmd.flagLimits.lastFlag := UPPER_BOUND(ARR := #flags, DIM := 1);
+	      
+	      #instLKinCtrl_MC_ExecuteKinMotionCmd.flagLimits.firstValueFlag := LOWER_BOUND(ARR := #valueFlags, DIM := 1);
+	      #instLKinCtrl_MC_ExecuteKinMotionCmd.flagLimits.lastValueFlag := UPPER_BOUND(ARR := #valueFlags, DIM := 1);
+	      //===========================================================================================
+	      
+	    ELSE
+	      //===========================================================================================
+	      // Trigger not possible
+	      // set execution state machine
+	      #statStateExecution := #EX_ERROR_STATE;
+	      #statStatus := #ERR_TRIGGER_NOT_POSSIBLE;
+	      //===========================================================================================
+	    END_IF;
+	    
+	  ELSIF (#statStatus = #STATUS_FIRST_CALL) THEN
+	    #statStatus := #STATUS_SUBSEQUENT_CALL;
+	  END_IF;
+	  
+	  // Edge detection input variables
+	  #statExecuteOld := #tempExecute;
+	  #statStopOld := #tempStop;
+	  #statInterruptOld := #tempInterrupt;
+	  #statResetOld := #tempReset;
+	  
+	END_REGION TRIGGERING
+	
+	IF (#statStatus = #STATUS_NO_CALL) THEN // Nothing to do -> End here to reduce "system load"
+	  RETURN;
+	END_IF;
+	
+	REGION RESETTING
+	  IF #statStateExecution = #EX_RESETTING
+	    // AND #statDebugState = TRUE
+	  THEN
+	    // reset  variable for single step debugging of states
+	    #statDebugState := FALSE;
+	    
+	    // ----------------------------------------------
+	    // Reset static for outputs
+	    // ----------------------------------------------
+	    #statDone := FALSE;
+	    #statCommandAborted := FALSE;
+	    #statError := FALSE;
+	    #statErrorID := 16#0;
+	    #statSubfunctionStatus := 16#0;
+	    #diagnostics := #statEmptyDiagnostics;
+	    
+	    // ----------------------------------------------
+	    // reset static variables
+	    //-----------------------------------------------
+	    #statFirstCycle := TRUE;
+	    #statInterruptedAtStart := FALSE;
+	    #statExecutionWaitSingleStep := FALSE;
+	    #statPauseExecution := FALSE;
+	    #statMCExecuteWasDone := FALSE;
+	    #statPathDataIdentifier := 0;
+	    #statLastCmdIdPathdata := 0;
+	    #statWrittenActiveCmdNo := -1;
+	    #statStoreInterruptStateExecution := 0;
+	    #statPreBufferCmdCtr := "LKINCTRL_NO_OF_START_EXECUTE_CMDS";
+	    #statAbortOld := FALSE;
+	    #statIsMeasurementCmd := 0;
+	    
+	    
+	    // ----------------------------------------------
+	    // initialize buffer variables
+	    //-----------------------------------------------
+	    // Reset PathDataPreBuffered
+	    #statPathDataElementPreBuffered := #statEmptyPathDataElementPreBuffered;
+	    FOR #tempCtr := 1 TO "LKINCTRL_NO_OF_PATHDATA_PREBUFFER_ELEMENTS" DO
+	      #statPathDataPreBuffered.commands[#tempCtr] := #statEmptyPathDataElementPreBuffered;
+	    END_FOR;
+	    #statPathDataPreBuffered.retrievePointer := 1;
+	    #statPathDataPreBuffered.addPointer := 1;
+	    #statPathDataPreBuffered.addPointerRestarted := FALSE;
+	    #statPathDataPreBuffered.pathDataName := '';
+	    #statPathDataPreBufferAddPointerOld := 0;
+	    
+	    // ----------------------------------------------
+	    // initialize flag handling variables
+	    //-----------------------------------------------
+	    // Reset waitFlags struct
+	    #statWaitFlags.waitCtr := 0;
+	    FOR #tempCtr := 1 TO "LKINCTRL_NO_OF_CMD_SETFLAGS" DO
+	      #statWaitFlags.waitFlag[#tempCtr] := -1;
+	    END_FOR;
+	    
+	    // Reset waitValueFlag struct
+	    #statWaitValueFlags.waitCtr := 0;
+	    FOR #tempCtr := 1 TO "LKINCTRL_NO_OF_CMD_VALUEFLAGS" DO
+	      #statWaitValueFlags.waitFlag[#tempCtr] := -1;
+	    END_FOR;
+	    
+	    // Reset setFlagsBuffer variables
+	    #statFlagsBuffer.writeBufferElement := 1;
+	    #statSetFlagsBufferWriteBufferElement_old := 1;
+	    
+	    // Reset setFlagBuffer
+	    FOR #tempCtr := 1 TO "LKINCTRL_NO_OF_SETFLAGS_BUFFER_ELEMENTS" DO
+	      #statFlagsBuffer.bufferElement[#tempCtr] := #statEmptyFlagBufferElement;
+	    END_FOR;
+	    
+	    // ----------------------------------------------
+	    // Call instances with false
+	    // ----------------------------------------------
+	    #instLKinCtrl_MC_ExecuteKinMotionCmd(execute                 := FALSE,
+	                                         interrupt               := FALSE,
+	                                         continueMotion          := FALSE,
+	                                         stopMode                := #configuration.stopMode,
+	                                         interruptMode           := #configuration.interruptMode,
+	                                         reset                   := FALSE,
+	                                         stop                    := FALSE,
+	                                         writtenActiveCmdNo      := #statWrittenActiveCmdNo,
+	                                         conveyorConfiguration   := #configuration.conveyorParameter,
+	                                         userFrames              := #configuration.userFrames,
+	                                         workspaceZones          := #configuration.workspaceZones,
+	                                         kinematicsZones         := #configuration.kinematicsZones,
+	                                         pauseCmdExecution       => #statPauseExecution,
+	                                         activePathDataName      => #statActivePathData,
+	                                         activeCmdNo             => #statActiveCmdNo,
+	                                         remainingDistanceActCmd => #statRemainingDistanceActCmd,
+	                                         activeUserFrames        => #activeUserFrames,
+	                                         pathDataElementPreBuf   := #statPathDataElementPreBuffered,
+	                                         to_Kinematics           := #axesGroup);
+	    
+	    IF #statStatus = #STATUS_FB_RESETTING
+	      OR #statStatus = #STATUS_FIRST_CALL
+	    THEN
+	      #instLKinCtrl_MC_ExecuteKinMotionCmd.reset := TRUE; // If resetting then also reset MC_ExecuteKinMotionCmd
+	      #instLKinCtrl_MC_ExecuteKinMotionCmd(execute                 := FALSE,
+	                                           interrupt               := FALSE,
+	                                           continueMotion          := FALSE,
+	                                           stopMode                := #configuration.stopMode,
+	                                           interruptMode           := #configuration.interruptMode,
+	                                           //reset := FALSE, // written above
+	                                           stop                    := FALSE,
+	                                           writtenActiveCmdNo      := #statWrittenActiveCmdNo,
+	                                           conveyorConfiguration   := #configuration.conveyorParameter,
+	                                           userFrames              := #configuration.userFrames,
+	                                           workspaceZones          := #configuration.workspaceZones,
+	                                           kinematicsZones         := #configuration.kinematicsZones,
+	                                           pauseCmdExecution       => #statPauseExecution,
+	                                           activePathDataName      => #statActivePathData,
+	                                           activeCmdNo             => #statActiveCmdNo,
+	                                           remainingDistanceActCmd => #statRemainingDistanceActCmd,
+	                                           activeUserFrames        => #activeUserFrames,
+	                                           pathDataElementPreBuf   := #statPathDataElementPreBuffered,
+	                                           to_Kinematics           := #axesGroup);
+	      #instLKinCtrl_MC_ExecuteKinMotionCmd.reset := FALSE; // Reset input
+	    END_IF;
+	    
+	    #instLKinCtrl_PreBuffer(enable         := FALSE,
+	                            error          => #statPreBufferError,
+	                            pointTable     := #pointTable,
+	                            to_Kinematics  := #axesGroup,
+	                            pathData       := #pathData,
+	                            pathDataPreBuf := #statPathDataPreBuffered);
+	    
+	    #instLKinCtrl_SetFlagCtrl(enable    := FALSE,
+	                              waitMain  => #statWaitMain,
+	                              flags     := #flags,
+	                              waitFlags := #statWaitFlags);
+	    
+	    #instLKinCtrl_ValueFlagCtrl(enable     := FALSE,
+	                                waitMain   => #statWaitValueMain,
+	                                valueFlags := #valueFlags,
+	                                waitFlags  := #statWaitValueFlags);
+	    
+	    // ----------------------------------------------
+	    // Check if coming from reset or execute and handle differences
+	    // ----------------------------------------------
+	    IF #statStatus = #STATUS_FB_RESETTING THEN
+	      // ---------------------------
+	      // Coming from reset
+	      // ---------------------------
+	      #statReadyForNextPath := TRUE;
+	      #statStateExecution := #EX_NO_PROCESSING;
+	      #statStatePreBuffering := #PB_NO_PROCESSING;
+	      #statStatus := #STATUS_NO_CALL;
+	    ELSE
+	      // ---------------------------
+	      // Coming from execute
+	      // ---------------------------
+	      #statBusy := TRUE;
+	      #statReadyForNextPath := FALSE;
+	      #statStatePreBuffering := #PB_ENABLED;
+	      IF #INTERRUPT_AT_START THEN
+	        #statStateExecution := #EX_INTERRUPT_AT_START;
+	      ELSIF #CONTINUE_AT_START THEN
+	        #statStateExecution := #EX_CONTINUE_AT_START;
+	      ELSE
+	        #statStateExecution := #EX_GET_CMD;
+	      END_IF;
+	    END_IF;
+	  END_IF;
+	END_REGION RESETTING
+	
+	REGION ABORT_MEASUREMENT_CMD
+	  //------------------------------------------------------------------------------------------
+	  // Abort measurement command functionality 
+	  //------------------------------------------------------------------------------------------
+	  //check cyclically if abort input has been reset
+	  IF (#statAbortOld = TRUE) AND (#tempAbortMeasurementCmd = FALSE) THEN
+	    #statAbortOld := FALSE;
+	    
+	    //first call of abort functionality
+	  ELSIF (#tempAbortMeasurementCmd = TRUE) AND (#statAbortOld = FALSE) THEN
+	    IF ((#statIsMeasurementCmd = "LKINCTRL_MEAS_CMD_WO_ACK")
+	      OR (#statIsMeasurementCmd = "LKINCTRL_MEAS_CMD_WITH_ACK"))
+	    THEN
+	      #statActiveCmdNoOld := #statActiveCmdNo;
+	      #statStateOld := #statStateExecution;
+	      #statStateExecution := #EX_ABORT_MEAS_CMD;
+	      #statAbortOld := TRUE;
+	    END_IF;
+	    
+	    //for multiple measurement commands in a row (1,1,1 or 1,1,1,2)
+	  ELSIF (#tempAbortMeasurementCmd = TRUE) AND (#statAbortOld = TRUE) THEN
+	    IF ((#statIsMeasurementCmd = "LKINCTRL_MEAS_CMD_WO_ACK") OR (#statIsMeasurementCmd = "LKINCTRL_MEAS_CMD_WITH_ACK"))
+	      AND (#statActiveCmdNo = (#statActiveCmdNoOld + 1))
+	    THEN
+	      #statActiveCmdNoOld := #statActiveCmdNo;
+	      #statStateOld := #statStateExecution;
+	      #statStateExecution := #EX_ABORT_MEAS_CMD;
+	      #statAbortOld := TRUE;
+	    END_IF;
+	  END_IF;
+	END_REGION
+	
+	REGION PRE_BUFFERING
+	  
+	  // state reached when no pre buffering is active
+	  REGION PB_NO_PROCESSING
+	    IF #statStatePreBuffering = #PB_NO_PROCESSING
+	      // AND #statDebugState = TRUE
+	    THEN
+	      // reset  variable for single step debugging of states
+	      #statDebugState := FALSE;
+	      
+	      // Do nothing here
+	    END_IF;
+	  END_REGION PB_NO_PROCESSING
+	  
+	  // state reached when pre buffering is active
+	  REGION PB_ENABLED
+	    IF #statStatePreBuffering = #PB_ENABLED
+	      // AND #statDebugState = TRUE
+	    THEN
+	      // reset  variable for single step debugging of states
+	      #statDebugState := FALSE;
+	      
+	      IF #statStatus = #STATUS_FIRST_CALL THEN
+	        #statInitStartPos := TRUE;
+	      END_IF;
+	      
+	      
+	      // Call FB PreBuffer multiple times
+	      FOR #tempCtr := 1 TO #statPreBufferCmdCtr DO
+	        
+	        // Call FB PreBuffer
+	        #instLKinCtrl_PreBuffer(enable                  := TRUE,
+	                                initPathTransition      := #pathTransition,
+	                                initBufferMode          := #bufferMode,
+	                                initTransitionParameter := #transitionParameter,
+	                                initStartPosition       := #statInitStartPos,
+	                                configuration           := #configuration,
+	                                error                   => #statPreBufferError,
+	                                pointTable              := #pointTable,
+	                                to_Kinematics           := #axesGroup,
+	                                lastCmdIdPathData       => #statLastCmdIdPathdata,
+	                                pathData                := #pathData,
+	                                pathDataPreBuf          := #statPathDataPreBuffered);
+	        
+	        #statInitStartPos := FALSE;
+	        
+	        // check for FB PreBuffer to signalize an error
+	        IF #statPreBufferError THEN
+	          IF #instLKinCtrl_MC_ExecuteKinMotionCmd.busy THEN
+	            #statStatus := #STATUS_STOP_DUE_TO_ERROR; // Error at command --> Stop Kinematics
+	          ELSE
+	            #statStatus := #ERR_PATHDATA_PARAMETERS;
+	          END_IF;
+	          #statSubfunctionStatus := #instLKinCtrl_PreBuffer.status;// Store subfunction status
+	          #statStatePreBuffering := #PB_DISABLED; // Disable preBuffer
+	          #statStateExecution := #EX_ERROR_STATE;
+	          // Write diagnostics
+	          #diagnostics.pathDataName := #statPathDataPreBuffered.pathDataName;
+	          #diagnostics.cmdNumber := #instLKinCtrl_PreBuffer.pathDataRetrievePointer;
+	          EXIT; // exit loop to end pre buffering
+	        END_IF;
+	        
+	        // Check for FB PreBuffer to have buffered the last element of the PathData to PathData_PreBuf
+	        IF #instLKinCtrl_PreBuffer.status = 16#7100 THEN // STATUS_ALL_CMDS_BUFFERED
+	          #statStatePreBuffering := #PB_DISABLED; // go to disable state when PreBuffer is done
+	          EXIT; // exit loop to end pre buffering
+	        END_IF;
+	        
+	      END_FOR;
+	    END_IF;
+	  END_REGION PB_ENABLED
+	  
+	  // state reached when pre buffering is active
+	  REGION PB_DISABLED
+	    IF #statStatePreBuffering = #PB_DISABLED
+	      // AND #statDebugState = TRUE
+	    THEN
+	      // reset  variable for single step debugging of states
+	      #statDebugState := FALSE;
+	      
+	      // call FB_PreBuffer with false
+	      // second call of FB necessary, for PathData with one command only ==> handled in one cycle only
+	      #instLKinCtrl_PreBuffer(enable         := FALSE,
+	                              pointTable     := #pointTable,
+	                              to_Kinematics  := #axesGroup,
+	                              pathData       := #pathData,
+	                              pathDataPreBuf := #statPathDataPreBuffered);
+	      
+	    END_IF;
+	  END_REGION PB_DISABLED
+	  
+	END_REGION PRE_BUFFERING
+	
+	
+	REGION EXECUTION
+	  // Call Execution steps multiple times
+	  FOR #tempExecCtr := 1 TO #statPreBufferCmdCtr DO
+	    
+	    
+	    // state reached when no processing is active 
+	    REGION EX_NO_PROCESSING
+	      IF #statStateExecution = #EX_NO_PROCESSING
+	        // AND #statDebugState = TRUE
+	      THEN
+	        // reset  variable for single step debugging of states
+	        #statDebugState := FALSE;
+	        
+	        // do nothing and wait for execute trigger
+	      END_IF;
+	    END_REGION EX_NO_PROCESSING
+	    
+	    REGION EX_INTERRUPT_AT_START
+	      IF #statStateExecution = #EX_INTERRUPT_AT_START THEN
+	        #instLKinCtrl_MC_ExecuteKinMotionCmd.interrupt := TRUE; // Simulate interrupt input
+	        
+	        IF #instLKinCtrl_MC_ExecuteKinMotionCmd.diagnostics.status = 16#7102 THEN // Check if interrupted
+	          // Interrupted --> Start executing commands
+	          #instLKinCtrl_MC_ExecuteKinMotionCmd.interrupt := FALSE;
+	          #statInterruptedAtStart := TRUE;
+	          #statStateExecution := #EX_GET_CMD;
+	        END_IF;
+	      END_IF;
+	    END_REGION EX_INTERRUPT_AT_START
+	    
+	    REGION EX_CONTINUE_AT_START
+	      // Due to a system bug up to FW4.0 (blending, override) a groupContinue must always be triggered after a groupInterrupt even if the interrupt was aborted with a groupStop.
+	      // To avoid checking for aborted interrupts we always trigger continue at the start of a path.
+	      IF #statStateExecution = #EX_CONTINUE_AT_START THEN
+	        IF #tempKinematicsStatusWord.%X17 = FALSE THEN // Only continue if not interrupted as we dont want to trigger a movement
+	          #instLKinCtrl_MC_ExecuteKinMotionCmd.continueMotion := TRUE; // Trigger continue
+	          
+	          IF #instLKinCtrl_MC_ExecuteKinMotionCmd.diagnostics.status = 16#7100 THEN // Check if continue is done
+	            #instLKinCtrl_MC_ExecuteKinMotionCmd.continueMotion := FALSE;
+	            #statStateExecution := #EX_GET_CMD;
+	          END_IF;
+	        ELSE
+	          // Go to next step if interrupted from extern
+	          #statStateExecution := #EX_GET_CMD;
+	        END_IF;
+	      END_IF;
+	    END_REGION EX_CONTINUE_AT_START
+	    
+	    // state reached new command should be provided from PathData_PreBuffered to LKinCtrl_ExecuteKinMotionCmd 
+	    REGION EX_GET_CMD
+	      IF #statStateExecution = #EX_GET_CMD
+	        // AND #statDebugState = TRUE
+	      THEN
+	        // reset  variable for single step debugging of states
+	        #statDebugState := FALSE;
+	        #statSubfunctionStatus := 16#0;
+	        
+	        // check for lastCmdIdPathInData to be recognized after last execution of EX_TRIGGERED_CMD
+	        IF #statPathDataElementPreBuffered.cmdID = #statLastCmdIdPathdata
+	          AND #statPathDataElementPreBuffered.isIntermediateCmd = FALSE
+	        THEN
+	          // skip GET_NEW_CMD and go to EX_ALL_TRIGGERED
+	          #statStateExecution := #EX_ALL_TRIGGERED;
+	        ELSE
+	          // ------------------------------------------------------------------------------------------
+	          // Get new cmd from PathData_PreBuffered according to the pointer status
+	          // ------------------------------------------------------------------------------------------
+	          // Initialize temp
+	          #tempPreBufferPtrOk := FALSE;
+	          
+	          // Check if addPointer was restarted 
+	          IF #statPathDataPreBuffered.addPointerRestarted THEN
+	            // addPointer must not pass retrievePointer (no overwriting not read slots), addPointer may not pass
+	            #tempPreBufferPtrOk := #statPathDataPreBuffered.retrievePointer > #statPathDataPreBuffered.addPointer;
+	            
+	            // Special cases in first cycle or contourOffset and addPointerRestarted
+	            IF #statStatus = #STATUS_FIRST_CALL OR #instLKinCtrl_PreBuffer.preBufferLockDueToConfigCmd THEN
+	              #tempPreBufferPtrOk := TRUE;
+	            END_IF;
+	          ELSE
+	            // retrievePointer must not pass addPointer (no reading of empty slots), retrievePointer may not pass
+	            #tempPreBufferPtrOk := #statPathDataPreBuffered.retrievePointer < #statPathDataPreBuffered.addPointer;
+	          END_IF;
+	          
+	          IF #tempPreBufferPtrOk THEN
+	            // ------------------------------------------------------------------------------------------
+	            // Copy command for execution and increase retrievePointer
+	            // ------------------------------------------------------------------------------------------
+	            #statPathDataElementPreBuffered := #statPathDataPreBuffered.commands[#statPathDataPreBuffered.retrievePointer];
+	            
+	            // Calculate new retrievePointer
+	            IF #statPathDataPreBuffered.retrievePointer < "LKINCTRL_NO_OF_PATHDATA_PREBUFFER_ELEMENTS" THEN
+	              #statPathDataPreBuffered.retrievePointer += 1;
+	            ELSE
+	              #statPathDataPreBuffered.retrievePointer := 1;  // restart PathDataPreBuf retrievePointer
+	              #statPathDataPreBuffered.addPointerRestarted := FALSE; // reset restart bit of pointer
+	            END_IF;
+	            
+	            // ------------------------------------------------------------------------------------------
+	            // PathData identifier number - setting
+	            // ------------------------------------------------------------------------------------------
+	            // detect change of PathData - new cmdId smaller or equal to last one ==> new Path
+	            IF (#statPathDataElementPreBuffered.cmdID <= #statPreBufferedCmdIdOld)
+	              OR (#statPathDataElementPreBuffered.pathDataName <> #statPreBufferedPathDataNameOld)
+	            THEN
+	              // handle PathData identifier counter
+	              IF #statPathDataIdentifier < "LKINCTRL_NO_OF_SETFLAGS_BUFFER_ELEMENTS" THEN
+	                #statPathDataIdentifier += 1; // increase PathData counter
+	              ELSE
+	                #statPathDataIdentifier := 1; // restart PathData identifier counter
+	              END_IF;
+	            END_IF;
+	            
+	            // write PathData identifier in PatDataElement_preBuffered
+	            #statPathDataElementPreBuffered.pathDataIdentifier := #statPathDataIdentifier;
+	            
+	            // store old cmdID and PathDataName
+	            #statPreBufferedCmdIdOld := #statPathDataElementPreBuffered.cmdID;
+	            #statPreBufferedPathDataNameOld := #statPathDataElementPreBuffered.pathDataName;
+	            
+	            
+	            // ------------------------------------------------------------------------------------------
+	            // FLAG information - store and evaluate
+	            // ------------------------------------------------------------------------------------------
+	            // copy command setFlags for storing and usage in flag handling
+	            // setFlagsBuffer has twice the number of slots of PathDataPreBuffered to store flag information of past executed (already in MotionQueue) commands
+	            #tempFlagBufferElement.pathDataName := #statPathDataElementPreBuffered.pathDataName;
+	            #tempFlagBufferElement.pathDataIdentifier := #statPathDataIdentifier;
+	            #tempFlagBufferElement.cmdId := #statPathDataElementPreBuffered.cmdID;
+	            #tempFlagBufferElement.setFlags := #statPathDataElementPreBuffered.setFlags;
+	            #tempFlagBufferElement.valueFlags := #statPathDataElementPreBuffered.valueFlags;
+	            #tempFlagBufferElement.isIntermediateCmd := #statPathDataElementPreBuffered.isIntermediateCmd;
+	            
+	            #statFlagsBuffer.bufferElement[#statFlagsBuffer.writeBufferElement] := #tempFlagBufferElement;
+	            
+	            #statSetFlagsBufferWriteBufferElement_old := #statFlagsBuffer.writeBufferElement;
+	            
+	            // increase statSetFlagsBuffer write pointer and restart at overflow
+	            IF #statFlagsBuffer.writeBufferElement < "LKINCTRL_NO_OF_SETFLAGS_BUFFER_ELEMENTS" THEN
+	              #statFlagsBuffer.writeBufferElement := #statFlagsBuffer.writeBufferElement + 1;
+	            ELSE
+	              #statFlagsBuffer.writeBufferElement := 1;
+	            END_IF;
+	            
+	            // ------------------------------------------------------------------------------------------
+	            // Go to next state --> Trigger command
+	            // ------------------------------------------------------------------------------------------
+	            #statStateExecution := #EX_TRIGGERING_CMD;
+	            
+	          ELSE
+	            // ------------------------------------------------------------------------------------------
+	            // PreBuffer Pointer do not allow for next command
+	            // ------------------------------------------------------------------------------------------ 
+	            // set subfunction status according to PreBuffer status
+	            IF (#statPathDataPreBuffered.retrievePointer = #statPathDataPreBuffered.addPointer
+	              AND #statPathDataPreBuffered.addPointerRestarted = FALSE)
+	            THEN
+	              #statSubfunctionStatus := #STATUS_WAITING_FOR_PREBUFFERED_CMD;
+	              
+	            ELSIF (#statPathDataPreBuffered.addPointerRestarted = TRUE
+	              AND (#statPathDataPreBuffered.retrievePointer - 1 = #statPathDataPreBuffered.addPointer))
+	            THEN
+	              #statSubfunctionStatus := #STATUS_PREBUFFERED_FULL;
+	            END_IF;
+	            
+	          END_IF;
+	          
+	          // ------------------------------------------------------------------------------------------
+	          // Check if interrupt was executed at start and if continue is needed
+	          // ------------------------------------------------------------------------------------------
+	          IF #statInterruptedAtStart THEN
+	            IF #tempMotionQueueCommands >= MIN(IN1 := #NO_OF_COMMANDS_PRELOADING, IN2 := #axesGroup.MotionQueue.MaxNumberOfCommands)
+	              OR #statPauseExecution // Continue if FB ExecuteKinMotionCmd signalizes pause else we have a deadlock
+	              OR #statPathDataElementPreBuffered.cmdID = #statLastCmdIdPathdata // Continue if end of path was reached
+	            THEN
+	              #statStoreInterruptStateExecution := #statStateExecution;
+	              #statStateExecution := #EX_CONTINUEING;
+	              #statInterruptedAtStart := FALSE;
+	            END_IF;
+	          END_IF;
+	        END_IF;
+	      END_IF;
+	    END_REGION EX_GET_CMD
+	    
+	    
+	    // state reached when cmd should be triggered
+	    REGION EX_TRIGGERING_CMD
+	      IF #statStateExecution = #EX_TRIGGERING_CMD
+	        // AND #statDebugState = TRUE
+	      THEN
+	        // Reset variable for single step debugging of states
+	        #statDebugState := FALSE;
+	        
+	        // Create condition for execution
+	        #tempExecutionWaiting := #statExecutionWaitSingleStep OR #statPauseExecution OR #statWaitMain OR #statWaitValueMain;
+	        
+	        IF #tempExecutionWaiting = FALSE THEN
+	          // ------------------------------------------------------------------------------------------
+	          // Trigger FB_ExecutePathMotion to execute cmd in same cycle
+	          // ------------------------------------------------------------------------------------------ 
+	          #instLKinCtrl_MC_ExecuteKinMotionCmd.execute := TRUE;
+	        ELSIF #instLKinCtrl_MC_ExecuteKinMotionCmd.active = FALSE AND #statStatus <> #STATUS_CMD_CONFIGURATION_ACTIVE AND #tempMotionQueueCommands = 0 THEN
+	          // ------------------------------------------------------------------------------------------ 
+	          // Execution is waiting
+	          // ------------------------------------------------------------------------------------------  
+	          #statStatus := #STATUS_EXECUTION_WAITING;
+	        ELSE
+	          ;
+	        END_IF;
+	      END_IF;
+	    END_REGION EX_TRIGGERING_CMD
+	    
+	    // state reached when GroupInterrupt is interrupted ==> do nothing when interrupted
+	    REGION EX_CONTINUEING
+	      IF #statStateExecution = #EX_CONTINUEING
+	        // AND #statDebugState = TRUE
+	      THEN
+	        // reset  variable for single step debugging of states
+	        #statDebugState := FALSE;
+	        
+	        // FR 14.12.2021: Switched IF and trigger to at least have one cycle where continueMotion is true
+	        
+	        // set state machine to CONTINUED after successfull continue of path motion
+	        IF #instLKinCtrl_MC_ExecuteKinMotionCmd.diagnostics.status = 16#7100 // Motion was continued
+	          OR (#statMCExecuteWasDone = TRUE AND #instLKinCtrl_MC_ExecuteKinMotionCmd.continueMotion = TRUE) // Motion was done but continue was triggered at least for one cycle
+	        THEN
+	          #statStateExecution := #EX_CONTINUED;
+	        END_IF;
+	        
+	        // set continueMotion input on LKinCtrl_ExecuteKinMotionCmd
+	        // FR 12.10.2021
+	        #instLKinCtrl_MC_ExecuteKinMotionCmd.execute := FALSE; // Reset execute
+	        #instLKinCtrl_MC_ExecuteKinMotionCmd.continueMotion := TRUE; // Trigger continue
+	        #instLKinCtrl_MC_ExecuteKinMotionCmd.interrupt := FALSE; // Reset interrupt
+	        
+	      END_IF;
+	    END_REGION EX_CONTINUEING
+	    
+	    
+	    // state reached when GroupContinue is done ==> do nothing when path motion continues
+	    REGION EX_CONTINUED
+	      IF #statStateExecution = #EX_CONTINUED
+	        // AND #statDebugState = TRUE
+	      THEN
+	        // reset  variable for single step debugging of states
+	        #statDebugState := FALSE;
+	        
+	        #instLKinCtrl_MC_ExecuteKinMotionCmd.continueMotion := FALSE; // reset continueMotion input on LKinCtrl_ExecuteKinMotionCmd
+	        #statStatus := #STATUS_PATHMOTION_RUNNING; // set status accordingly
+	        #statStateExecution := #statStoreInterruptStateExecution; // set state machine to state before interrupt
+	      END_IF;
+	    END_REGION EX_CONTINUED
+	    
+	    // state reached to execute MC_GroupInterrupt ==> wait for interrupt to be done
+	    REGION EX_INTERRUPTING
+	      IF #statStateExecution = #EX_INTERRUPTING
+	        // AND #statDebugState = TRUE
+	      THEN
+	        // reset  variable for single step debugging of states
+	        #statDebugState := FALSE;
+	        
+	        #instLKinCtrl_MC_ExecuteKinMotionCmd.execute := FALSE; // Reset execute
+	        #instLKinCtrl_MC_ExecuteKinMotionCmd.continueMotion := FALSE; // FR 11.03.2020: Also reset continue input
+	        #instLKinCtrl_MC_ExecuteKinMotionCmd.interrupt := TRUE; // Trigger interrupt
+	        
+	        // check for path motion to have been interrupted (by LKinCtrlExecuteKinMotionCmd)
+	        IF #instLKinCtrl_MC_ExecuteKinMotionCmd.diagnostics.status = 16#7102 THEN
+	          #statStateExecution := #EX_INTERRUPTED;
+	        END_IF;
+	      END_IF;
+	    END_REGION EX_INTERRUPTING
+	    
+	    
+	    // state reached when path motion has been interrupted in LKinExectuteKinMotionCmd
+	    REGION EX_INTERRUPTED
+	      IF #statStateExecution = #EX_INTERRUPTED
+	        // AND #statDebugState = TRUE
+	      THEN
+	        // reset variable for single step debugging of states
+	        #statDebugState := FALSE;
+	        
+	        #instLKinCtrl_MC_ExecuteKinMotionCmd.interrupt := FALSE; // Reset interrupt input
+	        #statStatus := #STATUS_PATHMOTION_INTERRUPTED; // set status accordingly
+	      END_IF;
+	    END_REGION EX_INTERRUPTED
+	    
+	    REGION EX_ABORT_MEAS_CMD
+	      IF #statStateExecution = #EX_ABORT_MEAS_CMD
+	        //AND #statDebugState = TRUE
+	      THEN
+	        //abort command
+	        #tempStopMeasure := TRUE;
+	        #instLKinCtrl_MC_ExecuteKinMotionCmd.execute := FALSE; // Reset execute
+	        #instLKinCtrl_MC_ExecuteKinMotionCmd.continueMotion := FALSE; // Reset continue input
+	        #instLKinCtrl_MC_ExecuteKinMotionCmd.interrupt := FALSE; // Reset interrupt
+	        
+	        #statStatus := #STATUS_PATHMOTION_STOPPING; // set status accordingly
+	        
+	        IF #instLKinCtrl_MC_ExecuteKinMotionCmd.commandAborted THEN // check for path motion to be aborted in LKinExectuteKinMotionCmd
+	          #statStateExecution := #EX_MEAS_CMD_ABORTED;
+	          #tempStopMeasure := FALSE;
+	        ELSIF #instLKinCtrl_MC_ExecuteKinMotionCmd.diagnostics.status.%X15 THEN // check for executer status >= 16#8000
+	          #statStateExecution := #EX_ERROR_STATE;
+	          #statStatus := #ERR_EXECUTE_KINMOTIONCMD;
+	          #statSubfunctionStatus := #instLKinCtrl_MC_ExecuteKinMotionCmd.diagnostics.status;
+	        END_IF;
+	        
+	      END_IF;
+	    END_REGION EX_ABORT_MEAS_CMD
+	    
+	    REGION EX_MEAS_CMD_ABORTED
+	      IF #statStateExecution = #EX_MEAS_CMD_ABORTED THEN
+	        //if abort signal has to be acknowledged in order to continue
+	        IF #statIsMeasurementCmd = "LKINCTRL_MEAS_CMD_WITH_ACK" THEN
+	          IF #tempAbortMeasurementCmd = FALSE THEN
+	            #statAbortOld := FALSE;
+	            #statStateExecution := #statStateOld;
+	            IF #statStateExecution = #EX_ALL_TRIGGERED THEN
+	              #statMCExecuteWasDone := TRUE;
+	            END_IF;
+	          END_IF;
+	        ELSIF #statIsMeasurementCmd = "LKINCTRL_MEAS_CMD_WO_ACK" THEN
+	          #statStateExecution := #statStateOld;
+	          IF #statStateExecution = #EX_ALL_TRIGGERED THEN
+	            #statMCExecuteWasDone := TRUE;
+	          END_IF;
+	          IF #tempAbortMeasurementCmd = FALSE THEN
+	            #statAbortOld := FALSE;
+	          END_IF;
+	        END_IF;
+	      END_IF;
+	    END_REGION EX_MEAS_CMD_ABORTED
+	    
+	    // state reached when stop input is triggered (path motion stop is executed in LKinExectuteKinMotionCmd)
+	    REGION EX_STOPPING
+	      IF #statStateExecution = #EX_STOPPING
+	        // AND #statDebugState = TRUE
+	      THEN
+	        // reset variable for single step debugging of states
+	        #statDebugState := FALSE;
+	        
+	        #instLKinCtrl_MC_ExecuteKinMotionCmd.execute := FALSE; // Reset execute
+	        #instLKinCtrl_MC_ExecuteKinMotionCmd.continueMotion := FALSE; // Reset continue input
+	        #instLKinCtrl_MC_ExecuteKinMotionCmd.interrupt := FALSE; // Reset interrupt
+	        
+	        #statStatus := #STATUS_PATHMOTION_STOPPING; // set status accordingly
+	        
+	        IF #instLKinCtrl_MC_ExecuteKinMotionCmd.commandAborted THEN // check for path motion to be aborted in LKinExectuteKinMotionCmd
+	          #statStateExecution := #EX_STOPPED_STATE;
+	        ELSIF #instLKinCtrl_MC_ExecuteKinMotionCmd.diagnostics.status.%X15 THEN // check for executer status >= 16#8000
+	          #statStateExecution := #EX_ERROR_STATE;
+	          #statStatus := #ERR_EXECUTE_KINMOTIONCMD;
+	          #statSubfunctionStatus := #instLKinCtrl_MC_ExecuteKinMotionCmd.diagnostics.status;
+	        END_IF;
+	      END_IF;
+	    END_REGION EX_STOPPING
+	    
+	    // state reached when path motion has been stopped in LKinExectuteKinMotionCmd
+	    REGION EX_STOPPED_STATE
+	      IF #statStateExecution = #EX_STOPPED_STATE
+	        // AND #statDebugState = TRUE
+	      THEN
+	        // reset  variable for single step debugging of states
+	        #statDebugState := FALSE;
+	        
+	        // set status accordingly
+	        #statStatus := #STATUS_COMMAND_ABORTED;
+	        #statSubfunctionStatus := #instLKinCtrl_MC_ExecuteKinMotionCmd.diagnostics.status;
+	        
+	        //------------------------------------------------------------------------------------------
+	        // added 2020.02.07 DF: call Prebuffer with false (reset retrievePointer)
+	        #instLKinCtrl_PreBuffer(enable         := FALSE,
+	                                pointTable     := #pointTable,
+	                                to_Kinematics  := #axesGroup,
+	                                pathData       := #pathData,
+	                                pathDataPreBuf := #statPathDataPreBuffered);
+	        //------------------------------------------------------------------------------------------
+	        // do nothing, wait in this state
+	        
+	      END_IF;
+	    END_REGION EX_STOPPED_STATE
+	    
+	    
+	    // state reached when error occured
+	    REGION EX_ERROR_STATE
+	      IF #statStateExecution = #EX_ERROR_STATE
+	        // AND #statDebugState = TRUE
+	      THEN
+	        // reset  variable for single step debugging of states
+	        #statDebugState := FALSE;
+	        
+	        // ------------------------------------------------------
+	        // Reset inputs of FB MC_ExecuteKinMotionCmd
+	        // ------------------------------------------------------
+	        #instLKinCtrl_MC_ExecuteKinMotionCmd.execute := FALSE; // Reset execute
+	        #instLKinCtrl_MC_ExecuteKinMotionCmd.continueMotion := FALSE; // Reset continue input
+	        #instLKinCtrl_MC_ExecuteKinMotionCmd.interrupt := FALSE; // Reset interrupt
+	        
+	        // ------------------------------------------------------
+	        // Check FB MC_ExecuteKinMotionCmd for error
+	        // ------------------------------------------------------
+	        IF #instLKinCtrl_MC_ExecuteKinMotionCmd.error THEN
+	          // set status accordingly
+	          IF #statSubfunctionStatus = 16#8245 // Error at Kinematics --> Nothing more to do
+	            OR #statSubfunctionStatus = 16#8244  // Error GroupStop failed --> Nothing more to do
+	          THEN
+	            #statStatus := #ERR_EXECUTE_KINMOTIONCMD;
+	          ELSE
+	            #statStatus := #STATUS_STOP_DUE_TO_ERROR; // Error at command --> Stop Kinematics
+	          END_IF;
+	        END_IF;
+	        
+	        // ------------------------------------------------------
+	        // Set error status if stop was successful
+	        // ------------------------------------------------------
+	        IF #statStatus = #STATUS_STOP_DUE_TO_ERROR AND #instLKinCtrl_MC_ExecuteKinMotionCmd.commandAborted THEN
+	          IF #statPreBufferError THEN
+	            // Error was caused by FB Prebuffer
+	            // separate handling for PathData malconfiguration and offset compensation calculation errors
+	            IF #statSubfunctionStatus > 16#8300 AND #statSubfunctionStatus <= 16#8320 THEN
+	              #statStatus := #ERR_OFFSET_CALCULATION; // write status information to be error in offset compensation
+	            ELSE
+	              #statStatus := #ERR_PATHDATA_PARAMETERS; // write status information to be malparametrization in PathData (no offset compensation)
+	            END_IF;
+	          ELSE
+	            // Error was caused by FB MC_ExecuteKinMotionCmd
+	            #statStatus := #ERR_EXECUTE_KINMOTIONCMD;
+	          END_IF;
+	        END_IF;
+	        
+	        // ------------------------------------------------------
+	        // Check if stop also failed with error
+	        // ------------------------------------------------------
+	        IF #instLKinCtrl_MC_ExecuteKinMotionCmd.stop AND #instLKinCtrl_MC_ExecuteKinMotionCmd.error THEN
+	          #statStatus := #ERR_EXECUTE_KINMOTIONCMD;
+	        END_IF;
+	        
+	        // ------------------------------------------------------
+	        // Trigger stop input of FB MC_ExecuteKinMotionCmd
+	        // ------------------------------------------------------
+	        IF #statStatus = #STATUS_STOP_DUE_TO_ERROR THEN
+	          #tempStop := TRUE;
+	        END_IF;
+	        
+	      END_IF;
+	    END_REGION EX_ERROR_STATE
+	    
+	    
+	    
+	    REGION CALL_FB_EXECUTE_CYCLIC
+	      IF #statStatus <> #STATUS_NO_CALL THEN
+	        //------------------------------------------------------------------------------------------
+	        // Call FB LKinCtrl_ExecuteKinMotionCmd in every cycle to keep FB outputs updated
+	        //------------------------------------------------------------------------------------------
+	        // execute: set in EX_TRIGGERING_CMD
+	        // interrupt: set in EX_INTERRUPTING
+	        // continue: set in EX_CONTINUEING
+	        #instLKinCtrl_MC_ExecuteKinMotionCmd(//execute := FALSE,
+	                                             //interrupt := FALSE
+	                                             //continueMotion := FALSE,
+	                                             stop                    := (#tempStop OR #tempStopMeasure),
+	                                             stopMode                := #configuration.stopMode,
+	                                             interruptMode           := #configuration.interruptMode,
+	                                             writtenActiveCmdNo      := #statWrittenActiveCmdNo,
+	                                             conveyorConfiguration   := #configuration.conveyorParameter,
+	                                             userFrames              := #configuration.userFrames,
+	                                             workspaceZones          := #configuration.workspaceZones,
+	                                             kinematicsZones         := #configuration.kinematicsZones,
+	                                             pauseCmdExecution       => #statPauseExecution,
+	                                             activePathDataName      => #statActivePathData,
+	                                             activeCmdNo             => #statActiveCmdNo,
+	                                             remainingDistanceActCmd => #statRemainingDistanceActCmd,
+	                                             isMeasurementCmd        => #statIsMeasurementCmd,
+	                                             activeUserFrames        => #activeUserFrames,
+	                                             pathDataElementPreBuf   := #statPathDataElementPreBuffered,
+	                                             to_Kinematics           := #axesGroup);
+	        
+	        //------------------------------------------------------------------------------------------
+	        // Check outputs of FB LKinCtrl_ExecuteKinMotionCmd
+	        //------------------------------------------------------------------------------------------
+	        //----------------------------
+	        // Done
+	        //----------------------------
+	        IF #instLKinCtrl_MC_ExecuteKinMotionCmd.done THEN
+	          #statMCExecuteWasDone := TRUE; // Store done in separate variable for wait flag handling
+	          //#instLKinCtrl_PreBuffer.preprocessingStop := FALSE; // Reset preprocessing stop for LKinLang
+	        END_IF;
+	        
+	        //----------------------------
+	        // Busy
+	        //----------------------------
+	        IF #instLKinCtrl_MC_ExecuteKinMotionCmd.busy THEN
+	          #statMCExecuteWasDone := FALSE;
+	        END_IF;
+	        
+	        //----------------------------
+	        // Error
+	        //----------------------------
+	        IF #instLKinCtrl_MC_ExecuteKinMotionCmd.error THEN
+	          #statSubfunctionStatus := #instLKinCtrl_MC_ExecuteKinMotionCmd.diagnostics.status;// Store error in subfunction state
+	          #statStateExecution := #EX_ERROR_STATE; // set state machine to error state
+	          // Write diagnostics
+	          #diagnostics.motionFBStatus := #instLKinCtrl_MC_ExecuteKinMotionCmd.diagnostics.motionFBstatus;
+	          #diagnostics.motionFBNumber := #instLKinCtrl_MC_ExecuteKinMotionCmd.diagnostics.faultFBNumber;
+	          #diagnostics.pathDataName := #instLKinCtrl_MC_ExecuteKinMotionCmd.diagnostics.faultPathDataName;
+	          #diagnostics.cmdNumber := #instLKinCtrl_MC_ExecuteKinMotionCmd.diagnostics.faultSetNumber;
+	          #diagnostics.kinematicsErrorWord := #instLKinCtrl_MC_ExecuteKinMotionCmd.diagnostics.kinematicsErrorWord;
+	        END_IF;
+	        
+	        //----------------------------
+	        // External stop (#status=16#7103)
+	        //----------------------------
+	        IF #instLKinCtrl_MC_ExecuteKinMotionCmd.diagnostics.status = 16#7103 // Executer is stopping
+	          AND #statStatus.%X15 = FALSE // MovePath has no error
+	          AND #statStatus <> #STATUS_STOP_DUE_TO_ERROR // MovePath is not stopping due to error
+	          AND #statStateExecution <> #EX_ABORT_MEAS_CMD
+	          AND #statStateExecution <> #EX_MEAS_CMD_ABORTED
+	        THEN
+	          // set status accordingly
+	          #statStateExecution := #EX_STOPPING;
+	          #statStatus := #STATUS_PATHMOTION_STOPPING;
+	          #statSubfunctionStatus := #instLKinCtrl_MC_ExecuteKinMotionCmd.diagnostics.status;
+	        END_IF;
+	        
+	        //----------------------------
+	        // CmdExecuted
+	        //----------------------------
+	        IF #instLKinCtrl_MC_ExecuteKinMotionCmd.cmdExecuted THEN
+	          IF #statStateExecution = #EX_TRIGGERING_CMD THEN
+	            #statStateExecution := #EX_TRIGGERED_CMD; // go to state triggered when command has been successfully executed to MotionQueue
+	          END_IF;
+	        END_IF;
+	        
+	        //------------------------------------------------------------------------------------------
+	        // Call FB LKinCtrl_ExecuteKinMotionCmd with execute := FALSE to create new rising edge
+	        //------------------------------------------------------------------------------------------
+	        IF #instLKinCtrl_MC_ExecuteKinMotionCmd.cmdExecuted OR #instLKinCtrl_MC_ExecuteKinMotionCmd.done THEN
+	          #instLKinCtrl_MC_ExecuteKinMotionCmd(execute                 := FALSE,
+	                                               stop                    := (#tempStop OR #tempStopMeasure),
+	                                               stopMode                := #configuration.stopMode,
+	                                               interruptMode           := #configuration.interruptMode,
+	                                               writtenActiveCmdNo      := #statWrittenActiveCmdNo,
+	                                               conveyorConfiguration   := #configuration.conveyorParameter,
+	                                               userFrames              := #configuration.userFrames,
+	                                               workspaceZones          := #configuration.workspaceZones,
+	                                               kinematicsZones         := #configuration.kinematicsZones,
+	                                               pauseCmdExecution       => #statPauseExecution,
+	                                               activePathDataName      => #statActivePathData,
+	                                               activeCmdNo             => #statActiveCmdNo,
+	                                               remainingDistanceActCmd => #statRemainingDistanceActCmd,
+	                                               activeUserFrames        => #activeUserFrames,
+	                                               pathDataElementPreBuf   := #statPathDataElementPreBuffered,
+	                                               to_Kinematics           := #axesGroup);
+	          
+	          //If done is set with the second call if mc executer then we could miss this here
+	          //So we check for done here also
+	          IF #instLKinCtrl_MC_ExecuteKinMotionCmd.done THEN
+	            #statMCExecuteWasDone := TRUE;
+	          END_IF;
+	          
+	        END_IF;
+	        
+	      END_IF;
+	    END_REGION CALL_FB_EXECUTE_CYCLIC
+	    
+	    
+	    // state reached when cmd has been triggered and is executed to the MotionQueue
+	    REGION EX_TRIGGERED_CMD
+	      IF #statStateExecution = #EX_TRIGGERED_CMD
+	        // AND #statDebugState = TRUE
+	      THEN
+	        // reset  variable for single step debugging of states
+	        #statDebugState := FALSE;
+	        
+	        // ------------------------------------------------------------------------------------------ 
+	        // Evaluate flag information for wait flags
+	        // ------------------------------------------------------------------------------------------ 
+	        #tempFlagBufferElement := #statFlagsBuffer.bufferElement[#statSetFlagsBufferWriteBufferElement_old]; // Copy array element to temp
+	        
+	        #tempWaitFlagFound := FALSE; // Reset bit
+	        
+	        IF #tempFlagBufferElement.cmdId <> 0 THEN // check for cmdId not to exceed array limits
+	          // run through all setFlags in command
+	          FOR #tempCtr := 1 TO "LKINCTRL_NO_OF_CMD_SETFLAGS" DO
+	            // check preBuffered command for wait flag
+	            IF #tempFlagBufferElement.setFlags[#tempCtr].flag > -1
+	              AND (#tempFlagBufferElement.setFlags[#tempCtr].flagMode = "LKINCTRL_FM_SET_BEFORE_AND_NO_RESET_AND_WAIT_FOR_ACKNOWLEDGE"
+	              OR #tempFlagBufferElement.setFlags[#tempCtr].flagMode = "LKINCTRL_FM_SET_AFTER_AND_NO_RESET_AND_WAIT_FOR_ACKNOWLEDGE"
+	              OR #tempFlagBufferElement.setFlags[#tempCtr].flagMode = "LKINCTRL_FM_NO_SET_AND_WAIT_FOR_FALSE_ONCE"
+	              OR #tempFlagBufferElement.setFlags[#tempCtr].flagMode = "LKINCTRL_FM_NO_SET_AND_WAIT_FOR_TRUE_ONCE")
+	            THEN
+	              // increase counter to count activated wait flags in command
+	              #statWaitFlags.waitCtr += 1;
+	              // store information on which flags are wait flags
+	              #statWaitFlags.waitFlag[#tempCtr] := #tempFlagBufferElement.setFlags[#tempCtr].flag;
+	              #tempWaitFlagFound := TRUE; // Set bit true to exit loop
+	            END_IF;
+	          END_FOR;
+	          
+	          // run through all valueFlags in command
+	          FOR #tempCtr := 1 TO "LKINCTRL_NO_OF_CMD_VALUEFLAGS" DO
+	            // check preBuffered command for wait flag
+	            IF #tempFlagBufferElement.valueFlags[#tempCtr].flag > -1
+	              AND (#tempFlagBufferElement.valueFlags[#tempCtr].flagMode = "LKINCTRL_FM_SET_BEFORE_AND_NO_RESET_AND_WAIT_FOR_ACKNOWLEDGE"
+	              OR #tempFlagBufferElement.valueFlags[#tempCtr].flagMode = "LKINCTRL_FM_SET_AFTER_AND_NO_RESET_AND_WAIT_FOR_ACKNOWLEDGE"
+	              OR #tempFlagBufferElement.valueFlags[#tempCtr].flagMode = "LKINCTRL_FM_NO_SET_AND_WAIT_FOR_FALSE_ONCE"
+	              OR #tempFlagBufferElement.valueFlags[#tempCtr].flagMode = "LKINCTRL_FM_NO_SET_AND_WAIT_FOR_TRUE_ONCE")
+	            THEN
+	              // increase counter to count activated wait value flags in command
+	              #statWaitValueFlags.waitCtr += 1;
+	              // store information on which flags are wait value flags
+	              #statWaitValueFlags.waitFlag[#tempCtr] := #tempFlagBufferElement.valueFlags[#tempCtr].flag;
+	              #tempWaitFlagFound := TRUE; // Set bit true to exit loop
+	            END_IF;
+	          END_FOR;
+	        END_IF;
+	        
+	        // ------------------------------------------------------------------------------------------ 
+	        // Overwrite status after ExecutionWaiting for correct flag behavior
+	        // ------------------------------------------------------------------------------------------ 
+	        IF #statStatus = #STATUS_EXECUTION_WAITING THEN
+	          #statStatus := #STATUS_SUBSEQUENT_CALL; // Status is only active until StatusWord of kinematics overwrites it again
+	        END_IF;
+	        
+	        // ------------------------------------------------------------------------------------------
+	        // Check for executed cmd to be last cmd in PathData
+	        // ------------------------------------------------------------------------------------------
+	        IF #statPathDataElementPreBuffered.cmdID = #statLastCmdIdPathdata
+	          AND #statPathDataElementPreBuffered.isIntermediateCmd = FALSE
+	        THEN
+	          #statStateExecution := #EX_ALL_TRIGGERED; // go to state to wait for done / retriggering (no further cmds to be triggered)
+	        ELSE
+	          #statStateExecution := #EX_GET_CMD; // go to EX_GET_CMD to get next command
+	        END_IF;
+	      END_IF;
+	    END_REGION EX_TRIGGERED_CMD
+	    
+	    
+	    // state reached when all cmds have been executed to the MotionQueue (wait for done or reTriggering)
+	    REGION EX_ALL_TRIGGERED
+	      IF #statStateExecution = #EX_ALL_TRIGGERED
+	        // AND #statDebugState = TRUE
+	      THEN
+	        // reset  variable for single step debugging of states
+	        #statDebugState := FALSE;
+	        
+	        // ------------------------------------------------------------------------------------------
+	        // set status and status bit to set readyForNextPath output
+	        // ------------------------------------------------------------------------------------------
+	        #statReadyForNextPath := TRUE;
+	        IF #instLKinCtrl_MC_ExecuteKinMotionCmd.activeCmdNo = #statLastCmdIdPathdata
+	          AND #statPauseExecution = TRUE
+	        THEN
+	          #statStatus := #STATUS_EXECUTION_WAITING; // waitTime running as last cmd
+	        ELSE
+	          #statStatus := #STATUS_READYFORNEXTPATH;
+	        END_IF;
+	        
+	        // ------------------------------------------------------------------------------------------
+	        // Check if execution is done or waiting
+	        // ------------------------------------------------------------------------------------------
+	        IF #statMCExecuteWasDone // Done of ExecuteKinMotionCmd (end of PathData reached)
+	          OR #statLastCmdIdPathdata = 0 // Empty PathData
+	        THEN
+	          IF #statWaitMain OR #statWaitValueMain THEN // Wait until all setFlags and valueFlags are acknowledged
+	            #statStatus := #STATUS_EXECUTION_WAITING; // Set status to waiting until all wait flags are acknowledged
+	          ELSE
+	            #statStatus := #STATUS_EXECUTION_FINISHED; // Set status to set done output according to FB template
+	          END_IF;
+	        END_IF;
+	      END_IF;
+	    END_REGION EX_ALL_TRIGGERED
+	    
+	    
+	    // ------------------------------------------------------------------------------------------
+	    // Check if for loop can be continued or needs to be exited
+	    // ------------------------------------------------------------------------------------------
+	    IF #statStateExecution = #EX_GET_CMD
+	      AND #statSubfunctionStatus <> #STATUS_WAITING_FOR_PREBUFFERED_CMD
+	      AND #statSubfunctionStatus <> #STATUS_PREBUFFERED_FULL
+	      AND NOT #tempWaitFlagFound // Wait flag or value flag found
+	      AND #tempSequenceMode <> 1 // SingleStep off
+	    THEN
+	      ; // Continue for loop -> Regular get cmd without prebuffer being full
+	    ELSE
+	      EXIT; // Exit loop to save time
+	    END_IF;
+	  END_FOR;
+	  
+	  // set number of calls for PreBuffer & Execution
+	  #statPreBufferCmdCtr := "LKINCTRL_NO_OF_SEQ_EXECUTE_CMDS";
+	END_REGION EXECUTION
+	
+	
+	REGION MOTION_STATUS
+	  // set status in case no specific status has been set before
+	  IF #statStatus.%X15 = FALSE THEN // no error deteceted 
+	    CASE #statStatus OF
+	        // Regular status that can be overwritten
+	      #STATUS_SUBSEQUENT_CALL,
+	      #STATUS_PATHMOTION_RUNNING,
+	      #STATUS_CMD_LIN_ACTIVE,
+	      #STATUS_CMD_CIRC_ACTIVE,
+	      #STATUS_CMD_MOVE_DIRECT_ACTIVE,
+	      #STATUS_CMD_CONFIGURATION_ACTIVE,
+	      #STATUS_EXECUTION_WAITING:
+	        IF #tempKinematicsStatusWord.%X8 THEN // check for linear command to be active 
+	          #statStatus := #STATUS_CMD_LIN_ACTIVE;
+	        ELSIF #tempKinematicsStatusWord.%X9 THEN // check for circular command to be active
+	          #statStatus := #STATUS_CMD_CIRC_ACTIVE;
+	        ELSIF #tempKinematicsStatusWord.%X11 THEN // check for move direct command to be active
+	          #statStatus := #STATUS_CMD_MOVE_DIRECT_ACTIVE;
+	        ELSIF #instLKinCtrl_MC_ExecuteKinMotionCmd.diagnostics.status = 16#7113 THEN // Configuration command active
+	          #statStatus := #STATUS_CMD_CONFIGURATION_ACTIVE;
+	        ELSIF (#statPauseExecution OR #statWaitMain OR #statWaitValueMain) AND #tempMotionQueueCommands = 0 THEN // Check if waiting for FB ExecuteKinMotionCmd
+	          #statStatus := #STATUS_EXECUTION_WAITING;
+	        ELSIF #statStatus = #STATUS_EXECUTION_WAITING THEN // Avoid overwriting waiting status with regular subsequent call
+	          ;
+	        ELSE // None of the above  
+	          #statStatus := #STATUS_SUBSEQUENT_CALL;
+	        END_IF;
+	        
+	      ELSE // Every other status is defined and should not be overwritten
+	        ;
+	    END_CASE;
+	  END_IF;
+	  
+	END_REGION MOTION_STATUS
+	
+	REGION FLAG_HANDLING
+	  // Call FlagHandling FBs
+	  //------------------------------------------------------------------------------------------
+	  // FR 16.03.2020: Reworked Flag FBs
+	  // Enable flag FBs when not finished and not no call (resetting)
+	  IF #statStatus = #STATUS_FIRST_CALL OR #statStatus = #STATUS_SUBSEQUENT_CALL OR #statFirstCycle THEN
+	    #instLKinCtrl_SetFlagCtrl.enable := TRUE;
+	    #instLKinCtrl_ValueFlagCtrl.enable := TRUE;
+	  ELSIF #statStatus = #STATUS_EXECUTION_FINISHED OR #statStatus = #STATUS_NO_CALL THEN
+	    #instLKinCtrl_SetFlagCtrl.enable := FALSE;
+	    #instLKinCtrl_ValueFlagCtrl.enable := FALSE;
+	  ELSE
+	    ;
+	  END_IF;
+	  
+	  // Boolean Flags
+	  #instLKinCtrl_SetFlagCtrl(activeCmdNo              := #statActiveCmdNo,
+	                            activePathDataIdentifier := #instLKinCtrl_MC_ExecuteKinMotionCmd.activePathDataIdentifier,
+	                            activePathDataName       := #instLKinCtrl_MC_ExecuteKinMotionCmd.activePathDataName,
+	                            remainingDistanceActCmd  := #statRemainingDistanceActCmd,
+	                            kinematicsStatusWord     := #tempKinematicsStatusWord,
+	                            movePathStatus           := #statStatus,
+	                            flagsBuffer              := #statFlagsBuffer,
+	                            waitMain                 => #statWaitMain,
+	                            flags                    := #flags,
+	                            waitFlags                := #statWaitFlags);
+	  
+	  // Check if flag control FB has thrown an error
+	  IF #instLKinCtrl_SetFlagCtrl.error THEN
+	    #statStatus := #ERR_SET_FLAG_CONTROL;
+	    #statSubfunctionStatus := #instLKinCtrl_SetFlagCtrl.status;
+	  END_IF;
+	  
+	  
+	  // LReal Flags
+	  #instLKinCtrl_ValueFlagCtrl(activeCmdNo              := #statActiveCmdNo,
+	                              activePathDataIdentifier := #instLKinCtrl_MC_ExecuteKinMotionCmd.activePathDataIdentifier,
+	                              activePathDataName       := #instLKinCtrl_MC_ExecuteKinMotionCmd.activePathDataName,
+	                              remainingDistanceActCmd  := #statRemainingDistanceActCmd,
+	                              kinematicsStatusWord     := #tempKinematicsStatusWord,
+	                              movePathStatus           := #statStatus,
+	                              flagsBuffer              := #statFlagsBuffer,
+	                              waitMain                 => #statWaitValueMain,
+	                              valueFlags               := #valueFlags,
+	                              waitFlags                := #statWaitValueFlags);
+	  
+	  // Check if flag control FB has thrown an error
+	  IF #instLKinCtrl_ValueFlagCtrl.error THEN
+	    #statStatus := #ERR_VALUE_FLAG_CONTROL;
+	    #statSubfunctionStatus := #instLKinCtrl_ValueFlagCtrl.status;
+	  END_IF;
+	  
+	  // Save written active cmd number for "ExecuteKinMotionCmd" input
+	  #statWrittenActiveCmdNo := #statActiveCmdNo;
+	END_REGION FLAG_HANDLING
+	
+	//Reset preprocessing stop
+	IF #statMCExecuteWasDone = TRUE //Execution of commands is done
+	  AND #statWaitMain = FALSE
+	  AND #statWaitValueMain = FALSE
+	  AND #statPathDataElementPreBuffered.cmdID = #instLKinCtrl_MC_ExecuteKinMotionCmd.activeCmdNo
+	THEN
+	  #instLKinCtrl_PreBuffer.preprocessingStop := FALSE;
+	END_IF;
+	
+	REGION OUTPUTS
+	  // Write outputs
+	  IF (#statStatus = #STATUS_EXECUTION_FINISHED) AND (#statDone = FALSE) THEN // Execution finished without errors
+	    #statDone := TRUE;
+	    #statBusy := FALSE;
+	    #statCommandAborted := FALSE;
+	    #statError := FALSE;
+	    #statStateExecution := #EX_NO_PROCESSING; // Switch state machine to "no processing"
+	    
+	  ELSIF (#statStatus.%X15 = TRUE) AND (#statError = FALSE) THEN // Error occurred (#statStatus is 16#8000 to 16#FFFF)
+	    #statDone := FALSE;
+	    #statBusy := FALSE;
+	    #statCommandAborted := FALSE;
+	    #statError := TRUE;
+	    // Write diagnostics
+	    #diagnostics.statusSubFunction := #statSubfunctionStatus;
+	    #statStateExecution := #EX_ERROR_STATE; // Switch state machine to "no processing"
+	    
+	  ELSIF (#statStatus = #STATUS_COMMAND_ABORTED) AND (#statCommandAborted = FALSE) THEN // Commanded functionality has been aborted by another command
+	    #statDone := FALSE;
+	    #statBusy := FALSE;
+	    #statCommandAborted := TRUE;
+	    #statError := FALSE;
+	    // Write diagnostics
+	    #diagnostics.statusSubFunction := #statSubfunctionStatus;
+	    #statStateExecution := #EX_NO_PROCESSING; // Switch state machine to "no processing"
+	    
+	  ELSIF (#tempExecute = FALSE) AND (#tempStop = FALSE) AND ((#statDone = TRUE) OR (#statError = TRUE) OR (#statCommandAborted = TRUE)) THEN // Reset outputs
+	    #statDone := FALSE;
+	    #statBusy := FALSE;
+	    #statCommandAborted := FALSE;
+	    #statError := FALSE;
+	    #statReadyForNextPath := TRUE; // Added FR 2019/04/11
+	    #statStatus := #STATUS_NO_CALL;
+	    #statActivePathData := '';
+	    #statActiveCmdNo := 0;
+	    #statRemainingDistanceActCmd := 0.0;
+	  END_IF;
+	  
+	  // ------------------------------
+	  // Write static values to outputs
+	  // ------------------------------
+	  #done := #statDone;
+	  #busy := #statBusy;
+	  #commandAborted := #statCommandAborted;
+	  #error := #statError;
+	  #status := #statStatus;
+	  #readyForNextPath := #statReadyForNextPath;
+	  #active := #instLKinCtrl_MC_ExecuteKinMotionCmd.active;
+	  #activePathData := #statActivePathData;
+	  #activeCmdNo := #statActiveCmdNo;
+	  #remainingDistanceActCmd := #statRemainingDistanceActCmd;
+	  
+	  // ------------------------------
+	  // Write diagnostics
+	  // ------------------------------
+	  IF #statError THEN
+	    #diagnostics.errorID := #statStatus; // write status to errorID in case of error pending
+	  END_IF;
+	  
+	  // Write status in every cycle
+	  #diagnostics.stateMovePath := #statStateExecution;
+	  #diagnostics.kinematicsStatusWord := #instLKinCtrl_MC_ExecuteKinMotionCmd.diagnostics.kinematicsStatusWord;
+	END_REGION OUTPUTS
+	
+	// =================================================================================================================
+	// End of Function Block: LKinCtrl_MC_MovePath
+	// =================================================================================================================
+END_FUNCTION_BLOCK
+

@@ -1,0 +1,67 @@
+﻿FUNCTION "LKinCtrl_ATan2" : LReal
+TITLE = LKinCtrl_ATan2
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+   VAR_INPUT 
+      opp : LReal;
+      adj : LReal;
+   END_VAR
+
+   VAR CONSTANT 
+      PI : LReal := 3.14159265358979;
+      TOL_POS : LReal := 1.0E-09;
+      TOL_NEG : LReal := -1.0E-09;
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2018 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library: LKinTrans 
+	// Tested with: S7-1516T-3 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.5
+	// Functionality: Calculate arcTan2 (tan with definition -pi...pi)
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 02.07.2018 SF               created
+	//=============================================================================
+	
+	// Calc values
+	IF (#adj >= #TOL_POS) THEN
+	  //first or forth quadrant
+	  #LKinCtrl_ATan2 := ATAN(#opp / #adj);
+	ELSIF (ABS(#adj) < #TOL_POS) THEN
+	  IF (#opp >= #TOL_POS) THEN
+	    //between first and second
+	    #LKinCtrl_ATan2 := 0.5 * #PI;
+	  ELSIF (#opp <= #TOL_NEG) THEN
+	    //between third and forth
+	    #LKinCtrl_ATan2 := -0.5 * #PI;
+	  ELSE
+	    //error - both components zero
+	    #LKinCtrl_ATan2 := 0.0;
+	  END_IF;
+	ELSE //(#adj < 0.0) 
+	  IF (#opp >= #TOL_POS) THEN
+	    //second quadrant
+	    #LKinCtrl_ATan2 := #PI + ATAN(#opp / #adj);
+	  ELSIF (#opp <= #TOL_NEG) THEN
+	    //third quadrant
+	    #LKinCtrl_ATan2 := - #PI + ATAN(#opp / #adj);
+	  ELSE
+	    #LKinCtrl_ATan2 := - #PI;
+	  END_IF;
+	END_IF;
+	
+	
+END_FUNCTION
+

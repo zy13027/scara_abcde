@@ -1,0 +1,114 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="pathDynamics" Datatype="&quot;LKinCtrl_typePathDynamics&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">path dynamics for this command</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="orientationDynamics" Datatype="&quot;LKinCtrl_typePathDynamics&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">orientation dynamics for this command</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="orientationDirection" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">1: positive direction; 2: negative direction; 3: shortest distance</MultiLanguageText>
+      </Comment>
+      <StartValue>3</StartValue>
+    </Member>
+    <Member Name="bufferMode" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">1: standstill between commands, 2: blending with lower speed; 5: blending with higher speed</MultiLanguageText>
+      </Comment>
+      <StartValue>1</StartValue>
+    </Member>
+    <Member Name="transitionParameters" Datatype="Array[1..5] of LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">blending distance parameters</MultiLanguageText>
+      </Comment>
+      <Subelement Path="1">
+        <StartValue>-1.0</StartValue>
+      </Subelement>
+    </Member>
+    <Member Name="dynamicAdaption" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">&lt;0.0: default TO setting used; 0: no dynamic adaption; 1: with variable limits; 2: with constant limits</MultiLanguageText>
+      </Comment>
+      <StartValue>-1</StartValue>
+    </Member>
+    <Member Name="toolNumber" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Tool number for SetTool command (LKINCTRL_MC_SETTOOL)</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="moveDirectParameters" Datatype="&quot;LKinCtrl_typeMoveDirectParameter&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">parameters for MoveDirect command definition</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="offsetParameters" Datatype="&quot;LKinCtrl_typeToolParameters&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">parameters for offset selection and configuration</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="conveyorParameters" Datatype="&quot;LKinCtrl_typeConveyorParameter&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">parameters for conveyor selection and configuration</MultiLanguageText>
+      </Comment>
+      <Sections>
+        <Section Name="None">
+          <Member Name="conveyorParaNo" Datatype="DInt">
+            <StartValue>0</StartValue>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="circleParameters" Datatype="&quot;LKinCtrl_typeCircleParameters&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">parameters for circle command definition</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="zoneParameters" Datatype="&quot;LKinCtrl_typeZoneParameters&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">parameters for zone commands</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="pickAndPlaceParameters" Datatype="&quot;LKinCtrl_typeMovePickAndPlaceParameters&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">parameters for pick and place command</MultiLanguageText>
+      </Comment>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>LKinCtrl_typePointParameter</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

@@ -1,0 +1,92 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="cmdType" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">1: MoveLinAbs; 2: MoveLinRel; 3: MoveCircAbs; 4: MoveCircRel; 5: MoveDirectAbs; 6: MoveDirectRel; 10: TrackConveyorBelt; 100: WaitTime; 40/41/42: ContourOffset; 0: FlagOnlyCmd; -1: End of List</MultiLanguageText>
+      </Comment>
+      <StartValue>-1</StartValue>
+    </Member>
+    <Member Name="endPoint" Datatype="&quot;LKinCtrl_typeCOff3DPoint&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">End point of command</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="circleMode" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">0: auxPoint defines point on circle line; 1: auxPoint defines circle center; 2: radius and endPoint define circle segment</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="circleCenterPoint" Datatype="&quot;LKinCtrl_typeCOff3DPoint&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Center point of circle</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="circleIntermediatePoint" Datatype="&quot;LKinCtrl_typeCOff3DPoint&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Intermediate point of circle</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="circleRadius" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Radius of circle</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="circleAngle" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Angle of circle</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="pathChoice" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">circMode(0): not relevant; circMode(1): 0: pos direction; 1: neg direction; circMode(2): 0: short pos segment; 1: short neg segment; 2: long pos segment; 3: long neg segment</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="circlePlane" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">circMode(0): not relevant; circMode(1+2): 0: XZ; 1: YZ; 2: XY</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="transitionParameter1" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Transition parameter</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bufferMode" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">1: standstill between commands, 2: blending with lower speed; 5: blending with higher speed</MultiLanguageText>
+      </Comment>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>LKinCtrl_typeCOffCmdInInternal</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

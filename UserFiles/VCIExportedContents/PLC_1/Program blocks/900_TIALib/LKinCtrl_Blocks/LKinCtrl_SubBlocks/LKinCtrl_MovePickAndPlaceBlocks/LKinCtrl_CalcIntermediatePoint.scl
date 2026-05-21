@@ -1,0 +1,431 @@
+﻿FUNCTION "LKinCtrl_CalcIntermediatePoint" : Word
+TITLE = LKinCtrl_CalcIntermediatePoint
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculation of the intermediate position (WCS) between a start and a target position (WCS or OCS)
+   VAR_INPUT 
+      startPosition : Array[1..6] of LReal;   // Start position in respective coordinate system
+      targetPosition : Array[1..6] of LReal;   // Target position in respective coordinate system
+      startCoordSystem : DInt;   // Start point coordiante system
+      targetCoordSystem : DInt;   // Target point coordiante system
+      ratio : LReal;   // Intermediate point ratio related to start point (0.05...0.95)
+      orientationDimension : Int;   // 0 - no orientation, 1 - A, 2 - AB, 3 - ABC
+      directionA : DInt;   // Only for orientationDimension = 1/A: 1 - positive, 2 - negative, 3 - shortest way
+      pathDynamics : "LKinCtrl_typePathDynamics";   // Path dynamics for motion from start to target
+      timeOffset : LReal;   // Estimated time for reaching start point in sec
+   END_VAR
+
+   VAR_OUTPUT 
+      intermediatePosition : Array[1..6] of LReal;   // Intermediate position between start and target position
+      additionalValue : Word;   // Additional value for diagnostics
+   END_VAR
+
+   VAR_IN_OUT 
+      axesGroup {InstructionName := 'TO_Kinematics'; LibVersion := '9.0'} : TO_Kinematics;   // Reference to axes group
+   END_VAR
+
+   VAR_TEMP 
+      tempLength : LReal;
+      tempStartPointWCS : Array[1..6] of LReal;
+      tempTargetPointWCS : Array[1..6] of LReal;
+      tempIntermediateVec : "LKinCtrl_typeCOff3DPoint";
+      tempIntermediateDir : "LKinCtrl_typeCOff3DPoint";
+      tempIntermediatePointRatio : LReal;
+      tempIntermediatePointWCS : Array[1..6] of LReal;
+      tempWord : Word;
+      tempTime : LReal;
+      tempPosOffsetStart : LReal;
+      tempPosOffsetTarget : LReal;
+      tempDirVecStart : "LKinCtrl_typeCOff3DPoint";
+      tempDirVecTarget : "LKinCtrl_typeCOff3DPoint";
+      tempPreWeigthStart : LReal;
+      tempPreWeigthTarget : LReal;
+      tempVecScalarProd : LReal;
+      tempVecAbs : LReal;
+      tempVecAngle : LReal;
+      tempStartPointFrame : "LKinCtrl_typeFrame";
+      tempTargetPointFrame : "LKinCtrl_typeFrame";
+      tempStartPointVelocity : LReal;
+      tempTargetPointVelocity : LReal;
+      tempStartCoordSystem : DInt;
+      tempTargetCoordSystem : DInt;
+      tempTrackingParStart : "LKinCtrl_typePnPTrackingProperties";
+      tempTrackingParTarget : "LKinCtrl_typePnPTrackingProperties";
+      tempStartCartesianPositionInitCS : Array[1..6] of LReal;
+      tempTargetCartesianPositionInitCS : Array[1..6] of LReal;
+      tempInt : Int;
+      tempStartOri : "LKinCtrl_typePnPOrientationFrame";
+      tempTargetOri : "LKinCtrl_typePnPOrientationFrame";
+      tempIntermediateOri : "LKinCtrl_typePnPOrientationFrame";
+      tempTimeOffset : LReal;
+   END_VAR
+
+   VAR CONSTANT 
+      ORI_NO_ORI : Int := 0;   // No orientation
+      ORI_A : Int := 1;   // Orientation A
+      ORI_AB : Int := 2;   // Orientation A, B
+      ORI_ABC : Int := 3;   // Orientation A, B, C
+      CALC_TOL : LReal := 0.001;   // Calculation tolerance
+      RATIO_MIN : LReal := 0.05;   // Minimum intermediate point ratio
+      RATIO_MAX : LReal := 0.95;   // Maximum intermediate point ratio
+      RADDEG : LReal := 57.2957795130823;   // Radians to degree
+      PI : LReal := 3.14159265358979;   // Pi
+      STATUS_NO_ERR : Word := 16#0000;   // No error
+      ERR_EQUAL_POINTS : Word := 16#9000;   // Error - equal points
+      ERR_INVALID_CS : Word := 16#9001;   // Error - invalid start or target coordSystem
+      ERR_DYN_PROFILE : Word := 16#9002;   // Error - at profile calculation
+      ERR_CREATE_ROT_VEC : Word := 16#9003;   // Error - at calculation of rotation vector
+      ERR_CREATE_VEC_ANGLE : Word := 16#9004;   // Error - at calculation of rotation vector angle
+      ERR_INVALID_ORI_DIM : Word := 16#9005;   // Error - orientation dimension invalid
+      ERR_CALC_ORI : Word := 16#9006;   // Error - orientation calculation
+      ERR_GET_TRACKING_INFO : Word := 16#9007;   // Error - at getting tracking information
+      PRECONTROL_WEIGHT_FAC : LReal := 0.4;   // Tracking precontrol factor
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2023
+	//-----------------------------------------------------------------------------
+	// Library:       LKinCtrl
+	// Tested with:   S7-1518TF-4 PN/DP, FW V3.1
+	// Engineering:   TIA Portal V19
+	// Restrictions:  ---
+	// Requirements:  S7-1500T, FW V3.0
+	// Functionality: This block is calculating the position of a intermediate position (WCS) 
+	//                between a start and a target position (WCS or OCS) 
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 21.09.2023 SF               First released version
+	//=============================================================================
+	
+	//Preset additional values
+	#additionalValue := #STATUS_NO_ERR;
+	
+	REGION CHECK_INPUTS
+	  //Check coord systems
+	  IF (#startCoordSystem < "CS_WCS") OR (#startCoordSystem > "CS_OCS3")
+	    OR (#targetCoordSystem < "CS_WCS") OR (#targetCoordSystem > "CS_OCS3")
+	  THEN
+	    #LKinCtrl_CalcIntermediatePoint := #ERR_INVALID_CS;
+	    RETURN;
+	  END_IF;
+	  
+	  // Limit intermediate point ratio betweenn MIN and MAX
+	  #tempIntermediatePointRatio := LIMIT(MN := #RATIO_MIN, IN := #ratio, MX := #RATIO_MAX);
+	  
+	  // Check working heigth dim
+	  IF (#orientationDimension < #ORI_NO_ORI) OR (#orientationDimension > #ORI_ABC) THEN
+	    #LKinCtrl_CalcIntermediatePoint := #ERR_INVALID_ORI_DIM;
+	    RETURN;
+	  END_IF;
+	  
+	  // Time offset
+	  IF (#timeOffset >= 0.0) THEN
+	    #tempTimeOffset := #timeOffset;
+	  END_IF;
+	END_REGION
+	
+	REGION GET_FRAME_INFO
+	  
+	  //copy input position values (maybe add object position later, if in tracking...) from to internal format
+	  #tempStartCartesianPositionInitCS := #startPosition;
+	  #tempTargetCartesianPositionInitCS := #targetPosition;
+	  
+	  REGION START_FRAME
+	    //Get info for start cs
+	    #tempStartCoordSystem := #startCoordSystem;
+	    IF (#tempStartCoordSystem <> "CS_WCS") THEN
+	      //Get tracking info
+	      #tempWord := "LKinCtrl_GetTrackingInfo"(coordSystem := #tempStartCoordSystem,
+	                                              axesGroup := #axesGroup,
+	                                              trackingPar => #tempTrackingParStart);
+	      IF (#tempWord.%X15 = TRUE) THEN
+	        #LKinCtrl_CalcIntermediatePoint := #ERR_GET_TRACKING_INFO;
+	        #additionalValue := #tempWord;
+	        RETURN;
+	      END_IF;
+	      //Tracking active?
+	      IF (#tempTrackingParStart.active = TRUE) THEN
+	        //Add object position
+	        #tempStartCartesianPositionInitCS[1] += #tempTrackingParStart.objectPosition.x;
+	        //CS velocity and frame
+	        #tempStartPointVelocity := #tempTrackingParStart.velocity;
+	        #tempStartPointFrame := #tempTrackingParStart.frame;
+	      ELSE
+	        //static OCS
+	        #tempStartPointVelocity := 0.0;
+	        #tempStartPointFrame.x := #axesGroup.StatusOcsFrame[#tempStartCoordSystem].x;
+	        #tempStartPointFrame.y := #axesGroup.StatusOcsFrame[#tempStartCoordSystem].y;
+	        #tempStartPointFrame.z := #axesGroup.StatusOcsFrame[#tempStartCoordSystem].z;
+	        #tempStartPointFrame.a := #axesGroup.StatusOcsFrame[#tempStartCoordSystem].a;
+	        #tempStartPointFrame.b := #axesGroup.StatusOcsFrame[#tempStartCoordSystem].b;
+	        #tempStartPointFrame.c := #axesGroup.StatusOcsFrame[#tempStartCoordSystem].c;
+	      END_IF;
+	    ELSE
+	      #tempStartPointVelocity := 0.0;
+	      #tempStartPointFrame.x := 0.0;
+	      #tempStartPointFrame.y := 0.0;
+	      #tempStartPointFrame.z := 0.0;
+	      #tempStartPointFrame.a := 0.0;
+	      #tempStartPointFrame.b := 0.0;
+	      #tempStartPointFrame.c := 0.0;
+	    END_IF;
+	  END_REGION START_FRAME
+	  
+	  REGION TARGET_FRAME
+	    //Get info for target cs
+	    #tempTargetCoordSystem := #targetCoordSystem;
+	    IF (#tempTargetCoordSystem <> "CS_WCS") THEN
+	      //Get tracking info
+	      #tempWord := "LKinCtrl_GetTrackingInfo"(coordSystem := #tempTargetCoordSystem,
+	                                              axesGroup := #axesGroup,
+	                                              trackingPar => #tempTrackingParTarget);
+	      IF (#tempWord.%X15 = TRUE) THEN
+	        #LKinCtrl_CalcIntermediatePoint := #ERR_GET_TRACKING_INFO;
+	        #additionalValue := #tempWord;
+	        RETURN;
+	      END_IF;
+	      //Tracking active?
+	      IF (#tempTrackingParTarget.active = TRUE) THEN
+	        //Add object position
+	        #tempTargetCartesianPositionInitCS[1] += #tempTrackingParTarget.objectPosition.x;
+	        //CS velocity and frame
+	        #tempTargetPointVelocity := #tempTrackingParTarget.velocity;
+	        #tempTargetPointFrame := #tempTrackingParTarget.frame;
+	      ELSE
+	        //static OCS
+	        #tempTargetPointVelocity := 0.0;
+	        #tempTargetPointFrame.x := #axesGroup.StatusOcsFrame[#tempTargetCoordSystem].x;
+	        #tempTargetPointFrame.y := #axesGroup.StatusOcsFrame[#tempTargetCoordSystem].y;
+	        #tempTargetPointFrame.z := #axesGroup.StatusOcsFrame[#tempTargetCoordSystem].z;
+	        #tempTargetPointFrame.a := #axesGroup.StatusOcsFrame[#tempTargetCoordSystem].a;
+	        #tempTargetPointFrame.b := #axesGroup.StatusOcsFrame[#tempTargetCoordSystem].b;
+	        #tempTargetPointFrame.c := #axesGroup.StatusOcsFrame[#tempTargetCoordSystem].c;
+	      END_IF;
+	    ELSE
+	      #tempTargetPointVelocity := 0.0;
+	      #tempTargetPointFrame.x := 0.0;
+	      #tempTargetPointFrame.y := 0.0;
+	      #tempTargetPointFrame.z := 0.0;
+	      #tempTargetPointFrame.a := 0.0;
+	      #tempTargetPointFrame.b := 0.0;
+	      #tempTargetPointFrame.c := 0.0;
+	    END_IF;
+	  END_REGION TARGET_FRAME
+	  
+	END_REGION GET_TRACKING_INFO
+	
+	REGION FRAME_OCS_TO_WCS
+	  // Frame first point -> WCS
+	  IF (#tempStartCoordSystem <> "CS_WCS") THEN
+	    "LKinCtrl_OcsToWcs"(ocsX := #tempStartPointFrame.x,
+	                        ocsY := #tempStartPointFrame.y,
+	                        ocsZ := #tempStartPointFrame.z,
+	                        ocsA := #tempStartPointFrame.a,
+	                        ocsB := #tempStartPointFrame.b,
+	                        ocsC := #tempStartPointFrame.c,
+	                        pointXOcs := #tempStartCartesianPositionInitCS[1],
+	                        pointYOcs := #tempStartCartesianPositionInitCS[2],
+	                        pointZOcs := #tempStartCartesianPositionInitCS[3],
+	                        pointAOcs := #tempStartCartesianPositionInitCS[4],
+	                        pointBOcs := #tempStartCartesianPositionInitCS[5],
+	                        pointCOcs := #tempStartCartesianPositionInitCS[6],
+	                        pointXWcs => #tempStartPointWCS[1],
+	                        pointYWcs => #tempStartPointWCS[2],
+	                        pointZWcs => #tempStartPointWCS[3],
+	                        pointAWcs => #tempStartPointWCS[4],
+	                        pointBWcs => #tempStartPointWCS[5],
+	                        pointCWcs => #tempStartPointWCS[6]);
+	  ELSE
+	    #tempStartPointWCS := #tempStartCartesianPositionInitCS;
+	  END_IF;
+	  // Frame second point -> WCS
+	  IF (#tempTargetCoordSystem <> "CS_WCS") THEN
+	    "LKinCtrl_OcsToWcs"(ocsX := #tempTargetPointFrame.x,
+	                        ocsY := #tempTargetPointFrame.y,
+	                        ocsZ := #tempTargetPointFrame.z,
+	                        ocsA := #tempTargetPointFrame.a,
+	                        ocsB := #tempTargetPointFrame.b,
+	                        ocsC := #tempTargetPointFrame.c,
+	                        pointXOcs := #tempTargetCartesianPositionInitCS[1],
+	                        pointYOcs := #tempTargetCartesianPositionInitCS[2],
+	                        pointZOcs := #tempTargetCartesianPositionInitCS[3],
+	                        pointAOcs := #tempTargetCartesianPositionInitCS[4],
+	                        pointBOcs := #tempTargetCartesianPositionInitCS[5],
+	                        pointCOcs := #tempTargetCartesianPositionInitCS[6],
+	                        pointXWcs => #tempTargetPointWCS[1],
+	                        pointYWcs => #tempTargetPointWCS[2],
+	                        pointZWcs => #tempTargetPointWCS[3],
+	                        pointAWcs => #tempTargetPointWCS[4],
+	                        pointBWcs => #tempTargetPointWCS[5],
+	                        pointCWcs => #tempTargetPointWCS[6]);
+	  ELSE
+	    #tempTargetPointWCS := #tempTargetCartesianPositionInitCS;
+	  END_IF;
+	END_REGION
+	
+	REGION MANIPULATE_POINTS
+	  // Create direction vector
+	  #tempIntermediateVec.x := #tempTargetPointWCS[1] - #tempStartPointWCS[1];
+	  #tempIntermediateVec.y := #tempTargetPointWCS[2] - #tempStartPointWCS[2];
+	  #tempIntermediateVec.z := #tempTargetPointWCS[3] - #tempStartPointWCS[3];
+	  
+	  // Estimate (linear) length between start and target point
+	  #tempLength := "LKinCtrl_VecAbs"(#tempIntermediateVec);
+	  IF (#tempLength <= 0.0) THEN
+	    #LKinCtrl_CalcIntermediatePoint := #ERR_EQUAL_POINTS;
+	    RETURN;
+	  END_IF;
+	  
+	  //Calculate time based on linear distance and input dynamics
+	  //not accounted, as not known:
+	  //  - actual travelled distance
+	  //  - velocity profile deviations due to dynamics adaption, orientation limitation etc...
+	  #tempWord := "LKinCtrl_PositioningTime"(distance := #tempLength,
+	                                          velocity := #pathDynamics.velocity * #axesGroup.Override.Velocity / 100.0,
+	                                          acceleration := #pathDynamics.acceleration,
+	                                          deceleration := #pathDynamics.deceleration,
+	                                          jerk := #pathDynamics.jerk,
+	                                          "time" => #tempTime);
+	  IF (#tempWord.%X15 = TRUE) THEN
+	    #LKinCtrl_CalcIntermediatePoint := #ERR_DYN_PROFILE;
+	    #additionalValue := #tempWord;
+	    RETURN;
+	  END_IF;
+	  
+	  //Calculate position offsets for precontrolling intermediate point
+	  #tempPosOffsetStart := (#tempTimeOffset) * #tempStartPointVelocity;
+	  #tempPosOffsetTarget := (#tempTime + #tempTimeOffset) * #tempTargetPointVelocity;
+	  
+	  //Shift WCS points according to OCS speed, rotation and time
+	  #tempWord := "LKinCtrl_VecFrameDir"(frame := #tempStartPointFrame,
+	                                      directionVector => #tempDirVecStart);
+	  IF (#tempWord.%X15 = TRUE) THEN
+	    #LKinCtrl_CalcIntermediatePoint := #ERR_CREATE_ROT_VEC;
+	    #additionalValue := #tempWord;
+	    RETURN;
+	  END_IF;
+	  #tempWord := "LKinCtrl_VecFrameDir"(frame := #tempTargetPointFrame,
+	                                      directionVector => #tempDirVecTarget);
+	  IF (#tempWord.%X15 = TRUE) THEN
+	    #LKinCtrl_CalcIntermediatePoint := #ERR_CREATE_ROT_VEC;
+	    #additionalValue := #tempWord;
+	    RETURN;
+	  END_IF;
+	  
+	  //calc vector between frames
+	  #tempVecScalarProd := "LKinCtrl_VecScalProd"(vIn1 := #tempDirVecStart,
+	                                               vIn2 := #tempDirVecTarget);
+	  #tempVecAbs := "LKinCtrl_VecAbs"(#tempDirVecStart) * "LKinCtrl_VecAbs"(#tempDirVecTarget);
+	  IF (#tempVecAbs = 0.0) THEN
+	    #LKinCtrl_CalcIntermediatePoint := #ERR_CREATE_VEC_ANGLE;
+	    RETURN;
+	  END_IF;
+	  IF (ABS(#tempVecScalarProd / #tempVecAbs) > 1.0) THEN
+	    #LKinCtrl_CalcIntermediatePoint := #ERR_CREATE_VEC_ANGLE;
+	    RETURN;
+	  END_IF;
+	  #tempVecAngle := ACOS(#tempVecScalarProd / #tempVecAbs) * #RADDEG;
+	  IF (#tempVecAngle > 180.0) THEN
+	    #tempVecAngle := #tempVecAngle - 180.0;
+	  END_IF;
+	  //Set weigth of precontrol
+	  #tempPreWeigthStart := 1.0;
+	  #tempPreWeigthTarget := 1.0 - #PRECONTROL_WEIGHT_FAC * ABS(#tempVecAngle) / 180.0;
+	  
+	  //-> update tempTargetPointWCS and tempStartPointWCS and calc again
+	  //point = point + normal direction vector * tempPosOffset...
+	  #tempStartPointWCS[1] := #tempStartPointWCS[1] + #tempDirVecStart.x * #tempPosOffsetStart * #tempPreWeigthStart;
+	  #tempStartPointWCS[2] := #tempStartPointWCS[2] + #tempDirVecStart.y * #tempPosOffsetStart * #tempPreWeigthStart;
+	  #tempStartPointWCS[3] := #tempStartPointWCS[3] + #tempDirVecStart.z * #tempPosOffsetStart * #tempPreWeigthStart;
+	  
+	  #tempTargetPointWCS[1] := #tempTargetPointWCS[1] + #tempDirVecTarget.x * #tempPosOffsetTarget * #tempPreWeigthTarget;
+	  #tempTargetPointWCS[2] := #tempTargetPointWCS[2] + #tempDirVecTarget.y * #tempPosOffsetTarget * #tempPreWeigthTarget;
+	  #tempTargetPointWCS[3] := #tempTargetPointWCS[3] + #tempDirVecTarget.z * #tempPosOffsetTarget * #tempPreWeigthTarget;
+	END_REGION
+	
+	REGION POINT_CALCULATION
+	  REGION XYZ_COORD
+	    // Create direction vector
+	    #tempIntermediateVec.x := #tempTargetPointWCS[1] - #tempStartPointWCS[1];
+	    #tempIntermediateVec.y := #tempTargetPointWCS[2] - #tempStartPointWCS[2];
+	    #tempIntermediateVec.z := #tempTargetPointWCS[3] - #tempStartPointWCS[3];
+	    
+	    // Estimate (linear) length between start and target point
+	    #tempLength := "LKinCtrl_VecAbs"(#tempIntermediateVec);
+	    IF (#tempLength <= 0.0) THEN
+	      #LKinCtrl_CalcIntermediatePoint := #ERR_EQUAL_POINTS;
+	      RETURN;
+	    END_IF;
+	    
+	    // Normalised direction vector
+	    #tempIntermediateDir := "LKinCtrl_VecUnit"(#tempIntermediateVec);
+	    #tempIntermediatePointWCS[1] := #tempStartPointWCS[1] + #tempLength * #tempIntermediatePointRatio * #tempIntermediateDir.x;
+	    #tempIntermediatePointWCS[2] := #tempStartPointWCS[2] + #tempLength * #tempIntermediatePointRatio * #tempIntermediateDir.y;
+	    #tempIntermediatePointWCS[3] := #tempStartPointWCS[3] + #tempLength * #tempIntermediatePointRatio * #tempIntermediateDir.z;
+	  END_REGION
+	  
+	  REGION ABC_COORD   
+	    //Get start orientation frame
+	    #tempStartOri.a := #tempStartPointWCS[4];
+	    #tempStartOri.b := #tempStartPointWCS[5];
+	    #tempStartOri.c := #tempStartPointWCS[6];
+	    //Get target orientation frame
+	    #tempTargetOri.a := #tempTargetPointWCS[4];
+	    #tempTargetOri.b := #tempTargetPointWCS[5];
+	    #tempTargetOri.c := #tempTargetPointWCS[6];
+	    //Calc intermediate orientation
+	    IF (#orientationDimension = #ORI_A) THEN //orientation A
+	      //Calc intermediate frame between start and target frame
+	      #tempWord := "LKinCtrl_IntermediateOriA"(startOri := #tempStartOri,
+	                                               targetOri := #tempTargetOri,
+	                                               ratio := #tempIntermediatePointRatio,
+	                                               directionA := #directionA,
+	                                               intermediateOri := #tempIntermediateOri);
+	    ELSIF (#orientationDimension = #ORI_AB) THEN //2 orientations AB
+	      //Calc intermediate frame between start and target frame
+	      #tempWord := "LKinCtrl_IntermediateOriAB"(startOri := #tempStartOri,
+	                                                targetOri := #tempTargetOri,
+	                                                ratio := #tempIntermediatePointRatio,
+	                                                intermediateOri := #tempIntermediateOri);
+	    ELSIF (#orientationDimension = #ORI_ABC) THEN //3 orientations ABC
+	      //Calc intermediate frame between start and target frame
+	      #tempWord := "LKinCtrl_IntermediateOriABC"(startOri := #tempStartOri,
+	                                                 targetOri := #tempTargetOri,
+	                                                 ratio := #tempIntermediatePointRatio,
+	                                                 intermediateOri => #tempIntermediateOri);
+	    ELSE //no orientation
+	      #tempIntermediateOri.a := 0.0;
+	      #tempIntermediateOri.b := 0.0;
+	      #tempIntermediateOri.c := 0.0;
+	    END_IF;
+	    //Set intermediate point orientation in array format
+	    #tempIntermediatePointWCS[4] := #tempIntermediateOri.a;
+	    #tempIntermediatePointWCS[5] := #tempIntermediateOri.b;
+	    #tempIntermediatePointWCS[6] := #tempIntermediateOri.c;
+	    
+	    //Check error
+	    IF (#tempWord.%X15 = TRUE) THEN
+	      #LKinCtrl_CalcIntermediatePoint := #ERR_CALC_ORI;
+	      #additionalValue := #tempWord;
+	      RETURN;
+	    END_IF;
+	  END_REGION
+	END_REGION
+	
+	REGION RETURN
+	  //Return point in array format
+	  #intermediatePosition := #tempIntermediatePointWCS;
+	  //Return 0 -> everything ok!
+	  #LKinCtrl_CalcIntermediatePoint := #STATUS_NO_ERR;
+	  
+	END_REGION RETURN
+END_FUNCTION
+

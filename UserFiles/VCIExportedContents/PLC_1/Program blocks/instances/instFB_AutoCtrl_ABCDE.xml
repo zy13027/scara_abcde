@@ -35,6 +35,8 @@
         <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
       </AttributeList>
     </Member>
+    <Member Name="statTotalDistance" Datatype="LReal" />
+    <Member Name="statProgress" Datatype="LReal" />
   </Section>
 </Sections></Interface>
       <Name>instFB_AutoCtrl_ABCDE</Name>

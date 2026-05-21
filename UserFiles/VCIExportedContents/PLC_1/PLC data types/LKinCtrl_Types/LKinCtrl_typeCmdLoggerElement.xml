@@ -1,0 +1,174 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="cmdType" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">1: MoveLinAbs; 2: MoveLinRel; 3: MoveCircAbs; 4: MoveCircRel; 5: MoveDirectAbs; 6: MoveDirectRel; 10: TrackConveyorBelt; 100: WaitTime; 40/41/42: ContourOffset; 0: FlagOnlyCmd; -1: End of List</MultiLanguageText>
+      </Comment>
+      <StartValue>-1</StartValue>
+    </Member>
+    <Member Name="pathDataName" Datatype="String[&quot;LKINCTRL_LENGTH_OF_PATHDATA_NAME&quot;]">
+      <Comment>
+        <MultiLanguageText Lang="en-US">name of PathData</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="pathDataIdentifier" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">identifier of PathData containing command</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="cmdID" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">to be set to PathDataOperate[list position] by PreBuffer for identification in ExecuteBuffer</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="cmdName" Datatype="String[4]">
+      <Comment>
+        <MultiLanguageText Lang="en-US">command name</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="coordinateX" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">X (linear) / endPoint[1] (circular)</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="coordinateY" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Y (linear) / endPoint[2] (circular)</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="coordinateZ" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Z (linear) / endPoint[3] (circular)</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="coordinateA" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">A (linear) / endPoint[4] (circular)</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="coordSystem" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">0: WCS; 1: OCS[1]; 2: OCS[2]; 3: OCS[3]</MultiLanguageText>
+      </Comment>
+      <StartValue>0</StartValue>
+    </Member>
+    <Member Name="bufferMode" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">1: standstill between commands, 2: blending with lower speed; 5: blending with higher speed</MultiLanguageText>
+      </Comment>
+      <StartValue>1</StartValue>
+    </Member>
+    <Member Name="transitionParameter" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">blending distance - &gt;0.0: configured value used; &lt;0.0: maximum possible blending distance used</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="dynVelocity" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">&gt;0.0: configured value used; &lt;0.0: default TO setting used</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="dynAcceleration" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">&gt;0.0: configured value used; &lt;0.0: default TO setting used</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="dynDeceleration" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">&gt;0.0: configured value used; &lt;0.0: default TO setting used</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="dynJerk" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">&gt;0.0: configured value used; &lt;0.0: default TO setting used</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="dynamicAdpation" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">&lt;0.0: default TO setting used; 0: no dynamic adaption; 1: with variable limits; 2: with constant limits</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="linkConstellation" Datatype="DWord">
+      <Comment>
+        <MultiLanguageText Lang="en-US">linkConstellation (effective for MoveDirect commands only)</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="positionMode" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">1: absolute cartesian position and absolute orientation; 2: absolute cartesian position and relative orientation (effective for MoveDirect commands only)</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="circMode" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">0: auxPoint defines point on circle line; 1: auxPoint defines circle center; 2: radius and endPoint define circle segment</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="auxPoint_1" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">auxiliary point for circle definition</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="auxPoint_2" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">auxiliary point for circle definition</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="auxPoint_3" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">auxiliary point for circle definition</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="pathChoice" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">circMode(0): not relevant; circMode(1): 0: pos direction; 1: neg direction; circMode(2): 0: short pos segment; 1: short neg segment; 2: long pos segment; 3: long neg segment</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="circlePlane" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">circMode(0): not relevant; circMode(1+2): 0: XZ; 1: YZ; 2: XY</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="radius" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">only in combination with circMode(2): radius</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="arc" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">only in combination with  circMode(1): arc</MultiLanguageText>
+      </Comment>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>LKinCtrl_typeCmdLoggerElement</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

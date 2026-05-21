@@ -1,0 +1,79 @@
+﻿FUNCTION "LKinCtrl_IntermediateOriA" : Word
+TITLE = LKinCtrl_IntermediateOriA
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculate intermediate orientation (A) between start and target orientation
+   VAR_INPUT 
+      startOri : "LKinCtrl_typePnPOrientationFrame";   // Start orientation frame
+      targetOri : "LKinCtrl_typePnPOrientationFrame";   // Target orientation frame
+      ratio : LReal;   // Intermediate point ratio
+      directionA : DInt;   // 1 - positive, 2 - negative, 3 - shortest way
+   END_VAR
+
+   VAR_IN_OUT 
+      intermediateOri : "LKinCtrl_typePnPOrientationFrame";   // Intermediate orientation frame
+   END_VAR
+
+   VAR_TEMP 
+      tempTargetFrameA : LReal;
+   END_VAR
+
+   VAR CONSTANT 
+      STATUS_NO_ERR : Word := 16#0000;   // No error
+      ERR_DIRA_INVALID : Word := 16#9000;   // Error - Direction A invalid
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2023
+	//-----------------------------------------------------------------------------
+	// Library:       LKinCtrl
+	// Tested with:   S7-1518TF-4 PN/DP, FW V3.1
+	// Engineering:   TIA Portal V19
+	// Restrictions:  ---
+	// Requirements:  S7-1500T, FW V3.0
+	// Functionality: Calc intermediate frame A between start and target A
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 21.09.2023 SF               First released version
+	//=============================================================================
+	
+	//init value
+	#tempTargetFrameA := #targetOri.a;
+	
+	//check direction A
+	IF (#directionA = 1) THEN //positive direction
+	  //add 360° to target position until it is bigger than start
+	  WHILE (#tempTargetFrameA < #startOri.a) DO
+	    #tempTargetFrameA += 360.0;
+	  END_WHILE;
+	ELSIF (#directionA = 2) THEN //negative direction
+	  //sub 360° from target position until it is lower than start
+	  WHILE (#tempTargetFrameA > #startOri.a) DO
+	    #tempTargetFrameA -= 360.0;
+	  END_WHILE;
+	ELSIF (#directionA = 3) THEN //shortest distance
+	  ; //do nothing - keep target A!
+	ELSE
+	  #LKinCtrl_IntermediateOriA := #ERR_DIRA_INVALID;
+	  RETURN;
+	END_IF;
+	
+	//calculate intermediate position
+	#intermediateOri.a := "LKinCtrl_GetValueInRange"(#startOri.a + "LKinCtrl_GetValueInRange"(#tempTargetFrameA - #startOri.a) * #ratio);
+	#intermediateOri.b := 0.0; //Set all other to zero
+	#intermediateOri.c := 0.0; //Set all other to zero
+	
+	//set return value
+	#LKinCtrl_IntermediateOriA := #STATUS_NO_ERR;
+	
+	
+END_FUNCTION
+

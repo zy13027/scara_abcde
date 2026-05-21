@@ -1,0 +1,111 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="start" Datatype="&quot;LKinCtrl_typePnPLinPointParameter&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Parameter for start position</MultiLanguageText>
+      </Comment>
+      <Sections>
+        <Section Name="None">
+          <Member Name="transitionParameter" Datatype="Array[1..5] of LReal">
+            <Subelement Path="1">
+              <StartValue>-1.0</StartValue>
+            </Subelement>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="postStart" Datatype="&quot;LKinCtrl_typePnPLinPointParameter&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Parameter for post start motion</MultiLanguageText>
+      </Comment>
+      <Sections>
+        <Section Name="None">
+          <Member Name="transitionParameter" Datatype="Array[1..5] of LReal">
+            <Subelement Path="1">
+              <StartValue>-1.0</StartValue>
+            </Subelement>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="intermediate" Datatype="&quot;LKinCtrl_typePnPLinPointParameter&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Parameter for intermediate motion</MultiLanguageText>
+      </Comment>
+      <Sections>
+        <Section Name="None">
+          <Member Name="transitionParameter" Datatype="Array[1..5] of LReal">
+            <Subelement Path="1">
+              <StartValue>-1.0</StartValue>
+            </Subelement>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="preTarget" Datatype="&quot;LKinCtrl_typePnPLinPointParameter&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Parameter for pre target motion</MultiLanguageText>
+      </Comment>
+      <Sections>
+        <Section Name="None">
+          <Member Name="transitionParameter" Datatype="Array[1..5] of LReal">
+            <Subelement Path="1">
+              <StartValue>-1.0</StartValue>
+            </Subelement>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="target" Datatype="&quot;LKinCtrl_typePnPLinPointParameter&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Parameter for target motion</MultiLanguageText>
+      </Comment>
+      <Sections>
+        <Section Name="None">
+          <Member Name="transitionParameter" Datatype="Array[1..5] of LReal">
+            <Subelement Path="1">
+              <StartValue>-1.0</StartValue>
+            </Subelement>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="numberOfUsedCmd" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Number of used commands</MultiLanguageText>
+      </Comment>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>LKinCtrl_typePnPLinCmdSeqParameter</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

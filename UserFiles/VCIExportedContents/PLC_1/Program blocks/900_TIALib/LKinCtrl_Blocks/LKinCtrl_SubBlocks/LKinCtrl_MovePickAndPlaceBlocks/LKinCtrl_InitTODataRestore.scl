@@ -1,0 +1,44 @@
+﻿FUNCTION "LKinCtrl_InitTODataRestore" : Void
+TITLE = LKinCtrl_InitTODataRestore
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Restore specific TO data
+   VAR_INPUT 
+      initTOData : "LKinCtrl_typePnPInitTOData";   // Inital TO data
+   END_VAR
+
+   VAR_IN_OUT 
+      axesGroup {InstructionName := 'TO_Kinematics'; LibVersion := '9.0'} : TO_Kinematics;   // Reference to axes group
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2023
+	//-----------------------------------------------------------------------------
+	// Library:       LKinCtrl
+	// Tested with:   S7-1518TF-4 PN/DP, FW V3.1
+	// Engineering:   TIA Portal V19
+	// Restrictions:  ---
+	// Requirements:  S7-1500T, FW V3.0
+	// Functionality: Restore specific TO data
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 21.09.2023 SF               First released version
+	//=============================================================================
+	
+	//Blending length factor
+	#axesGroup.Transition.FactorBlendingLength := #initTOData.factorBlendingLength;
+	//Orientation dynamics
+	#axesGroup.DynamicDefaults.Orientation.Velocity := #initTOData.orientationDefaults.velocity;
+	#axesGroup.DynamicDefaults.Orientation.Acceleration := #initTOData.orientationDefaults.acceleration;
+	#axesGroup.DynamicDefaults.Orientation.Deceleration := #initTOData.orientationDefaults.deceleration;
+	#axesGroup.DynamicDefaults.Orientation.Jerk := #initTOData.orientationDefaults.jerk;
+END_FUNCTION
+

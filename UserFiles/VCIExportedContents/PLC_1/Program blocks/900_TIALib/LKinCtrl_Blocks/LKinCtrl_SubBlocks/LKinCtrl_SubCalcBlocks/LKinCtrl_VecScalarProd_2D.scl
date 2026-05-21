@@ -1,0 +1,34 @@
+﻿FUNCTION "LKinCtrl_VecScalarProd_2D" : LReal
+TITLE = LKinCtrl_VecScalarProd_2D
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculates the scalar product of given vectors
+   VAR_INPUT 
+      vIn1 : Array[1..2] of LReal;   // Input vector 1
+      vIn2 : Array[1..2] of LReal;   // Input vector 2
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library: - 
+	// Tested with: S7-1516T-3 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.5
+	// Functionality: Scalar product of two coordinates
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 27.08.2018 SF               created
+	// 01.00.01 29.01.2019 JR               adaptions for LKinCtrl 
+	//=============================================================================
+	
+	#LKinCtrl_VecScalarProd_2D := (* #vIn1[0]*#vIn2[0] + *)#vIn1[1] * #vIn2[1] + #vIn1[2] * #vIn2[2];
+END_FUNCTION
+

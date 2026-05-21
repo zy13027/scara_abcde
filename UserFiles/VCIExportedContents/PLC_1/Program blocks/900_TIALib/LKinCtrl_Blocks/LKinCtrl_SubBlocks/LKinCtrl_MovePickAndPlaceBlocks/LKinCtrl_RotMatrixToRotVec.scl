@@ -1,0 +1,85 @@
+﻿FUNCTION "LKinCtrl_RotMatrixToRotVec" : Void
+TITLE = LKinCtrl_RotMatrixToRotVec
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculate rotation vector and angle from rotation matrix
+   VAR_INPUT 
+      rotMatrix : Array[1..3, 1..3] of LReal;   // Rotation matrix
+   END_VAR
+
+   VAR_OUTPUT 
+      rotVector : "LKinCtrl_typeCOff3DPoint";   // Rotation vector
+      rotAngle : LReal;   // Rotation angle
+   END_VAR
+
+   VAR_TEMP 
+      tempR1 : LReal;
+      tempR2 : LReal;
+      tempR3 : LReal;
+      tempResult1 : LReal;
+      tempRotAngle : LReal;
+      tempRadDeg : LReal;
+   END_VAR
+
+   VAR CONSTANT 
+      PI : LReal := 3.14159265358979;   // Pi
+      CALC_TOL : LReal := 0.001;   // Tolerance
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2023
+	//-----------------------------------------------------------------------------
+	// Library:       LKinCtrl
+	// Tested with:   S7-1518TF-4 PN/DP, FW V3.1
+	// Engineering:   TIA Portal V19
+	// Restrictions:  ---
+	// Requirements:  S7-1500T, FW V3.0
+	// Functionality: Calc rotation axis and angle from rotation matrix
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 21.09.2023 SF               First released version
+	//=============================================================================
+	
+	#tempRadDeg := 180.0 / #PI;
+	#tempRotAngle := ACOS((#rotMatrix[1, 1] + #rotMatrix[2, 2] + #rotMatrix[3, 3] - 1.0) * 0.5);
+	
+	IF (#tempRotAngle = 0.0) THEN
+	  // No rotation
+	  #tempR1 := 0.0;
+	  #tempR2 := 0.0;
+	  #tempR3 := 0.0;
+	ELSIF (ABS(ABS(#tempRotAngle) - #PI) < #CALC_TOL) THEN
+	  //Rotation vector 
+	  IF (#tempRotAngle > 0.0) THEN //is + PI
+	    #tempR1 := SQRT((#rotMatrix[1, 1] + 1) * 0.5);
+	    #tempR2 := SQRT((#rotMatrix[2, 2] + 1) * 0.5);
+	    #tempR3 := SQRT((#rotMatrix[3, 3] + 1) * 0.5);
+	    #tempRotAngle := - #PI;
+	  ELSE //is - PI
+	    #tempR1 := -1.0 * SQRT((#rotMatrix[1, 1] + 1) * 0.5);
+	    #tempR2 := -1.0 * SQRT((#rotMatrix[2, 2] + 1) * 0.5);
+	    #tempR3 := -1.0 * SQRT((#rotMatrix[3, 3] + 1) * 0.5);
+	    #tempRotAngle := - #PI;
+	  END_IF;
+	ELSE
+	  // rotation vector
+	  #tempResult1 := 0.5 / SIN(#tempRotAngle);
+	  #tempR1 := #tempResult1 * (#rotMatrix[3, 2] - #rotMatrix[2, 3]);
+	  #tempR2 := #tempResult1 * (#rotMatrix[1, 3] - #rotMatrix[3, 1]);
+	  #tempR3 := #tempResult1 * (#rotMatrix[2, 1] - #rotMatrix[1, 2]);
+	END_IF;
+	#rotVector.x := #tempR1;
+	#rotVector.y := #tempR2;
+	#rotVector.z := #tempR3;
+	#rotAngle := #tempRotAngle * #tempRadDeg;
+	
+END_FUNCTION
+

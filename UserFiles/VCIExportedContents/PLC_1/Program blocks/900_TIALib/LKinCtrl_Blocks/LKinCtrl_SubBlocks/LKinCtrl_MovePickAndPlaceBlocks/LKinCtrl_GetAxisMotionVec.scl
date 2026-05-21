@@ -1,0 +1,72 @@
+﻿FUNCTION "LKinCtrl_GetAxisMotionVec" : Word
+TITLE = LKinCtrl_GetAxisMotionVec
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Get axes motion vector (position, velocity, acceleration) of positioning axis / synchronous axis
+   VAR_INPUT 
+      actualValues : Bool;   // TRUE: Get actual axis values
+      axis : DB_ANY;   // Reference to axis DB
+   END_VAR
+
+   VAR_OUTPUT 
+      position : LReal;   // Axis position
+      velocity : LReal;   // Axis velocity
+      acceleration : LReal;   // Axis acceleration
+   END_VAR
+
+   VAR_TEMP 
+      tempRefToPosAxis {InstructionName := 'TO_PositioningAxis'; LibVersion := '9.0'} : REF_TO TO_PositioningAxis;
+   END_VAR
+
+   VAR CONSTANT 
+      STATUS_NO_ERR : Word := 16#0000;   // No error
+      ERR_AXIS_TYPE : Word := 16#8000;   // Error - Invalid axis type (< PosAxis)
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2023
+	//-----------------------------------------------------------------------------
+	// Library:       LKinCtrl
+	// Tested with:   S7-1518TF-4 PN/DP, FW V3.1
+	// Engineering:   TIA Portal V19
+	// Restrictions:  ---
+	// Requirements:  S7-1500T, FW V3.0
+	// Functionality: This block is returning the motion vector (position, velocity, acceleration)
+	//                of an positioning axis / synchronous axis
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 21.09.2023 SF               First released version
+	//=============================================================================
+	
+	//Preset output
+	#LKinCtrl_GetAxisMotionVec := #STATUS_NO_ERR;
+	
+	//Axis type at least pos axis?
+	#tempRefToPosAxis ?= #axis;
+	
+	IF (#tempRefToPosAxis <> NULL) THEN
+	  //get actual or setpoint values?
+	  IF (#actualValues = TRUE) THEN
+	    #position := #tempRefToPosAxis^.ActualPosition;
+	    #velocity := #tempRefToPosAxis^.ActualVelocity;
+	    #acceleration := #tempRefToPosAxis^.ActualAcceleration;
+	  ELSE
+	    #position := #tempRefToPosAxis^.Position;
+	    #velocity := #tempRefToPosAxis^.Velocity;
+	    #acceleration := #tempRefToPosAxis^.Acceleration;
+	  END_IF;
+	ELSE
+	  #LKinCtrl_GetAxisMotionVec := #ERR_AXIS_TYPE;
+	END_IF;
+	
+	
+END_FUNCTION
+

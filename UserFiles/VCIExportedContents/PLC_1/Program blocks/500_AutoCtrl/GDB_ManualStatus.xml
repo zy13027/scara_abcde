@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Document>
   <Engineering version="V20" />
   <SW.Blocks.GlobalDB ID="0">
@@ -8,7 +8,6 @@
     <Member Name="bo_J1_Enabled" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">PLC-derived: J1 axis is enabled / ready (mirror of J1_SCARA_Arm3D.StatusWord.%X3 — production-canonical Ready bit per v9 FB_AxisManualWiring). Set by FB_ManualCtrl REGION 5 (status mirror).</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">PLC 衍生: J1 使能/就绪状态</MultiLanguageText>
       </Comment>
     </Member>
     <Member Name="bo_J2_Enabled" Datatype="Bool">
@@ -29,7 +28,6 @@
     <Member Name="bo_J1_Homed" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">PLC-derived: J1 axis is homed (mirror of J1_SCARA_Arm3D.StatusWord.%X5 — per ABCDE GDB_Control.axesHomed convention).</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">PLC 衍生: J1 已回零</MultiLanguageText>
       </Comment>
     </Member>
     <Member Name="bo_J2_Homed" Datatype="Bool">
@@ -50,7 +48,6 @@
     <Member Name="bo_J1_Error" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">PLC-derived: J1 axis has fault (mirror of J1_SCARA_Arm3D.StatusWord.%X1 — per v9 axesError convention).</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">PLC 衍生: J1 故障</MultiLanguageText>
       </Comment>
     </Member>
     <Member Name="bo_J2_Error" Datatype="Bool">
@@ -71,7 +68,6 @@
     <Member Name="bo_J1_JogActive" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">PLC-derived: J1 axis is moving (NOT StatusWord.%X7 standstill — derived as "non-standstill"). Useful for HMI to lit a "moving" lamp during jog.</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">PLC 衍生: J1 在运动中</MultiLanguageText>
       </Comment>
     </Member>
     <Member Name="bo_J2_JogActive" Datatype="Bool">
@@ -92,38 +88,35 @@
     <Member Name="bo_KinEnabled" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">PLC-derived: kinematic group is enabled (mirror of GDB_Control.axesEnabled — aggregated 4-joint Power.Status from FB_AxisCtrl REGION Power).</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">PLC 衍生: 运动学组使能</MultiLanguageText>
       </Comment>
     </Member>
     <Member Name="bo_KinReady" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">PLC-derived: kinematic group is ready (mirror of GDB_Control.axesReady = axesEnabled AND axesHomed AND NOT axesError). Per HMI cycle-7.1 BackColor Q&amp;A — single Bool tag enables Range-dyn lamp binding without bit-mask workaround.</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">PLC 衍生: 运动学组就绪</MultiLanguageText>
       </Comment>
     </Member>
     <Member Name="bo_KinHomed" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">PLC-derived: kinematic group is homed (mirror of ScaraArm3D.StatusWord.%X5).</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">PLC 衍生: 运动学组已回零</MultiLanguageText>
       </Comment>
     </Member>
     <Member Name="bo_KinError" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">PLC-derived: kinematic group has fault (ScaraArm3D.ErrorWord &lt;&gt; 0). Aggregates all per-axis + kinematic-specific errors.</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">PLC 衍生: 运动学组故障</MultiLanguageText>
       </Comment>
     </Member>
     <Member Name="bo_KinManualBusy" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">PLC-derived: manual Kin MC_MoveLinearAbsolute is in flight (mirror of instMoveLinAbs.Busy in FB_ManualCtrl REGION 4). HMI uses for "Manual move busy" lamp during point-to-point motion.</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">PLC 衍生: 手动绝对移动忙</MultiLanguageText>
       </Comment>
     </Member>
   </Section>
 </Sections></Interface>
       <MemoryLayout>Optimized</MemoryLayout>
+      <MemoryReserve>100</MemoryReserve>
       <Name>GDB_ManualStatus</Name>
       <Namespace />
+      <Number>8</Number>
       <ProgrammingLanguage>DB</ProgrammingLanguage>
     </AttributeList>
     <ObjectList>

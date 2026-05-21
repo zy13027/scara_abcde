@@ -1,0 +1,99 @@
+﻿FUNCTION_BLOCK "LKinCtrl_GetKinematicsStatusWord"
+TITLE = LKinCtrl_GetKinematicsStatusWord
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//FB provides functionalities to reveice status information on Kinematics StatusWord
+   VAR_INPUT 
+      axesGroup {InstructionName := 'TO_Kinematics'; LibVersion := '9.0'} : TO_Kinematics;   // reference to the axesGroup
+   END_VAR
+
+   VAR_OUTPUT 
+      error { ExternalWritable := 'False'} : Bool;   // error axesGroup
+      restartActive { ExternalWritable := 'False'} : Bool;   // restart of TO Kinematic active
+      onlineStartValuesChanged { ExternalWritable := 'False'} : Bool;   // change of start values TO Kinematic
+      controlPanelActive { ExternalWritable := 'False'} : Bool;   // control panel TO Kinematic activated
+      done { ExternalWritable := 'False'} : Bool;   // no motion command active / control panel deactivated
+      linearCommand { ExternalWritable := 'False'} : Bool;   // linear command active
+      circularCommand { ExternalWritable := 'False'} : Bool;   // circular command active
+      constantVelocity { ExternalWritable := 'False'} : Bool;   // TO Kinematic at constant velocity
+      accelerating { ExternalWritable := 'False'} : Bool;   // acceleration progress active
+      decelerating { ExternalWritable := 'False'} : Bool;   // deceleration progress active
+      orientationMotion { ExternalWritable := 'False'} : Bool;   // orientation motion active
+      stopping { ExternalWritable := 'False'} : Bool;   // MC_GroupStop is active
+      interrupted { ExternalWritable := 'False'} : Bool;   // motion interrupted
+      blending { ExternalWritable := 'False'} : Bool;   // no blending segment active
+   END_VAR
+
+   VAR 
+      statFirstCycle { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool := TRUE;   // flag first cycle
+      statStatusWordOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DWord;   // flag word for old statusWord
+   END_VAR
+
+   VAR_TEMP 
+      tempStatusWord : DWord;
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1515T-2 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 2.5
+	// Functionality: LKinCtrl_GetKinematicsStatusWord
+	// The FB is splitting the status word of a technoloy object kinematic into bits.
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   16.08.2017    RK                  First released version
+	//===========================================================================================
+	
+	//----------------------------------------------------------------------------------------------
+	// Read statusword
+	//----------------------------------------------------------------------------------------------
+	#tempStatusWord := #axesGroup.StatusWord;
+	
+	//----------------------------------------------------------------------------------------------
+	// Write outputs
+	//----------------------------------------------------------------------------------------------
+	IF #tempStatusWord <> #statStatusWordOld
+	    OR #statFirstCycle
+	THEN
+	    #error := #tempStatusWord.%X1;
+	    #restartActive := #tempStatusWord.%X2;
+	    #onlineStartValuesChanged := #tempStatusWord.%X3;
+	    #controlPanelActive := #tempStatusWord.%X4;
+	    // #reservedBit_5 := #tempStatusWord.%X5;
+	    #done := #tempStatusWord.%X6;
+	    // #reservedBit_7 := #tempStatusWord.%X7;
+	    #linearCommand := #tempStatusWord.%X8;
+	    #circularCommand := #tempStatusWord.%X9;
+	    // #polynomialCommand := #tempStatusWord.%X10;
+	    // #directCommand := #tempStatusWord.%X11;
+	    #constantVelocity := #tempStatusWord.%X12;
+	    #accelerating := #tempStatusWord.%X13;
+	    #decelerating := #tempStatusWord.%X14;
+	    #orientationMotion := #tempStatusWord.%X15;
+	    #stopping := #tempStatusWord.%X16;
+	    #interrupted := #tempStatusWord.%X17;
+	    #blending := #tempStatusWord.%X18;
+	    
+	    // Set back flag
+	    #statFirstCycle := False;
+	ELSE
+	    ; // Do nothing
+	END_IF;
+	
+	// Copy current state of status for edge detection
+	#statStatusWordOld := #tempStatusWord;
+	
+END_FUNCTION_BLOCK
+

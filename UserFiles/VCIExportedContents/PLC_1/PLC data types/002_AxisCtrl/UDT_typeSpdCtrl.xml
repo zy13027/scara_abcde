@@ -1,0 +1,93 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="input" Datatype="Struct">
+      <Member Name="bo_enable" Datatype="Bool">
+        <StartValue>false</StartValue>
+      </Member>
+      <Member Name="bo_estop" Datatype="Bool">
+        <StartValue>false</StartValue>
+      </Member>
+      <Member Name="bo_reset" Datatype="Bool">
+        <StartValue>false</StartValue>
+      </Member>
+      <Member Name="r32_speedSet" Datatype="Real">
+        <StartValue>0.0</StartValue>
+      </Member>
+      <Member Name="r32_torqueLimitSet" Datatype="Real" />
+      <Member Name="r32_filterTime" Datatype="Real">
+        <StartValue>100.0</StartValue>
+      </Member>
+      <Member Name="tCycle" Datatype="Real">
+        <StartValue>10.0</StartValue>
+      </Member>
+      <Member Name="OBNum" Datatype="Int">
+        <StartValue>30</StartValue>
+      </Member>
+      <Member Name="HW_IO" Datatype="HW_IO">
+        <StartValue>0</StartValue>
+      </Member>
+      <Member Name="HW_IO_ADD" Datatype="HW_IO" />
+      <Member Name="Reference" Datatype="Struct">
+        <Member Name="r32_speed_Rpm" Datatype="Real" />
+        <Member Name="r32_Torque_Nm" Datatype="Real" />
+        <Member Name="r32_current_A" Datatype="Real" />
+        <Member Name="r32_DCVolagte_V" Datatype="Real" />
+        <Member Name="r32_power_Kw" Datatype="Real" />
+        <Member Name="r32_temperature_℃" Datatype="Real" />
+      </Member>
+    </Member>
+    <Member Name="output" Datatype="Struct">
+      <Member Name="bo_enabled" Datatype="Bool">
+        <StartValue>false</StartValue>
+      </Member>
+      <Member Name="bo_ready" Datatype="Bool">
+        <StartValue>false</StartValue>
+      </Member>
+      <Member Name="bo_driveError" Datatype="Bool">
+        <StartValue>false</StartValue>
+      </Member>
+      <Member Name="r32_actSpeed_Rpm" Datatype="Real">
+        <StartValue>0.0</StartValue>
+      </Member>
+      <Member Name="r32_actTorque_Nm" Datatype="Real" />
+      <Member Name="r32_actCurrent_A" Datatype="Real" />
+      <Member Name="r32_actDCVolagte_V" Datatype="Real" />
+      <Member Name="r32_actPower_Kw" Datatype="Real" />
+      <Member Name="r32_actTemperature_℃" Datatype="Real" />
+      <Member Name="i16_warningCode" Datatype="Word" />
+      <Member Name="i16_faultCode" Datatype="Word" />
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>UDT_typeSpdCtrl</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

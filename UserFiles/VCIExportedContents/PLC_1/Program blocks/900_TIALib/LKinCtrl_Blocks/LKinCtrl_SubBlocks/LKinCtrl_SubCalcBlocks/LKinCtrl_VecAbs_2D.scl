@@ -1,0 +1,33 @@
+﻿FUNCTION "LKinCtrl_VecAbs_2D" : LReal
+TITLE = LKinCtrl_VecAbs_2D
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculates the length of a given vector in 2D
+   VAR_INPUT 
+      vIn : Array[1..2] of LReal;   // Input vector
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library: - 
+	// Tested with: S7-1516T-3 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.5
+	// Functionality: Calculate length of vector
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 27.08.2018 SF               created
+	// 01.00.01 29.01.2019 JR               adaptions for LKinCtrl 
+	//=============================================================================
+	
+	#LKinCtrl_VecAbs_2D := SQRT((* #vIn[0]*#vIn[0] + *)#vIn[1] * #vIn[1] + #vIn[2] * #vIn[2]);
+END_FUNCTION
+

@@ -1,0 +1,83 @@
+﻿FUNCTION "LKinCtrl_CalcVecDistancePathPlane" : Word
+TITLE = LKinCtrl_CalcVecDistancePathPlane
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculate vector distance with respect to path plane
+   VAR_INPUT 
+      vectorInA : "LKinCtrl_typeCOff3DPoint";   // Vector A
+      vectorInB : "LKinCtrl_typeCOff3DPoint";   // vector B
+      pathPlane : Int;   // Path plane: XZ= 0, YZ=1, XY= 2
+   END_VAR
+
+   VAR_OUTPUT 
+      distancePathPlane : LReal;   // Distance with respect to path plane
+   END_VAR
+
+   VAR_TEMP 
+      tempVectorA : "LKinCtrl_typeCOff3DPoint";
+      tempVectorB : "LKinCtrl_typeCOff3DPoint";
+   END_VAR
+
+   VAR CONSTANT 
+      ERR_COFF_INVALID_PATH_PLANE : Word := 16#8303;   // Error - invalid path plane
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library: - 
+	// Tested with: S7-1516T-3 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.5
+	// Functionality: Calculate vector distance with respect to path plane
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 2019-02-15 AW               created
+	//=============================================================================
+	REGION PLAUSIBILITY_CHECK
+	  // Check path plane
+	  IF ((#pathPlane >= "CP_XZ") AND (#pathPlane <= "CP_XY"))
+	  THEN
+	    ;
+	  ELSE
+	    #LKinCtrl_CalcVecDistancePathPlane := #ERR_COFF_INVALID_PATH_PLANE; // Invalid path plane
+	    RETURN;
+	  END_IF;
+	END_REGION PLAUSIBILITY_CHECK
+	
+	
+	REGION CALCULATION
+	  #tempVectorA := #vectorInA;
+	  #tempVectorB := #vectorInB;
+	  
+	  // Eleminate "third" coordinate
+	  CASE #pathPlane OF
+	    "CP_XY":
+	      #tempVectorA.z := 0.0;
+	      #tempVectorB.z := 0.0;
+	      
+	    "CP_XZ":
+	      #tempVectorA.y := 0.0;
+	      #tempVectorB.y := 0.0;
+	      
+	    "CP_YZ":
+	      #tempVectorA.x := 0.0;
+	      #tempVectorB.x := 0.0;
+	  END_CASE;
+	
+	  #distancePathPlane := "LKinCtrl_VecAbs"("LKinCtrl_VecSub"(vIn1:=#tempVectorB, vIn2:=#tempVectorA));
+	  
+	  
+	  
+	END_REGION CALCULATION
+	
+	#LKinCtrl_CalcVecDistancePathPlane := 0; // o.k.
+END_FUNCTION
+

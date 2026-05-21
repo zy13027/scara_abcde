@@ -1,0 +1,91 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="usePoint" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Use or ignore point</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="position" Datatype="Array[1..6] of LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Cartesian position</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="coordSystem" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">0: WCS; 1: OCS[1]; 2: OCS[2]; 3: OCS[3]; 100: MCS</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bufferMode" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">bufferMode for path motion</MultiLanguageText>
+      </Comment>
+      <StartValue>1</StartValue>
+    </Member>
+    <Member Name="transitionParameter" Datatype="Array[1..5] of LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">transitionParameter for path motion</MultiLanguageText>
+      </Comment>
+      <Subelement Path="1">
+        <StartValue>-1.0</StartValue>
+      </Subelement>
+    </Member>
+    <Member Name="tracking" Datatype="&quot;LKinCtrl_typePnPTrackingProperties&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Tracking properties</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="directionA" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">1 - positive, 2 - negative, 3 - shortest way (Only necessary up to 4D Kinematics)</MultiLanguageText>
+      </Comment>
+      <StartValue>3</StartValue>
+    </Member>
+    <Member Name="pathDynamics" Datatype="&quot;LKinCtrl_typePathDynamics&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Path dynamics specification</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="dynamicAdaption" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">0=no dynamic adaption, 1=dynamic adaptation with segmentation of the path, 2=dynamic adaptation without segmentation of the path</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="distanceToPrevious" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Linear distance to previous point</MultiLanguageText>
+      </Comment>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>LKinCtrl_typePnPLinPointParameter</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

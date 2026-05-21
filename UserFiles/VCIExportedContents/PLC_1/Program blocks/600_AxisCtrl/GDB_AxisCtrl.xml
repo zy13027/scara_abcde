@@ -1,0 +1,90 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Blocks.GlobalDB ID="0">
+    <AttributeList>
+      <AutoNumber>false</AutoNumber>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="Static">
+    <Member Name="TOCtrl" Datatype="Array[1..10] of &quot;UDT_typePosCtrl&quot;">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+    </Member>
+    <Member Name="LKinCtrl" Datatype="&quot;UDT_typeKinCtrl&quot;">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+      <Sections>
+        <Section Name="None">
+          <Member Name="input" Datatype="Struct">
+            <Member Name="configuration" Datatype="Struct">
+              <Member Name="jogframe" Datatype="Struct">
+                <Member Name="dynamics" Datatype="&quot;LKinCtrl_typeDynamics&quot;">
+                  <Sections>
+                    <Section Name="None">
+                      <Member Name="orientation" Datatype="&quot;LKinCtrl_typePathDynamics&quot;">
+                        <Sections>
+                          <Section Name="None">
+                            <Member Name="velocity" Datatype="LReal">
+                              <StartValue>50.0</StartValue>
+                            </Member>
+                            <Member Name="acceleration" Datatype="LReal">
+                              <StartValue>500.0</StartValue>
+                            </Member>
+                            <Member Name="deceleration" Datatype="LReal">
+                              <StartValue>500.0</StartValue>
+                            </Member>
+                            <Member Name="jerk" Datatype="LReal">
+                              <StartValue>5000.0</StartValue>
+                            </Member>
+                          </Section>
+                        </Sections>
+                      </Member>
+                    </Section>
+                  </Sections>
+                </Member>
+              </Member>
+            </Member>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="Measureinput" Datatype="Array[1..2] of &quot;UDT_typeMeasureInput&quot;">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <MemoryLayout>Optimized</MemoryLayout>
+      <MemoryReserve>0</MemoryReserve>
+      <Name>GDB_AxisCtrl</Name>
+      <Namespace />
+      <Number>101</Number>
+      <ProgrammingLanguage>DB</ProgrammingLanguage>
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Blocks.GlobalDB>
+</Document>

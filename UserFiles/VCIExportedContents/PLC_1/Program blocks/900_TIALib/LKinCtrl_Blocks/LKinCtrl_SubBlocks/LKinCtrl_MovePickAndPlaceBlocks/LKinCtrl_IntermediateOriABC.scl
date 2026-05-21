@@ -1,0 +1,112 @@
+﻿FUNCTION "LKinCtrl_IntermediateOriABC" : Word
+TITLE = LKinCtrl_IntermediateOriABC
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculate intermediate orientation (A, B, C) between start and target orientation
+   VAR_INPUT 
+      startOri : "LKinCtrl_typePnPOrientationFrame";   // Start orientation frame
+      targetOri : "LKinCtrl_typePnPOrientationFrame";   // Target orientation frame
+      ratio : LReal;   // Intermediate point ratio
+   END_VAR
+
+   VAR_OUTPUT 
+      intermediateOri : "LKinCtrl_typePnPOrientationFrame";   // Intermediate orientation frame
+   END_VAR
+
+   VAR_TEMP 
+      tempMat1R2 : Array[1..3, 1..3] of LReal;
+      tempMat0R1T : Array[1..3, 1..3] of LReal;
+      tempMat0R1 : Array[1..3, 1..3] of LReal;
+      tempMat0R2 : Array[1..3, 1..3] of LReal;
+      tempMat1R3 : Array[1..3, 1..3] of LReal;
+      tempMat0R3 : Array[1..3, 1..3] of LReal;
+      tempRotationAngleRad : LReal;
+      tempRotationAngle : LReal;
+      tempRotationVec : "LKinCtrl_typeCOff3DPoint";
+      tempRotationVecUnit : "LKinCtrl_typeCOff3DPoint";
+      temp1 : LReal;
+      tempError : Bool;
+      tempStatus : Word;
+   END_VAR
+
+   VAR CONSTANT 
+      STATUS_NO_ERR : Word := 16#0000;   // No error
+      ERR_MATRIX_MUL : Word := 16#9000;   // Error - at matrix multiplication
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2023
+	//-----------------------------------------------------------------------------
+	// Library:       LKinCtrl
+	// Tested with:   S7-1518TF-4 PN/DP, FW V3.1
+	// Engineering:   TIA Portal V19
+	// Restrictions:  ---
+	// Requirements:  S7-1500T, FW V3.0
+	// Functionality: Calc intermediate frame A, B, C between start and target A, B, C
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 21.09.2023 SF               First released version
+	//=============================================================================
+	
+	//Create Matrix 0R2
+	"LKinCtrl_RotXYZ"(angleA := #targetOri.a,
+	                  angleB := #targetOri.b,
+	                  angleC := #targetOri.c,
+	                  resultMatrix := #tempMat0R2);
+	//Create Matrix 0R1_T
+	"LKinCtrl_RotXYZTranspose"(angleA := #startOri.a,
+	                           angleB := #startOri.b,
+	                           angleC := #startOri.c,
+	                           resultMatrix := #tempMat0R1T);
+	//Create Matrix OR1
+	"LKinCtrl_RotXYZ"(angleA := #startOri.a,
+	                  angleB := #startOri.b,
+	                  angleC := #startOri.c,
+	                  resultMatrix := #tempMat0R1);
+	//Create Matrix 1R2 = 0R1_T*0R2
+	"LKinCtrl_MatrixMultiplication"(error => #tempError,
+	                                status => #tempStatus,
+	                                matrix1 := #tempMat0R1T,
+	                                matrix2 := #tempMat0R2,
+	                                matrixResult := #tempMat1R2);
+	IF (#tempError = TRUE) THEN
+	  #LKinCtrl_IntermediateOriABC := #ERR_MATRIX_MUL;
+	  RETURN;
+	END_IF;
+	//Create r, Phi
+	"LKinCtrl_RotMatrixToRotVec"(rotMatrix := #tempMat1R2,
+	                             rotVector => #tempRotationVecUnit,
+	                             rotAngle => #tempRotationAngle);
+	//Create 1R3 from r, Phi*ratio
+	"LKinCtrl_RotVecToRotMatrix"(rotVector := #tempRotationVecUnit,
+	                             rotAngle := #tempRotationAngle * #ratio,
+	                             rotMatrix => #tempMat1R3);
+	//Create 0R3 = 0R1 * 1R3
+	"LKinCtrl_MatrixMultiplication"(error => #tempError,
+	                                status => #tempStatus,
+	                                matrix1 := #tempMat0R1,
+	                                matrix2 := #tempMat1R3,
+	                                matrixResult := #tempMat0R3);
+	IF (#tempError = TRUE) THEN
+	  #LKinCtrl_IntermediateOriABC := #ERR_MATRIX_MUL;
+	  RETURN;
+	END_IF;
+	//Get A, B, C from 0R3
+	"LKinCtrl_InvRotXYZ"(A => #intermediateOri.a,
+	                     B => #intermediateOri.b,
+	                     C => #intermediateOri.c,
+	                     rotMatrix := #tempMat0R3);
+	//set return value
+	#LKinCtrl_IntermediateOriABC := #STATUS_NO_ERR;
+	
+	
+END_FUNCTION
+

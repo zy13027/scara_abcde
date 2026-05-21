@@ -1,0 +1,81 @@
+﻿FUNCTION "LKinCtrl_CheckUserFrame" : Bool
+TITLE = LKinCtrl_CheckUserFrame
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Checks a command if it can be executed with a user frame
+   VAR_INPUT 
+      cmdType : DInt;
+      coordinateSystem : DInt;
+      circMode : DInt;
+      userFrames : Array["LKINCTRL_CS_NO_OF_FIRST_USER_FRAME".."LKINCTRL_CS_NO_OF_LAST_USER_FRAME"] of "LKinCtrl_typeFrame";
+   END_VAR
+
+   VAR_TEMP 
+      tempReturnValue : Bool;
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2021 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN/DP
+	// Engineering: TIA Portal V16
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 2.8
+	// Functionality: LKinCtrl_CheckUserFrame
+	// The FC checks a given command if it can be executed with a user frame
+	//
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   20.08.2021    FR                  First released version
+	//===========================================================================================
+	
+	// Initialize temporary return value
+	#tempReturnValue := FALSE;
+	
+	IF #coordinateSystem >= "LKINCTRL_CS_NO_OF_FIRST_USER_FRAME"
+	    AND #coordinateSystem <= "LKINCTRL_CS_NO_OF_LAST_USER_FRAME"
+	THEN
+	    // Check if circular command is used
+	    IF (#cmdType = "LKINCTRL_MC_MOVECIRCULARABS" OR #cmdType = "LKINCTRL_MC_MOVECIRCULARREL")
+	        AND (#circMode <> "CM_BORDER")
+	    THEN
+	        // Check if used frame has a rotation
+	        IF #userFrames[#coordinateSystem].a <> 0.0
+	            OR #userFrames[#coordinateSystem].b <> 0.0
+	            OR #userFrames[#coordinateSystem].c <> 0.0
+	        THEN
+	            // Command is not allowed! --> Not OK
+	            #tempReturnValue := FALSE;
+	        ELSE
+	            // No rotation in user frame --> OK
+	            #tempReturnValue := TRUE;
+	        END_IF;
+	    ELSE
+	        // Not a critical circular command --> OK
+	        #tempReturnValue := TRUE;
+	    END_IF;
+	ELSE
+	    // Command is not executed in user CS -> OK
+	    #tempReturnValue := TRUE;
+	END_IF;
+	
+	
+	// Write return value
+	#LKinCtrl_CheckUserFrame := #tempReturnValue;
+	
+	
+	
+	
+	
+	
+END_FUNCTION
+

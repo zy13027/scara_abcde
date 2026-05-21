@@ -1,0 +1,41 @@
+﻿FUNCTION "LKinCtrl_VecDivScal" : "LKinCtrl_typeCOff3DPoint"
+TITLE = LKinCtrl_VecDivScal
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Divide coordinate with scalar of coordinates (X, Y, Z) of "LKinCtrl_typeCOff3DPoint"
+   VAR_INPUT 
+      vIn : "LKinCtrl_typeCOff3DPoint";   // Input vector
+      sIn : LReal;   // Input scalar
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2018 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library: - 
+	// Tested with: S7-1516T-3 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.5
+	// Functionality: Divide coordinate with scalar of coordinates (X, Y, Z) of "LKinCtrl_typeCOff3DPoint"
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 2018-10-26 AW               created
+	//=============================================================================
+	
+	IF (#sIn <> 0.0) THEN
+	  #LKinCtrl_VecDivScal.x := #vIn.x / #sIn;
+	  #LKinCtrl_VecDivScal.y := #vIn.y / #sIn;
+	  #LKinCtrl_VecDivScal.z := #vIn.z / #sIn;
+	ELSE
+	  #LKinCtrl_VecDivScal.x := 0.0;
+	  #LKinCtrl_VecDivScal.y := 0.0;
+	  #LKinCtrl_VecDivScal.z := 0.0;
+	END_IF;
+END_FUNCTION
+

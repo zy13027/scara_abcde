@@ -1,0 +1,156 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="input" Datatype="Struct">
+      <Member Name="bo_estop" Datatype="Bool" />
+      <Member Name="bo_enable" Datatype="Bool" />
+      <Member Name="bo_reset" Datatype="Bool" />
+      <Member Name="bo_home" Datatype="Bool" />
+      <Member Name="bo_jogforward" Datatype="Bool" />
+      <Member Name="bo_jogbackward" Datatype="Bool" />
+      <Member Name="bo_movevelocity" Datatype="Bool" />
+      <Member Name="bo_posabsolute" Datatype="Bool" />
+      <Member Name="bo_posrelative" Datatype="Bool" />
+      <Member Name="bo_gearin" Datatype="Bool" />
+      <Member Name="bo_camin" Datatype="Bool" />
+      <Member Name="bo_camout" Datatype="Bool" />
+      <Member Name="bo_halt" Datatype="Bool" />
+      <Member Name="bo_stop" Datatype="Bool" />
+      <Member Name="configuration" Datatype="Struct">
+        <Member Name="home" Datatype="Struct">
+          <AttributeList>
+            <BooleanAttribute Name="ExternalWritable" SystemDefined="true">false</BooleanAttribute>
+          </AttributeList>
+          <Member Name="i16_mode" Datatype="Int" />
+          <Member Name="r64_homeposition" Datatype="LReal" />
+          <Member Name="r64_ApproachVelocity" Datatype="LReal">
+            <StartValue>10.0</StartValue>
+          </Member>
+          <Member Name="r64_ReferencingVelocity" Datatype="LReal">
+            <StartValue>5.0</StartValue>
+          </Member>
+        </Member>
+        <Member Name="jog" Datatype="Struct">
+          <Member Name="r64_velocity" Datatype="LReal">
+            <StartValue>5.0</StartValue>
+          </Member>
+          <Member Name="r64_acceleration" Datatype="LReal">
+            <StartValue>1000.0</StartValue>
+          </Member>
+          <Member Name="r64_jerk" Datatype="LReal">
+            <StartValue>-1.0</StartValue>
+          </Member>
+        </Member>
+        <Member Name="movevelocity" Datatype="Struct">
+          <Member Name="r64_velocity" Datatype="LReal">
+            <StartValue>10.0</StartValue>
+          </Member>
+          <Member Name="r64_acceleration" Datatype="LReal">
+            <StartValue>1000.0</StartValue>
+          </Member>
+          <Member Name="r64_jerk" Datatype="LReal">
+            <StartValue>-1.0</StartValue>
+          </Member>
+          <Member Name="i16_direction" Datatype="Int" />
+        </Member>
+        <Member Name="posabsolute" Datatype="Struct">
+          <Member Name="r64_velocity" Datatype="LReal">
+            <StartValue>10.0</StartValue>
+          </Member>
+          <Member Name="r64_position" Datatype="LReal">
+            <StartValue>0.0</StartValue>
+          </Member>
+          <Member Name="r64_acceleration" Datatype="LReal">
+            <StartValue>1000.0</StartValue>
+          </Member>
+          <Member Name="r64_jerk" Datatype="LReal">
+            <StartValue>-1.0</StartValue>
+          </Member>
+          <Member Name="i16_direction" Datatype="Int">
+            <StartValue>1</StartValue>
+          </Member>
+        </Member>
+        <Member Name="posrelative" Datatype="Struct">
+          <Member Name="r64_velocity" Datatype="LReal">
+            <StartValue>10.0</StartValue>
+          </Member>
+          <Member Name="r64_position" Datatype="LReal">
+            <StartValue>0.0</StartValue>
+          </Member>
+          <Member Name="r64_acceleration" Datatype="LReal">
+            <StartValue>1000.0</StartValue>
+          </Member>
+          <Member Name="r64_jerk" Datatype="LReal">
+            <StartValue>-1.0</StartValue>
+          </Member>
+        </Member>
+        <Member Name="gearin" Datatype="Struct">
+          <Member Name="RatioNumerator" Datatype="DInt">
+            <StartValue>1</StartValue>
+          </Member>
+          <Member Name="RatioDenominator" Datatype="DInt">
+            <StartValue>1</StartValue>
+          </Member>
+        </Member>
+        <Member Name="camin" Datatype="Struct">
+          <Member Name="i16_syncProfileReference" Datatype="Int">
+            <StartValue>2</StartValue>
+          </Member>
+          <Member Name="i16_applicationMode" Datatype="Int">
+            <StartValue>0</StartValue>
+          </Member>
+          <Member Name="r64_masterStartDistance" Datatype="LReal" />
+          <Member Name="r64_masterSyncPosition" Datatype="LReal" />
+          <Member Name="r64_masterOffset" Datatype="LReal" />
+        </Member>
+      </Member>
+    </Member>
+    <Member Name="output" Datatype="Struct">
+      <Member Name="bo_communicationOk" Datatype="Bool" />
+      <Member Name="bo_enabled" Datatype="Bool" />
+      <Member Name="bo_homed" Datatype="Bool" />
+      <Member Name="bo_inGear" Datatype="Bool" />
+      <Member Name="bo_StarSync" Datatype="Bool" />
+      <Member Name="bo_inSync" Datatype="Bool" />
+      <Member Name="bo_fault" Datatype="Bool" />
+      <Member Name="bo_endprofile" Datatype="Bool" />
+      <Member Name="bo_SWLimitMinActived" Datatype="Bool" />
+      <Member Name="bo_SWLimitMaxActived" Datatype="Bool" />
+      <Member Name="bo_HWLimitMinActived" Datatype="Bool" />
+      <Member Name="bo_HWLimitMaxActived" Datatype="Bool" />
+      <Member Name="r64_actualVelocity" Datatype="LReal" />
+      <Member Name="r64_actualPosition" Datatype="LReal" />
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>UDT_typePosCtrl</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

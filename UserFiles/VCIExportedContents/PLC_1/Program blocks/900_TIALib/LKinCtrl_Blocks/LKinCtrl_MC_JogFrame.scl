@@ -1,0 +1,1250 @@
+﻿FUNCTION_BLOCK "LKinCtrl_MC_JogFrame"
+TITLE = LKinCtrl_MC_JogFrame
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Functionality: This function block provides various jog functionality for kinematics technology object.
+   VAR_INPUT 
+      jogForward : Bool := FALSE;   // Jog the kinematics forward in the selected jog direction
+      jogBackward : Bool := FALSE;   // Jog the kinematics backward in the selected jog direction
+      jogToPosition : Bool := FALSE;   // Jog the kinematics to the specified target position
+      jogSPTP : Bool := FALSE;   // Jog the kinematics synchronous point to point
+      jogDirection : USInt := 1;   // 1=x-direction, 2=y-direction, 3=z-direction, 4=a-direction, 5=b-direction, 6=c-direction, 7=Z-axis - about A,, 8=Y-axis - about B, 9=X-axis - about C
+      jogModeInc : Bool := FALSE;   // 1=incremental jog mode, 0=continuous jog mode
+      jogIncrement : LReal := 1.0;   // Specification of the jog increment
+      targetPosition : "LKinCtrl_typeCartesianPosition";   // Specification of the target position
+      coordSystem : DInt := 0;   // 0=WCS, 1= OCS1, 2=OCS2, 3=OCS3, 4=TCS, 100=MCS, 101=JCS
+      linkconstellation : DWord := 16#FFFF_FFFF;   // Target joint position space
+      turnJoint : Array[1..6] of DInt;   // Turn joint setting for move direct only
+      tool : DInt := 1;   // 1= tool1, 2=tool2, 3=tool3
+      dynamics : "LKinCtrl_typeDynamics";   // Specification of the jog dynamics
+      userFrames { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array["LKINCTRL_CS_NO_OF_FIRST_USER_FRAME".."LKINCTRL_CS_NO_OF_LAST_USER_FRAME"] of "LKinCtrl_typeFrame";
+   END_VAR
+
+   VAR_OUTPUT 
+      done { ExternalWritable := 'False'} : Bool := FALSE;   // TRUE: Commanded functionality has been completed successfully
+      busy { ExternalWritable := 'False'} : Bool := FALSE;   // TRUE: FB is not finished and new output values can be expected
+      active { ExternalWritable := 'False'} : Bool := FALSE;   // TRUE: The setpoints are calculated
+      error { ExternalWritable := 'False'} : Bool := FALSE;   // TRUE: An error occurred during the execution of the FB
+      status { ExternalWritable := 'False'} : Word := #STATUS_NO_CALL;   // 16#0000 - 16#7FFF: Status of the FB, 16#8000 - 16#FFFF: Error identification
+      remainingDistance { ExternalWritable := 'False'} : LReal := 0.0;   // Distance-to-go of the current job
+      diagnostics { ExternalWritable := 'False'} : "LKinCtrl_typeJogFrameDiagnostics";   // Diagnostics information
+   END_VAR
+
+   VAR_IN_OUT 
+      axesGroup {InstructionName := 'TO_Kinematics'; LibVersion := '9.0'} : TO_Kinematics;   // Kinematics technology object
+   END_VAR
+
+   VAR 
+      instMC_SetTool {InstructionName := 'MC_SETTOOL'; LibVersion := '9.0'; ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : MC_SETTOOL;   // Instance MC_SetTool
+      instMC_GroupStop {InstructionName := 'MC_GROUPSTOP'; LibVersion := '9.0'; ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : MC_GROUPSTOP;   // Instance MC_GroupStop
+      instMC_MoveLinearAbsolute {InstructionName := 'MC_MOVELINEARABSOLUTE'; LibVersion := '9.0'; ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : MC_MOVELINEARABSOLUTE;   // Instance MC_MoveLinearAbsolute
+      instMC_MoveLinearRelative {InstructionName := 'MC_MOVELINEARRELATIVE'; LibVersion := '9.0'; ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : MC_MOVELINEARRELATIVE;   // Instance MC_MoveLinearRelative
+      instMC_MoveDirectAbsolute {InstructionName := 'MC_MOVEDIRECTABSOLUTE'; LibVersion := '9.0'; ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : MC_MOVEDIRECTABSOLUTE;   // Instance MC_MoveDirectAbsolute
+      instMC_MoveDirectRelative {InstructionName := 'MC_MOVEDIRECTRELATIVE'; LibVersion := '9.0'; ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : MC_MOVEDIRECTRELATIVE;   // Instance MC_MoveDirectAbsolute
+      statDone { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool := FALSE;   // Static value for output 'done'
+      statBusy { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool := FALSE;   // Static value for output 'busy'
+      statActive { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool := FALSE;   // Static value for output 'active'
+      statError { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool := FALSE;   // Static value for output 'error'
+      statStatus { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Word := #STATUS_NO_CALL;   // 0000=STATUS_EXECUTION_FINISHED; 7000=STATUS_NO_CALL; 7001=STATUS_FIRST_CALL; 7002=STATUS_SUBSEQUENT_CALL; 8600=ERR_UNDEFINED_STATE
+      statRemainingDistance { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : LReal := 0.0;   // Static value for remaining distance
+      statFBState { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt := #FB_STATE_NO_PROCESSING;   // 0= NO PROCESSING; 10=IDLE; 20=SET_TOOL; 30=SET_DYNAMICS, 50=EXECUTE_MOVEMENT; 100=STOP
+      statToolOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt := 1;   // Static value for tool
+      statJogForwardOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool := FALSE;   // Static value for jog forward command
+      statJogBackwardOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool := FALSE;   // Static value for jog backward command
+      statJogToPositionOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool := FALSE;   // Static value for jog to position command
+      statJogSPTPOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool := FALSE;   // Static value for jog sPTP command
+      statOrientationDynamicsChanged { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool := FALSE;   // Static value indicates that default orientation dynamics have been changed
+      statOrientationDynamicsOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typePathDynamics";   // Static value for orientation dynamics
+      statRotMatrix1 { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..3, 1..3] of LReal;   // Rotationmatrix 1
+      statRotMatrix2 { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..3, 1..3] of LReal;   // Rotationmatrix 2
+      statRotMatrix3 { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..3, 1..3] of LReal;   // Rotationmatrix 3
+      statTypeOfKinematics { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // Static value to store type of kinematics
+      statTypeOfKinematicsOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // Static value to detect change of kinematics type
+      statFrameCoordinateConfigurable { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..6] of Bool;   // Static array showing which DOF are available
+      statUpperFrameLimit { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..6] of LReal;   // Static array with upper limits for positions
+      statLowerFrameLimit { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..6] of LReal;   // Static array with lower limits for positions
+      stat5D6D { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // Static variable, TRUE. 5D/6D, FALSE < 5D
+      statStatusBeforeResetTool { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Word;   // Status saved before reset tool state
+   END_VAR
+
+   VAR_TEMP 
+      tempJogForward : Bool;   // Temporary variable for jog forward input
+      tempJogBackward : Bool;   // Temporary variable for jog backward input
+      tempJogToPosition : Bool;   // Temporary variable for jog to position input
+      tempJogSPTP : Bool;   // Temporary variable for jog sptp input
+      tempCounter : DInt;   // Temporary variable for counter
+      tempRet : Int;   // Temporary variable for time stamp if error occurred
+      tempJogDistance : LReal;   // Temporary variable for jog distance
+      tempError : Bool;   // Temporary variable for error in subfunction
+      tempRetStatus : Word;   // Temporary variable for return value of subfunction
+      tempDirectionOk : Bool;   // Temporary variable to check if jog direction is ok
+      tempCoordSystemOk : Bool;   // Temporary variable to check if coordinate system is ok
+      tempDistToLimit : LReal;   // Temporary variable to calculate distance to joint limit
+      tempOk : Bool;   // Temporary variable to check if condition is ok
+      tempLimitJCS : LReal;   // Temporary variable for JCS limit
+      tempLimitMCS : LReal;   // Termporary variable for MCS limit
+      tempDistToLimitJCS : LReal;   // Temporary variable for distance to JCS limit
+      tempDistToLimitMCS : LReal;   // Temporary variable for distance to MCS limit
+      tempDistToLimitACJCS : LReal;   // Temporary variable for distance to JCS limit of affected axes
+      tempDistToLimitACMCS : LReal;   // Temporary variable for distance to MCS limit of affected axes
+      tempDistToLimitACMin : LReal;   // Temporary variable for minimum distance to limit of affected axes
+      tempLimitACJCS : LReal;   // Temporary variable for effective joint limit
+      tempLimitACMCS : LReal;   // Temporary variable for effective joint limit
+      tempFactor : LReal;   // Temporary variable for coupling factor
+      tempCausingAxis : UDInt;   // Temporary variable for causing axis
+      tempAffectedAxis : DInt;   // Temporary variable for affected axis
+      tempAxisPosition : Array[1..#NO_OF_AXES] of LReal;   // Temporary variable for axis positions
+      tempJointPosition : Array[1..#NO_OF_AXES] of LReal;   // Temporary variable for joint positions
+      tempJointUpperLimit : Array[1..#NO_OF_AXES] of LReal;   // Temporary variable for joint upper limit
+      tempJointLowerLimit : Array[1..#NO_OF_AXES] of LReal;   // Temporary variable for joint lower limit
+      tempAxisSWLimitActive : Array[1..#NO_OF_AXES] of Bool;   // Temporary variable for axis SW limit active
+      tempAxisSWLimitMaxPos : Array[1..#NO_OF_AXES] of LReal;   // Temporary variable for axis SW limit max. position
+      tempAxisSWLimitMinPos : Array[1..#NO_OF_AXES] of LReal;   // Temporary variable for axis SW limit min. position
+      tempTcpInUcs : Array[1..#NO_OF_AXES] of LReal;
+      tempRefPosAxis {InstructionName := 'TO_PositioningAxis'; LibVersion := '9.0'} : REF_TO TO_PositioningAxis;   // Reference to position axis
+   END_VAR
+
+   VAR CONSTANT 
+      FB_STATE_NO_PROCESSING : DInt := 0;   // FB state: No processing
+      FB_STATE_CMD_CONFIGURATION : DInt := 10;   // FB state: Basic command configuration are set depending on input parameter
+      FB_STATE_SET_TOOL : DInt := 20;   // FB state: Tool change is performed if required
+      FB_STATE_EXECUTE_MOVEMENT : DInt := 50;   // FB state: Command is being executed
+      FB_STATE_RESET_TOOL : DInt := 60;
+      FB_STATE_STOP : DInt := 100;   // FB state: Kinematics movement is stopped
+      STATUS_EXECUTION_FINISHED : Word := 16#0000;   // The command execution is finished by reaching the target position or stopping the jog command
+      STATUS_NO_CALL : Word := 16#7000;   // No call of FB
+      STATUS_FIRST_CALL : Word := 16#7001;   // First cycle of FB after enabling
+      STATUS_SUBSEQUENT_CALL : Word := 16#7002;   // FB enabled
+      STATUS_OUT_OF_SW_LIMIT_BOUNDARIES : Word := 16#7010;   // Warning - out of axis software limits
+      STATUS_OUT_OF_JOINT_LIMITS : Word := 16#7011;   // Warning - out of joint limits (Kin 5D/6D)
+      ERR_UNDEFINED_STATE : Word := 16#8600;   // Error due to an undefined FB state
+      ERR_TO_KINEMATICS : Word := 16#8001;   // Error at technology object kinematics
+      ERR_INVALID_JOG_DIRECTION : Word := 16#8007;   // The specified jog direction is invalid (valid are: 1=x-direction, 2=y-direction, 3=z-direction, 4=a-direction, 5=b-direction, 6=c-direction, 7=Z-axis - about A,, 8=Y-axis - about B, 9=X-axis - about C)
+      ERR_MOTION_JOB_IN_PROGRESS : Word := 16#8090;   // A motion job is in progress or the kinematics control panel is activated
+      ERR_TWO_JOG_COMMANDS_SIMULTANEOUSLY : Word := 16#8091;   // Two jog commands were triggered simultaneously
+      ERR_INVALID_COORDINATE_SYSTEM : Word := 16#80B1;   // The specified coordinate system is invalid (valid values are 0=WCS, 1= OCS1, 2=OCS2, 3=OCS3)
+      ERR_INVALID_TOOL : Word := 16#80CA;   // The specified tool is invalid (valid values are 1= tool1, 2=tool2, 3=tool3)
+      ERR_JOG_DIRECTION_NOT_POSSIBLE : Word := 16#8100;   // The specified jog direction is not possible due to reduced degrees of freedom (5D)
+      MAX_DISTANCE : LReal := 70000.0;   // The value is set for relative linear movement as jog increment for icremental jog mode
+      MAX_DISTANCE_ROTATION : LReal := 1000.0;   // The value is set for absolute linear movement as distance in TCS
+      L_BOUND_TOOL : DInt := 1;   // Lower bound for tool selection
+      U_BOUND_TOOL : DInt := 3;   // Upper bound for tool selection
+      L_BOUND_JOG_DIRECTION : DInt := 1;   // Lower bound for jog direction selection
+      U_BOUND_JOG_DIRECTION : DInt := 9;   // Upper bound for jog direction selection
+      L_BOUND_COORDSYSTEM : DInt := 0;   // Lower bound for coordinate system selection
+      U_BOUND_COORDSYSTEM : DInt := 4;   // Upper bound for coordinate system selection
+      INDEX_COORDSYSTEM_MCS : DInt := 100;   // Coordinate system index for MCS
+      INDEX_COORDSYSTEM_JCS : DInt := 101;   // Coordinate system index for JCS
+      INDEX_COORDSYSTEM_TCS : DInt := 4;   // Coordinate system index for TCS
+      JOG_DIRECTION_X : USInt := 1;   // Jog direction index for X
+      JOG_DIRECTION_Y : USInt := 2;   // Jog direction index for Y
+      JOG_DIRECTION_Z : USInt := 3;   // Jog direction index for Z
+      JOG_DIRECTION_A : USInt := 4;   // Jog direction index for A
+      JOG_DIRECTION_B : USInt := 5;   // Jog direction index for B
+      JOG_DIRECTION_C : USInt := 6;   // Jog direction index for C
+      JOG_DIRECTION_RZ : USInt := 7;   // Jog direction index for RZ
+      JOG_DIRECTION_RY : USInt := 8;   // Jog direction index for RY
+      JOG_DIRECTION_RX : USInt := 9;   // Jog direction index for RX
+      TOLERANCE_C : LReal := 0.01;   // Tolerance for target position C for 5D Kinematics
+      NO_OF_AXES : DInt := 6;   // Number of available axes
+      NO_OF_COUPLINGS : DInt := 5;   // Number of available axes couplings
+      SAFETY_DISTANCE : LReal := 0.1;   // Safety distance to limit of axes (Joint limit and software limit switch)
+      MOTION_TYPE_LINEAR : DInt := 0;
+      MOTION_TYPE_ROTARY : DInt := 1;
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2018 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library:       LKinCtrl
+	// Tested with:   S7-1516T
+	// Engineering:   TIA Portal V15
+	// Restrictions:  -
+	// Requirements:  S7-1500T FW 2.5
+	// Functionality: LKinCtrl_MC_JogFrame
+	// This function block provides various jog functionality for kinematics technology object
+	//
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date        Expert in charge   Changes applied
+	// 01.00.00 05.04.2018  IP                 First released version
+	// 01.00.01 24.04.2018  IP                 Hotfix - initialization - no functional changes
+	// 01.01.00 31.07.2018  IP                 Adjustment of input validation
+	//                                         New wait condition for next movement until stopping is done
+	//                                         Additional output parameter active and remaining distance
+	// 01.01.01 07.08.2018  IP                 Hotfix - constant MAX_DISTANCE decreased
+	// 01.01.02 09.01.2019  IP                 Hotfix - error indification adjusted
+	// 01.01.03 14.01.2019  IP                 Hotfix - dynamics configuration adjusted
+	// 01.01.04 12.07.2021  FF                 Added Synchronous point to point jogging
+	// 01.01.05 14.12.2021  FR                 Fix for orientation dynamics and refactor
+	// 01.01.06 15.07.2022  FR                 Fix for Override = 0 and fast toggle of inputs
+	// 02.00.00 18.01.2023  FR                 Updated to 6 axis
+	// 02.00.01 15.03.2023  FR                 Bugfix for 2D kinematics
+	// 02.00.02 02.05.2024  FR                 Check for 5D jogging -> New error 16#8100
+	// 02.01.00 05.09.2024  FR                 Reset tool after jog
+	// 02.02.00 10.09.2024  JH                 Added UCS jogging
+	//=============================================================================
+	
+	#tempJogForward := #jogForward; // Work with temporary value / create process image
+	#tempJogBackward := #jogBackward;
+	#tempJogToPosition := #jogToPosition;
+	#tempJogSPTP := #jogSPTP;
+	
+	REGION TRIGGERING
+	  IF ((#tempJogForward AND NOT #statJogForwardOld) // Check if FB is triggered
+	    OR (#tempJogBackward AND NOT #statJogBackwardOld)
+	    OR (#tempJogToPosition AND NOT #statJogToPositionOld)
+	    OR (#tempJogSPTP AND NOT #statJogSPTPOld))
+	    AND (#statStatus = #STATUS_NO_CALL)
+	    AND (#statFBState = #FB_STATE_NO_PROCESSING)
+	  THEN
+	    // First call; set FB variables for outputs
+	    #statBusy := TRUE;
+	    #statDone := FALSE;
+	    #statActive := FALSE;
+	    #statError := FALSE;
+	    #statRemainingDistance := 0.0;
+	    #statStatus := #STATUS_FIRST_CALL;
+	    // Get type of kinematics
+	    #statTypeOfKinematics := #axesGroup.Kinematics.TypeOfKinematics;
+	    
+	    // check if kinematics is 4D or more
+	    CASE #statTypeOfKinematics OF
+	      26, 27, // 3D + A,B
+	      25, 36: // 3D + A,B,C
+	        #stat5D6D := TRUE;
+	      ELSE
+	        // Reset variable
+	        #stat5D6D := FALSE;
+	    END_CASE;
+	    
+	    IF #statTypeOfKinematicsOld <> #statTypeOfKinematics THEN
+	      "LKinCtrl_FramesValidValues"(mode                        := 0, // Positions
+	                                   typeOfKinematics            := #statTypeOfKinematics,
+	                                   frameCoordinateConfigurable => #statFrameCoordinateConfigurable,
+	                                   upperLimitFrame             => #statUpperFrameLimit,
+	                                   lowerLimitFrame             => #statLowerFrameLimit);
+	      #statTypeOfKinematicsOld := #statTypeOfKinematics;
+	    END_IF;
+	    
+	    CASE #statTypeOfKinematics OF
+	      1, 5, 11, 15, 31,  // 2D kinematics
+	      2, 6, 12, 16, 20, 32:  // 2D + orientation axis A
+	        IF #coordSystem = #INDEX_COORDSYSTEM_MCS OR #coordSystem = #INDEX_COORDSYSTEM_JCS THEN
+	          // Allow A2 but not A3
+	          #statFrameCoordinateConfigurable[2] := TRUE;
+	          #statFrameCoordinateConfigurable[3] := FALSE;
+	        ELSE
+	          // Allow Z but not Y
+	          #statFrameCoordinateConfigurable[2] := FALSE;
+	          #statFrameCoordinateConfigurable[3] := TRUE;
+	        END_IF;
+	    END_CASE;
+	    
+	    // Check jog direction
+	    IF #tempJogToPosition OR #tempJogSPTP THEN
+	      #tempDirectionOk := TRUE; // direction is not used
+	    ELSE
+	      CASE #jogDirection OF
+	        #JOG_DIRECTION_X..#JOG_DIRECTION_C:
+	          #tempDirectionOk := #statFrameCoordinateConfigurable[#jogDirection];
+	        ELSE
+	          ;
+	      END_CASE;
+	      
+	      // Special cases for RZ,RY,RX (5D/6D)
+	      CASE #statTypeOfKinematics OF
+	        26, 27: // 3D + A,B
+	          #tempDirectionOk := (#jogDirection >= #L_BOUND_JOG_DIRECTION AND #jogDirection <= #U_BOUND_JOG_DIRECTION)
+	          AND NOT (#jogDirection = #JOG_DIRECTION_C);
+	          
+	        25, 36: // 3D + A,B,C
+	          #tempDirectionOk := #jogDirection >= #L_BOUND_JOG_DIRECTION AND #jogDirection <= #U_BOUND_JOG_DIRECTION;
+	        ELSE
+	          ;
+	      END_CASE;
+	      
+	      // No linear jog in cartesian allowed for Scara 2D+A but MCS/JCS is ok
+	      IF (#statTypeOfKinematics = 20) AND (#coordSystem <> #INDEX_COORDSYSTEM_MCS) AND (#coordSystem <> #INDEX_COORDSYSTEM_JCS) THEN
+	        #tempDirectionOk := FALSE;
+	      END_IF;
+	    END_IF;
+	    
+	    // Check coordinate system
+	    CASE #coordSystem OF
+	      "CS_WCS".."CS_OCS3":
+	        #tempCoordSystemOk := TRUE; // always true?
+	        
+	      "LKINCTRL_CS_NO_OF_FIRST_USER_FRAME".. "LKINCTRL_CS_NO_OF_LAST_USER_FRAME":
+	        #tempCoordSystemOk := TRUE; // always true?
+	        
+	      #INDEX_COORDSYSTEM_MCS:
+	        #tempCoordSystemOk := (#tempJogToPosition = FALSE); // Linear not allowed
+	        
+	        // Do not allow jogDirection 7..9
+	        IF #jogDirection >= #JOG_DIRECTION_RZ THEN
+	          #tempDirectionOk := FALSE;
+	        END_IF;
+	        
+	      #INDEX_COORDSYSTEM_JCS:
+	        #tempCoordSystemOk := (#tempJogToPosition = FALSE AND #stat5D6D = TRUE); // Not Linear and atleast 5D
+	        
+	        // Do not allow jogDirection 7..9
+	        IF #jogDirection >= #JOG_DIRECTION_RZ THEN
+	          #tempDirectionOk := FALSE;
+	        END_IF;
+	        
+	      #INDEX_COORDSYSTEM_TCS:
+	        #tempCoordSystemOk := (#tempJogSPTP = FALSE); // SPTP not possible in TCS
+	        
+	      ELSE
+	        // Invalid coordinate system
+	        #tempCoordSystemOk := FALSE;
+	    END_CASE;
+	    
+	    IF #tempDirectionOk = FALSE THEN
+	      #statStatus := #ERR_INVALID_JOG_DIRECTION;
+	    ELSIF #tool < #L_BOUND_TOOL OR #tool > #U_BOUND_TOOL THEN // check tool
+	      #statStatus := #ERR_INVALID_TOOL;
+	    ELSIF #tempCoordSystemOk = FALSE THEN
+	      #statStatus := #ERR_INVALID_COORDINATE_SYSTEM;
+	    ELSIF NOT #axesGroup.StatusWord.%X6 THEN // check if a motion job is in progress or the kinematics control panel is activated
+	      #statStatus := #ERR_MOTION_JOB_IN_PROGRESS;
+	    ELSE // all input parameter are valid     
+	      
+	      // reset execute inputs
+	      #instMC_GroupStop.Execute := FALSE;
+	      #instMC_MoveLinearAbsolute.Execute := FALSE;
+	      #instMC_MoveLinearRelative.Execute := FALSE;
+	      #instMC_MoveDirectAbsolute.Execute := FALSE;
+	      #instMC_MoveDirectRelative.Execute := FALSE;
+	      #instMC_SetTool.Execute := FALSE;
+	      
+	      // call FBs with execute = false
+	      #instMC_GroupStop(AxesGroup := #axesGroup);
+	      #instMC_MoveLinearAbsolute(AxesGroup := #axesGroup);
+	      #instMC_MoveLinearRelative(AxesGroup := #axesGroup);
+	      #instMC_MoveDirectAbsolute(AxesGroup := #axesGroup);
+	      #instMC_MoveDirectRelative(AxesGroup := #axesGroup);
+	      #instMC_SetTool(AxesGroup := #axesGroup);
+	      
+	      // get actual tool number
+	      #statToolOld := #axesGroup.StatusTool.ActiveTool;
+	      
+	      // safe default dynamics for orientation axis
+	      #statOrientationDynamicsOld.velocity := #axesGroup.DynamicDefaults.Orientation.Velocity;
+	      #statOrientationDynamicsOld.acceleration := #axesGroup.DynamicDefaults.Orientation.Acceleration;
+	      #statOrientationDynamicsOld.deceleration := #axesGroup.DynamicDefaults.Orientation.Deceleration;
+	      #statOrientationDynamicsOld.jerk := #axesGroup.DynamicDefaults.Orientation.Jerk;
+	      #statOrientationDynamicsChanged := FALSE;
+	      
+	      // state machine - start functionality
+	      #statFBState := #FB_STATE_CMD_CONFIGURATION;
+	    END_IF;
+	    
+	  ELSIF (#statStatus = #STATUS_FIRST_CALL) THEN
+	    #statStatus := #STATUS_SUBSEQUENT_CALL;
+	  END_IF;
+	  
+	END_REGION TRIGGERING
+	
+	IF (#statStatus = #STATUS_NO_CALL) THEN // Nothing to do -> End here to reduce "system load"
+	  RETURN;
+	END_IF;
+	
+	REGION STOP_MOTION
+	  // detection of falling edge on jog command
+	  IF ((NOT #tempJogForward AND #statJogForwardOld)
+	    OR (NOT #tempJogBackward AND #statJogBackwardOld)
+	    OR (NOT #tempJogToPosition AND #statJogToPositionOld)
+	    OR (NOT #tempJogSPTP AND #statJogSPTPOld))
+	    AND NOT (#statFBState = #FB_STATE_NO_PROCESSING)
+	  THEN // stop jog command
+	    #statFBState := #FB_STATE_STOP;
+	    
+	    // two jog commands simultaneously    
+	  ELSIF ((#tempJogBackward AND #tempJogForward)
+	    OR (#tempJogBackward AND #tempJogToPosition)
+	    OR (#tempJogBackward AND #tempJogSPTP)
+	    OR (#tempJogForward AND #tempJogToPosition)
+	    OR (#tempJogForward AND #tempJogSPTP)
+	    OR (#tempJogToPosition AND #tempJogSPTP))
+	    AND NOT (#statFBState = #FB_STATE_NO_PROCESSING)
+	  THEN // stop jog command
+	    #statFBState := #FB_STATE_STOP;
+	    #statStatus := #ERR_TWO_JOG_COMMANDS_SIMULTANEOUSLY;
+	  END_IF;
+	  
+	  IF #statStatus <> #STATUS_FIRST_CALL
+	    AND (#statStatus.%X15 = FALSE)
+	  THEN
+	    IF #axesGroup.StatusWord.%X1 // general TO error
+	      OR #instMC_MoveLinearAbsolute.Error
+	      OR #instMC_MoveLinearRelative.Error
+	      OR #instMC_MoveDirectAbsolute.Error
+	      OR #instMC_MoveDirectRelative.Error
+	      OR #instMC_GroupStop.Error
+	      OR (#instMC_SetTool.Error AND NOT (#statFBState = #FB_STATE_RESET_TOOL))
+	    THEN
+	      #statFBState := #FB_STATE_STOP;
+	    END_IF;
+	  END_IF;
+	END_REGION
+	
+	// Edge detection 'execute' input
+	#statJogForwardOld := #tempJogForward;
+	#statJogBackwardOld := #tempJogBackward;
+	#statJogToPositionOld := #tempJogToPosition;
+	#statJogSPTPOld := #tempJogSPTP;
+	
+	REGION RESET_DEFAULT_ORIENTATION_DYNAMICS
+	  IF (#instMC_MoveLinearRelative.Busy OR #instMC_MoveLinearAbsolute.Busy OR #statFBState = #FB_STATE_STOP)
+	    AND #statOrientationDynamicsChanged
+	  THEN // reset default orientation dynamics
+	    #axesGroup.DynamicDefaults.Orientation.Velocity := #statOrientationDynamicsOld.velocity;
+	    #axesGroup.DynamicDefaults.Orientation.Acceleration := #statOrientationDynamicsOld.acceleration;
+	    #axesGroup.DynamicDefaults.Orientation.Deceleration := #statOrientationDynamicsOld.deceleration;
+	    #axesGroup.DynamicDefaults.Orientation.Jerk := #statOrientationDynamicsOld.jerk;
+	    #statOrientationDynamicsChanged := FALSE;
+	  END_IF;
+	END_REGION
+	
+	REGION ACTIVE_OUTPUT
+	  // set active output if any of motion commands is active
+	  #statActive := #instMC_MoveLinearAbsolute.Active
+	  OR #instMC_MoveLinearRelative.Active
+	  OR #instMC_MoveDirectAbsolute.Active
+	  OR #instMC_MoveDirectRelative.Active
+	  OR #instMC_GroupStop.Active;
+	END_REGION
+	
+	REGION REMAINING_DISTANCE
+	  // set remaining distance at output if incremental mode active or while jogging to target position
+	  IF #instMC_MoveLinearAbsolute.Busy THEN
+	    #statRemainingDistance := #instMC_MoveLinearAbsolute.RemainingDistance;
+	  ELSIF #instMC_MoveLinearRelative.Busy AND #jogModeInc THEN
+	    #statRemainingDistance := #instMC_MoveLinearRelative.RemainingDistance;
+	  ELSE
+	    #statRemainingDistance := 0.0;
+	  END_IF;
+	END_REGION
+	
+	REGION STATE_MACHINE
+	  CASE #statFBState OF // State machine of FB
+	    #FB_STATE_NO_PROCESSING: // No processing active (Note: this state must always be present and left empty)
+	      ;
+	      
+	    #FB_STATE_CMD_CONFIGURATION:
+	      // Check for override <> 0 -> Only execute commands if override <> 0 as there are issues with TO_Kin if override = 0
+	      IF #axesGroup.Override.Velocity <> 0 THEN
+	        REGION CONFIGURATION
+	          // jog forward or backward
+	          //*********************************************************************************************************
+	          IF #tempJogForward OR #tempJogBackward THEN
+	            REGION JOG
+	            // jog distance + dynamic adaption
+	            IF #jogModeInc THEN // incremental
+	              #tempJogDistance := #jogIncrement;
+	              #instMC_MoveLinearAbsolute.DynamicAdaption := "DA_WITH_VARIABLE_LIMITS";
+	              #instMC_MoveLinearRelative.DynamicAdaption := "DA_WITH_VARIABLE_LIMITS";
+	            ELSE // continouos
+	              // switch off dynamic adaption for continouos mode
+	              #instMC_MoveLinearAbsolute.DynamicAdaption := "DA_DEACTIVATED";//"DA_WITH_VARIABLE_LIMITS";
+	              #instMC_MoveLinearRelative.DynamicAdaption := "DA_DEACTIVATED";//"DA_WITH_VARIABLE_LIMITS";
+	              // Check direction
+	              IF #coordSystem = #INDEX_COORDSYSTEM_MCS OR #coordSystem = #INDEX_COORDSYSTEM_JCS THEN
+	                CASE #jogDirection OF
+	                  1:
+	                    #tempRefPosAxis ?= #axesGroup.KinematicsAxis.A1;
+	                  2:
+	                    #tempRefPosAxis ?= #axesGroup.KinematicsAxis.A2;
+	                  3:
+	                    #tempRefPosAxis ?= #axesGroup.KinematicsAxis.A3;
+	                  4:
+	                    #tempRefPosAxis ?= #axesGroup.KinematicsAxis.A4;
+	                  5:
+	                    #tempRefPosAxis ?= #axesGroup.KinematicsAxis.A5;
+	                  6:
+	                    #tempRefPosAxis ?= #axesGroup.KinematicsAxis.A6;
+	                END_CASE;
+	                IF #tempRefPosAxis <> NULL THEN
+	                  IF #tempRefPosAxis^.Properties.MotionType = #MOTION_TYPE_LINEAR THEN
+	                    #tempJogDistance := #MAX_DISTANCE;
+	                  ELSE
+	                    #tempJogDistance := #MAX_DISTANCE_ROTATION;
+	                  END_IF;
+	                END_IF;
+	              ELSE // cartesian jogging
+	                IF #jogDirection < #JOG_DIRECTION_A THEN
+	                  #tempJogDistance := #MAX_DISTANCE;
+	                ELSE
+	                  #tempJogDistance := #MAX_DISTANCE_ROTATION;
+	                END_IF;
+	              END_IF;
+	            END_IF;
+	            
+	            // invert distance if backward
+	            IF #tempJogBackward THEN
+	              #tempJogDistance *= -1;
+	            END_IF;
+	            
+	            CASE #jogDirection OF
+	              #JOG_DIRECTION_X..#JOG_DIRECTION_C:
+	                IF #coordSystem = #INDEX_COORDSYSTEM_MCS OR #coordSystem = #INDEX_COORDSYSTEM_JCS THEN
+	                  // set MC_MoveDirectRelative parameter
+	                  #instMC_MoveDirectRelative.CoordSystem := #coordSystem;
+	                  #instMC_MoveDirectRelative.VelocityFactor := #dynamics.sPTP.velocityFactor;
+	                  #instMC_MoveDirectRelative.AccelerationFactor := #dynamics.sPTP.accelerationFactor;
+	                  #instMC_MoveDirectRelative.DecelerationFactor := #dynamics.sPTP.decelerationFactor;
+	                  #instMC_MoveDirectRelative.JerkFactor := #dynamics.sPTP.jerkFactor;
+	                  #instMC_MoveDirectRelative.LinkConstellation := #linkconstellation;
+	                  #instMC_MoveDirectRelative.TurnJoint := #turnJoint;
+	                  
+	                  // initialize jog distance - clear old values
+	                  FOR #tempCounter := 1 TO 6 DO
+	                    #instMC_MoveDirectRelative.Distance[#tempCounter] := 0.0;
+	                  END_FOR;
+	                  
+	                  // MCS / JCS
+	                  FOR #tempCounter := 1 TO #NO_OF_AXES DO
+	                    #tempAxisPosition[#tempCounter] := #axesGroup.AxesData.A[#tempCounter].Position;
+	                    IF (#stat5D6D) THEN
+	                      #tempJointPosition[#tempCounter] := #axesGroup.JointData.J[#tempCounter].Position;
+	                    END_IF;
+	                  END_FOR;
+	                  
+	                  // Check if jointalready outside limits
+	                  #tempOk := TRUE;
+	                  IF (#stat5D6D) THEN
+	                    FOR #tempCounter := 1 TO #NO_OF_AXES DO
+	                      #tempJointUpperLimit[#tempCounter] := #axesGroup.Joint.J[#tempCounter].UpperLimit;
+	                      #tempJointLowerLimit[#tempCounter] := #axesGroup.Joint.J[#tempCounter].LowerLimit;
+	                      
+	                      IF ((#tempJointPosition[#tempCounter] >= #tempJointUpperLimit[#tempCounter]) OR
+	                        (#tempJointPosition[#tempCounter] <= #tempJointLowerLimit[#tempCounter]))
+	                      THEN
+	                        #tempOk := FALSE;
+	                        #statStatus := #STATUS_OUT_OF_JOINT_LIMITS;
+	                        EXIT; // Already outside joint limit
+	                      ELSE
+	                        // Take safety distance into account
+	                        #tempJointUpperLimit[#tempCounter] -= #SAFETY_DISTANCE;
+	                        #tempJointLowerLimit[#tempCounter] += #SAFETY_DISTANCE;
+	                      END_IF;
+	                    END_FOR;
+	                  END_IF;
+	                  
+	                  // Check if axis is already outside limits
+	                  IF (#tempOk) THEN
+	                    FOR #tempCounter := 1 TO #NO_OF_AXES DO
+	                      CASE #tempCounter OF
+	                        1:
+	                          #tempRefPosAxis ?= #axesGroup.KinematicsAxis.A1;
+	                        2:
+	                          #tempRefPosAxis ?= #axesGroup.KinematicsAxis.A2;
+	                        3:
+	                          #tempRefPosAxis ?= #axesGroup.KinematicsAxis.A3;
+	                        4:
+	                          #tempRefPosAxis ?= #axesGroup.KinematicsAxis.A4;
+	                        5:
+	                          #tempRefPosAxis ?= #axesGroup.KinematicsAxis.A5;
+	                        6:
+	                          #tempRefPosAxis ?= #axesGroup.KinematicsAxis.A6;
+	                      END_CASE;
+	                      
+	                      IF (#tempRefPosAxis <> NULL) THEN
+	                        #tempAxisSWLimitActive[#tempCounter] := #tempRefPosAxis^.PositionLimits_SW.Active;
+	                        #tempAxisSWLimitMaxPos[#tempCounter] := #tempRefPosAxis^.PositionLimits_SW.MaxPosition - #SAFETY_DISTANCE;
+	                        #tempAxisSWLimitMinPos[#tempCounter] := #tempRefPosAxis^.PositionLimits_SW.MinPosition + #SAFETY_DISTANCE;
+	                      ELSE
+	                        #tempAxisSWLimitActive[#tempCounter] := FALSE;
+	                      END_IF;
+	                    END_FOR;
+	                  END_IF;
+	                  
+	                  IF (#tempOk) THEN
+	                    IF (#tempJogForward) // Positive direction
+	                    THEN
+	                      // positive direction
+	                      IF (#stat5D6D) THEN
+	                        #tempLimitJCS := #tempJointUpperLimit[#jogDirection];
+	                      END_IF;
+	                      IF (#tempAxisSWLimitActive[#jogDirection]) THEN
+	                        #tempLimitMCS := #tempAxisSWLimitMaxPos[#jogDirection];
+	                      END_IF;
+	                    ELSE
+	                      // negative direction
+	                      IF (#stat5D6D) THEN
+	                        #tempLimitJCS := #tempJointLowerLimit[#jogDirection];
+	                      END_IF;
+	                      IF (#tempAxisSWLimitActive[#jogDirection]) THEN
+	                        #tempLimitMCS := #tempAxisSWLimitMinPos[#jogDirection];
+	                      END_IF;
+	                    END_IF;
+	                    
+	                    IF (#stat5D6D) THEN
+	                      #tempDistToLimitJCS := ABS(#tempLimitJCS - #tempJointPosition[#jogDirection]);
+	                      IF #jogDirection < #JOG_DIRECTION_A THEN
+	                        #tempDistToLimitACJCS := #MAX_DISTANCE;
+	                      ELSE
+	                        #tempDistToLimitACJCS := #MAX_DISTANCE_ROTATION;
+	                      END_IF;
+	                    ELSE
+	                      #tempDistToLimitJCS := #MAX_DISTANCE;
+	                    END_IF;
+	                    
+	                    IF (#tempAxisSWLimitActive[#jogDirection]) THEN
+	                      #tempDistToLimitMCS := ABS(#tempLimitMCS - #tempAxisPosition[#jogDirection]);
+	                    ELSE
+	                      #tempDistToLimitMCS := #MAX_DISTANCE;
+	                    END_IF;
+	                    IF #jogDirection < #JOG_DIRECTION_A THEN
+	                      #tempDistToLimitACMin := #MAX_DISTANCE;
+	                    ELSE
+	                      #tempDistToLimitACMin := #MAX_DISTANCE_ROTATION;
+	                    END_IF;
+	                    
+	                    // Use smaller limit
+	                    #tempDistToLimit := MIN(IN1 := #tempDistToLimitJCS, IN2 := #tempDistToLimitMCS, IN3 := ABS(#tempJogDistance));
+	                    
+	                    // Check if an axis coupling is present
+	                    FOR #tempCounter := 1 TO #NO_OF_COUPLINGS DO
+	                      IF (#axesGroup.AxisCoupling.N[#tempCounter].Enable = FALSE) THEN // Coupling not enabled
+	                        CONTINUE;
+	                      END_IF;
+	                      
+	                      #tempFactor := #axesGroup.AxisCoupling.N[#tempCounter].Factor; // Get factor
+	                      
+	                      IF (#tempFactor = 0.0) THEN // Check if factor is 0.0
+	                        CONTINUE;
+	                      END_IF;
+	                      
+	                      #tempCausingAxis := #axesGroup.AxisCoupling.N[#tempCounter].CausingAxis; // Get causing axis
+	                      
+	                      IF #tempCausingAxis <> #jogDirection THEN // Causing axis is not current direction
+	                        CONTINUE;
+	                      END_IF;
+	                      
+	                      #tempAffectedAxis := UDINT_TO_DINT(#axesGroup.AxisCoupling.N[#tempCounter].AffectedAxis); // Get affected axis
+	                      
+	                      // Calculate limit
+	                      IF (((#tempFactor > 0) AND #tempJogForward) OR // Positive direction
+	                        ((#tempFactor < 0) AND #tempJogBackward)) // double negative -> positive direction
+	                      THEN
+	                        // Positive direction
+	                        IF (#stat5D6D) THEN
+	                          #tempLimitACJCS := #tempJointUpperLimit[#tempAffectedAxis];
+	                        END_IF;
+	                        IF (#tempAxisSWLimitActive[#tempAffectedAxis]) THEN
+	                          #tempLimitACMCS := #tempAxisSWLimitMaxPos[#tempAffectedAxis];
+	                        END_IF;
+	                      ELSE
+	                        // Negative direction
+	                        IF (#stat5D6D) THEN
+	                          #tempLimitACJCS := #tempJointLowerLimit[#tempAffectedAxis];
+	                        END_IF;
+	                        IF (#tempAxisSWLimitActive[#tempAffectedAxis]) THEN
+	                          #tempLimitACMCS := #tempAxisSWLimitMinPos[#tempAffectedAxis];
+	                        END_IF;
+	                      END_IF;
+	                      
+	                      IF (#stat5D6D) THEN
+	                        #tempDistToLimitACJCS := ABS((#tempLimitACJCS - #tempJointPosition[#tempAffectedAxis]) / #tempFactor);
+	                      END_IF;
+	                      
+	                      IF (#tempAxisSWLimitActive[#tempAffectedAxis]) THEN
+	                        #tempDistToLimitACMCS := ABS((#tempLimitACMCS - #tempAxisPosition[#tempAffectedAxis]) / #tempFactor);
+	                      ELSE
+	                        #tempDistToLimitACMCS := #MAX_DISTANCE;
+	                      END_IF;
+	                      
+	                      #tempDistToLimitACMin := MIN(IN1 := #tempDistToLimitACMin, IN2 := #tempDistToLimitACJCS, IN3 := #tempDistToLimitACMCS);
+	                    END_FOR;
+	                    
+	                    // Reduce to distance limit (e.g. relative)
+	                    #tempDistToLimit := MIN(IN1 := #tempDistToLimitACMin, IN2 := #tempDistToLimit);
+	                    
+	                    // Invert solution for negative direction
+	                    IF (#tempJogBackward) THEN
+	                      #tempDistToLimit *= -1.0;
+	                    END_IF;
+	                    
+	                    #instMC_MoveDirectRelative.Distance[#jogDirection] := #tempDistToLimit;
+	                  ELSE
+	                    #instMC_MoveDirectRelative.Distance[#jogDirection] := 0.0;
+	                  END_IF;
+	                  
+	                ELSE
+	                  // set MC_MoveLinearRelative parameter
+	                  #instMC_MoveLinearRelative.CoordSystem := #coordSystem;
+	                  #instMC_MoveLinearRelative.Velocity := #dynamics.path.velocity;
+	                  #instMC_MoveLinearRelative.Acceleration := #dynamics.path.acceleration;
+	                  #instMC_MoveLinearRelative.Deceleration := #dynamics.path.deceleration;
+	                  #instMC_MoveLinearRelative.Jerk := #dynamics.path.jerk;
+	                  
+	                  // initialize jog distance - clear old values
+	                  FOR #tempCounter := 1 TO 6 DO
+	                    #instMC_MoveLinearRelative.Distance[#tempCounter] := 0.0;
+	                  END_FOR;
+	                  
+	                  // set distance at command
+	                  #instMC_MoveLinearRelative.Distance[#jogDirection] := #tempJogDistance;
+	                  
+	                  IF #coordSystem = #INDEX_COORDSYSTEM_TCS THEN
+	                    #instMC_MoveLinearRelative.CoordSystem := "CS_WCS";
+	                    IF #jogDirection < #JOG_DIRECTION_A THEN
+	                      "LKinCtrl_OcsToWcs"(ocsX      := 0,
+	                                          ocsY      := 0,
+	                                          ocsZ      := 0,
+	                                          ocsA      := #axesGroup.TcpInWcs.a.Position,
+	                                          ocsB      := #axesGroup.TcpInWcs.b.Position,
+	                                          ocsC      := #axesGroup.TcpInWcs.c.Position,
+	                                          pointXOcs := #instMC_MoveLinearRelative.Distance[1],
+	                                          pointYOcs := #instMC_MoveLinearRelative.Distance[2],
+	                                          pointZOcs := #instMC_MoveLinearRelative.Distance[3],
+	                                          pointAOcs := #instMC_MoveLinearRelative.Distance[4],
+	                                          pointBOcs := #instMC_MoveLinearRelative.Distance[5],
+	                                          pointCOcs := #instMC_MoveLinearRelative.Distance[6],
+	                                          pointXWcs => #instMC_MoveLinearRelative.Distance[1],
+	                                          pointYWcs => #instMC_MoveLinearRelative.Distance[2],
+	                                          pointZWcs => #instMC_MoveLinearRelative.Distance[3],
+	                                          pointAWcs => #instMC_MoveLinearRelative.Distance[4],
+	                                          pointBWcs => #instMC_MoveLinearRelative.Distance[5],
+	                                          pointCWcs => #instMC_MoveLinearRelative.Distance[6]);
+	                      
+	                      // reset rotation due to numeric inaccuracy of frame trans
+	                      FOR #tempCounter := 4 TO 6 DO
+	                        #instMC_MoveLinearRelative.Distance[#tempCounter] := 0.0;
+	                      END_FOR;
+	                    END_IF;
+	                  ELSIF (#coordSystem >= "LKINCTRL_CS_NO_OF_FIRST_USER_FRAME" AND #coordSystem <= "LKINCTRL_CS_NO_OF_LAST_USER_FRAME") THEN
+	                    #instMC_MoveLinearRelative.CoordSystem := "CS_WCS";
+	                    IF #jogDirection < #JOG_DIRECTION_A THEN
+	                      "LKinCtrl_OcsToWcs"(ocsX      := 0,
+	                                          ocsY      := 0,
+	                                          ocsZ      := 0,
+	                                          ocsA      := #userFrames[#coordSystem].a,
+	                                          ocsB      := #userFrames[#coordSystem].b,
+	                                          ocsC      := #userFrames[#coordSystem].c,
+	                                          pointXOcs := #instMC_MoveLinearRelative.Distance[1],
+	                                          pointYOcs := #instMC_MoveLinearRelative.Distance[2],
+	                                          pointZOcs := #instMC_MoveLinearRelative.Distance[3],
+	                                          pointAOcs := #instMC_MoveLinearRelative.Distance[4],
+	                                          pointBOcs := #instMC_MoveLinearRelative.Distance[5],
+	                                          pointCOcs := #instMC_MoveLinearRelative.Distance[6],
+	                                          pointXWcs => #instMC_MoveLinearRelative.Distance[1],
+	                                          pointYWcs => #instMC_MoveLinearRelative.Distance[2],
+	                                          pointZWcs => #instMC_MoveLinearRelative.Distance[3],
+	                                          pointAWcs => #instMC_MoveLinearRelative.Distance[4],
+	                                          pointBWcs => #instMC_MoveLinearRelative.Distance[5],
+	                                          pointCWcs => #instMC_MoveLinearRelative.Distance[6]);
+	                      
+	                      // reset rotation due to numeric inaccuracy of frame trans
+	                      FOR #tempCounter := 4 TO 6 DO
+	                        #instMC_MoveLinearRelative.Distance[#tempCounter] := 0.0;
+	                      END_FOR;
+	                    END_IF;
+	                  END_IF;
+	                END_IF;
+	                
+	              #JOG_DIRECTION_RZ..#JOG_DIRECTION_RX: // Jogging around A,B,C
+	                // set MC_MoveLinearAbsolute parameter
+	                #instMC_MoveLinearAbsolute.Velocity := #dynamics.path.velocity;
+	                #instMC_MoveLinearAbsolute.Acceleration := #dynamics.path.acceleration;
+	                #instMC_MoveLinearAbsolute.Deceleration := #dynamics.path.deceleration;
+	                #instMC_MoveLinearAbsolute.Jerk := #dynamics.path.jerk;
+	                
+	                // read current position and rotation matrix
+	                CASE #coordSystem OF
+	                  "CS_WCS", #INDEX_COORDSYSTEM_TCS: // in WCS and TCS
+	                    // get rotation matrix representation of current position
+	                    "LKinCtrl_RotXYZ"(angleA       := #axesGroup.TcpInWcs.a.Position,
+	                                      angleB       := #axesGroup.TcpInWcs.b.Position,
+	                                      angleC       := #axesGroup.TcpInWcs.c.Position,
+	                                      resultMatrix := #statRotMatrix1);
+	                    
+	                    // do not move translatory
+	                    #instMC_MoveLinearAbsolute.CoordSystem := "CS_WCS";
+	                    #instMC_MoveLinearAbsolute.Position[1] := #axesGroup.TcpInWcs.x.Position;
+	                    #instMC_MoveLinearAbsolute.Position[2] := #axesGroup.TcpInWcs.y.Position;
+	                    #instMC_MoveLinearAbsolute.Position[3] := #axesGroup.TcpInWcs.z.Position;
+	                  "CS_OCS1".."CS_OCS3": // OCS 1-3
+	                    // get rotation matrix representation of current position
+	                    "LKinCtrl_RotXYZ"(angleA       := #axesGroup.TcpInOcs[#coordSystem].a.Position,
+	                                      angleB       := #axesGroup.TcpInOcs[#coordSystem].b.Position,
+	                                      angleC       := #axesGroup.TcpInOcs[#coordSystem].c.Position,
+	                                      resultMatrix := #statRotMatrix1);
+	                    
+	                    // do not move translatory
+	                    #instMC_MoveLinearAbsolute.CoordSystem := #coordSystem;
+	                    #instMC_MoveLinearAbsolute.Position[1] := #axesGroup.TcpInOcs[#coordSystem].x.Position;
+	                    #instMC_MoveLinearAbsolute.Position[2] := #axesGroup.TcpInOcs[#coordSystem].y.Position;
+	                    #instMC_MoveLinearAbsolute.Position[3] := #axesGroup.TcpInOcs[#coordSystem].z.Position;
+	                  "LKINCTRL_CS_NO_OF_FIRST_USER_FRAME".."LKINCTRL_CS_NO_OF_LAST_USER_FRAME": // UCS
+	                    // Calculate current UCS position 
+	                    "LKinCtrl_WcsToOcs"(ocsX      := #userFrames[#coordSystem].x,
+	                                        ocsY      := #userFrames[#coordSystem].y,
+	                                        ocsZ      := #userFrames[#coordSystem].z,
+	                                        ocsA      := #userFrames[#coordSystem].a,
+	                                        ocsB      := #userFrames[#coordSystem].b,
+	                                        ocsC      := #userFrames[#coordSystem].c,
+	                                        pointXWcs := #axesGroup.TcpInWcs.x.Position,
+	                                        pointYWcs := #axesGroup.TcpInWcs.y.Position,
+	                                        pointZWcs := #axesGroup.TcpInWcs.z.Position,
+	                                        pointAWcs := #axesGroup.TcpInWcs.a.Position,
+	                                        pointBWcs := #axesGroup.TcpInWcs.b.Position,
+	                                        pointCWcs := #axesGroup.TcpInWcs.c.Position,
+	                                        pointXOcs => #tempTcpInUcs[1],
+	                                        pointYOcs => #tempTcpInUcs[2],
+	                                        pointZOcs => #tempTcpInUcs[3],
+	                                        pointAOcs => #tempTcpInUcs[4],
+	                                        pointBOcs => #tempTcpInUcs[5],
+	                                        pointCOcs => #tempTcpInUcs[6]);
+	                    
+	                    // get rotation matrix representation of current position
+	                    "LKinCtrl_RotXYZ"(angleA       := #tempTcpInUcs[4],
+	                                      angleB       := #tempTcpInUcs[5],
+	                                      angleC       := #tempTcpInUcs[6],
+	                                      resultMatrix := #statRotMatrix1);
+	                    
+	                    // do not move translatory
+	                    #instMC_MoveLinearAbsolute.CoordSystem := "CS_WCS";
+	                    #instMC_MoveLinearAbsolute.Position[1] := #axesGroup.TcpInWcs.x.Position;
+	                    #instMC_MoveLinearAbsolute.Position[2] := #axesGroup.TcpInWcs.y.Position;
+	                    #instMC_MoveLinearAbsolute.Position[3] := #axesGroup.TcpInWcs.z.Position;
+	                END_CASE;
+	                
+	                // Get rotation matrix based on direction and distance
+	                CASE #jogDirection OF
+	                  #JOG_DIRECTION_RZ:
+	                    "LKinCtrl_RotZ"(angle     := #tempJogDistance,
+	                                    rotMatrix := #statRotMatrix2);
+	                  #JOG_DIRECTION_RY:
+	                    "LKinCtrl_RotY"(angle     := #tempJogDistance,
+	                                    rotMatrix := #statRotMatrix2);
+	                  #JOG_DIRECTION_RX:
+	                    "LKinCtrl_RotX"(angle     := #tempJogDistance,
+	                                    rotMatrix := #statRotMatrix2);
+	                END_CASE;
+	                
+	                // Calculate rotation matrix for target orientation
+	                IF #coordSystem = #INDEX_COORDSYSTEM_TCS THEN
+	                  // Calc rotation matrix TCS
+	                  "LKinCtrl_MatrixMultiplication"(error        => #tempError,
+	                                                  status       => #tempRetStatus,
+	                                                  matrix1      := #statRotMatrix1,
+	                                                  matrix2      := #statRotMatrix2,
+	                                                  matrixResult := #statRotMatrix3);
+	                ELSE
+	                  // Calc rotation matrix regular
+	                  "LKinCtrl_MatrixMultiplication"(error        => #tempError,
+	                                                  status       => #tempRetStatus,
+	                                                  matrix1      := #statRotMatrix2,
+	                                                  matrix2      := #statRotMatrix1,
+	                                                  matrixResult := #statRotMatrix3);
+	                END_IF;
+	                
+	                // Assign target orientation to MC_MoveLinearAbsolute
+	                IF #coordSystem >= "LKINCTRL_CS_NO_OF_FIRST_USER_FRAME" AND #coordSystem <= "LKINCTRL_CS_NO_OF_LAST_USER_FRAME" THEN
+	                  // calculate rotated target position in UCS
+	                  "LKinCtrl_InvRotXYZ"(A         => #tempTcpInUcs[4],
+	                                       B         => #tempTcpInUcs[5],
+	                                       C         => #tempTcpInUcs[6],
+	                                       rotMatrix := #statRotMatrix3);
+	                  
+	                  // Calculate target WCS position since coordinate system of UCS for system is WCS
+	                  "LKinCtrl_OcsToWcs"(ocsX      := #userFrames[#coordSystem].x,
+	                                      ocsY      := #userFrames[#coordSystem].y,
+	                                      ocsZ      := #userFrames[#coordSystem].z,
+	                                      ocsA      := #userFrames[#coordSystem].a,
+	                                      ocsB      := #userFrames[#coordSystem].b,
+	                                      ocsC      := #userFrames[#coordSystem].c,
+	                                      pointXOcs := #tempTcpInUcs[1],
+	                                      pointYOcs := #tempTcpInUcs[2],
+	                                      pointZOcs := #tempTcpInUcs[3],
+	                                      pointAOcs := #tempTcpInUcs[4],
+	                                      pointBOcs := #tempTcpInUcs[5],
+	                                      pointCOcs := #tempTcpInUcs[6],
+	                                      pointXWcs => #tempTcpInUcs[1], // dummy
+	                                      pointYWcs => #tempTcpInUcs[2], // dummy
+	                                      pointZWcs => #tempTcpInUcs[3], // dummy
+	                                      pointAWcs => #instMC_MoveLinearAbsolute.Position[4],
+	                                      pointBWcs => #instMC_MoveLinearAbsolute.Position[5],
+	                                      pointCWcs => #instMC_MoveLinearAbsolute.Position[6]);
+	                  
+	                ELSE
+	                  // calculate rotated target position
+	                  "LKinCtrl_InvRotXYZ"(A         => #instMC_MoveLinearAbsolute.Position[4],
+	                                       B         => #instMC_MoveLinearAbsolute.Position[5],
+	                                       C         => #instMC_MoveLinearAbsolute.Position[6],
+	                                       rotMatrix := #statRotMatrix3);
+	                END_IF;
+	                
+	                // 3D + A,B plausibility check for C
+	                IF #statTypeOfKinematics = 26 OR #statTypeOfKinematics = 27 OR #statTypeOfKinematics = 35 THEN
+	                  // Check if C is around 0.0 or +-180.0
+	                  IF ABS(180.0 - #instMC_MoveLinearAbsolute.Position[6]) < #TOLERANCE_C THEN // Check +180°
+	                    #instMC_MoveLinearAbsolute.Position[6] := 180.0;
+	                  ELSIF ABS(-180.0 - #instMC_MoveLinearAbsolute.Position[6]) < #TOLERANCE_C THEN // Check -180°
+	                    #instMC_MoveLinearAbsolute.Position[6] := -180.0;
+	                  ELSIF ABS(#instMC_MoveLinearAbsolute.Position[6]) < #TOLERANCE_C THEN // Check 0.0
+	                    #instMC_MoveLinearAbsolute.Position[6] := 0.0;
+	                  ELSE
+	                    // error wrong value for C
+	                    #statStatus := #ERR_JOG_DIRECTION_NOT_POSSIBLE;
+	                  END_IF;
+	                END_IF;
+	                
+	            END_CASE;
+	            
+	          END_REGION
+	            // jog to position
+	            //*********************************************************************************************************
+	        ELSIF #tempJogToPosition THEN
+	          REGION JOG_TO_TARGET_LINEAR
+	            // set jog target position and configuration
+	            #instMC_MoveLinearAbsolute.Position[1] := #targetPosition.x;
+	            #instMC_MoveLinearAbsolute.Position[2] := #targetPosition.y;
+	            #instMC_MoveLinearAbsolute.Position[3] := #targetPosition.z;
+	            #instMC_MoveLinearAbsolute.Position[4] := #targetPosition.a;
+	            #instMC_MoveLinearAbsolute.Position[5] := #targetPosition.b;
+	            #instMC_MoveLinearAbsolute.Position[6] := #targetPosition.c;
+	            #instMC_MoveLinearAbsolute.CoordSystem := #coordSystem;
+	            // convert from UCS to WCS if necessary
+	            IF (#coordSystem >= "LKINCTRL_CS_NO_OF_FIRST_USER_FRAME" AND #coordSystem <= "LKINCTRL_CS_NO_OF_LAST_USER_FRAME") THEN
+	              #instMC_MoveLinearAbsolute.CoordSystem := "CS_WCS";
+	              "LKinCtrl_OcsToWcs"(ocsX      := #userFrames[#coordSystem].x,
+	                                  ocsY      := #userFrames[#coordSystem].y,
+	                                  ocsZ      := #userFrames[#coordSystem].z,
+	                                  ocsA      := #userFrames[#coordSystem].a,
+	                                  ocsB      := #userFrames[#coordSystem].b,
+	                                  ocsC      := #userFrames[#coordSystem].c,
+	                                  pointXOcs := #targetPosition.x,
+	                                  pointYOcs := #targetPosition.y,
+	                                  pointZOcs := #targetPosition.z,
+	                                  pointAOcs := #targetPosition.a,
+	                                  pointBOcs := #targetPosition.b,
+	                                  pointCOcs := #targetPosition.c,
+	                                  pointXWcs => #instMC_MoveLinearAbsolute.Position[1],
+	                                  pointYWcs => #instMC_MoveLinearAbsolute.Position[2],
+	                                  pointZWcs => #instMC_MoveLinearAbsolute.Position[3],
+	                                  pointAWcs => #instMC_MoveLinearAbsolute.Position[4],
+	                                  pointBWcs => #instMC_MoveLinearAbsolute.Position[5],
+	                                  pointCWcs => #instMC_MoveLinearAbsolute.Position[6]);
+	            END_IF;
+	            // convert from TCS to WCS if necessary
+	            IF #coordSystem = #INDEX_COORDSYSTEM_TCS THEN
+	              #instMC_MoveLinearAbsolute.CoordSystem := "CS_WCS";
+	              "LKinCtrl_OcsToWcs"(ocsX      := #axesGroup.TcpInWcs.x.Position,
+	                                  ocsY      := #axesGroup.TcpInWcs.y.Position,
+	                                  ocsZ      := #axesGroup.TcpInWcs.z.Position,
+	                                  ocsA      := #axesGroup.TcpInWcs.a.Position,
+	                                  ocsB      := #axesGroup.TcpInWcs.b.Position,
+	                                  ocsC      := #axesGroup.TcpInWcs.c.Position,
+	                                  pointXOcs := #instMC_MoveLinearAbsolute.Position[1],
+	                                  pointYOcs := #instMC_MoveLinearAbsolute.Position[2],
+	                                  pointZOcs := #instMC_MoveLinearAbsolute.Position[3],
+	                                  pointAOcs := #instMC_MoveLinearAbsolute.Position[4],
+	                                  pointBOcs := #instMC_MoveLinearAbsolute.Position[5],
+	                                  pointCOcs := #instMC_MoveLinearAbsolute.Position[6],
+	                                  pointXWcs => #instMC_MoveLinearAbsolute.Position[1],
+	                                  pointYWcs => #instMC_MoveLinearAbsolute.Position[2],
+	                                  pointZWcs => #instMC_MoveLinearAbsolute.Position[3],
+	                                  pointAWcs => #instMC_MoveLinearAbsolute.Position[4],
+	                                  pointBWcs => #instMC_MoveLinearAbsolute.Position[5],
+	                                  pointCWcs => #instMC_MoveLinearAbsolute.Position[6]);
+	            END_IF;
+	            
+	            #instMC_MoveLinearAbsolute.Velocity := #dynamics.path.velocity;
+	            #instMC_MoveLinearAbsolute.Acceleration := #dynamics.path.acceleration;
+	            #instMC_MoveLinearAbsolute.Deceleration := #dynamics.path.deceleration;
+	            #instMC_MoveLinearAbsolute.Jerk := #dynamics.path.jerk;
+	            #instMC_MoveLinearAbsolute.DynamicAdaption := #dynamics.dynamicAdaption;
+	            #instMC_MoveLinearAbsolute.DirectionA := #dynamics.directionA;
+	          END_REGION
+	            // jog synchronous point to point
+	            //*********************************************************************************************************
+	        ELSIF #tempJogSPTP THEN
+	          REGION JOG_TO_POS_SPTP
+	            #instMC_MoveDirectAbsolute.Position[1] := #targetPosition.x;
+	            #instMC_MoveDirectAbsolute.Position[2] := #targetPosition.y;
+	            #instMC_MoveDirectAbsolute.Position[3] := #targetPosition.z;
+	            #instMC_MoveDirectAbsolute.Position[4] := #targetPosition.a;
+	            #instMC_MoveDirectAbsolute.Position[5] := #targetPosition.b;
+	            #instMC_MoveDirectAbsolute.Position[6] := #targetPosition.c;
+	            #instMC_MoveDirectAbsolute.CoordSystem := #coordSystem;
+	            // convert from UCS to WCS if necessary
+	            IF (#coordSystem >= "LKINCTRL_CS_NO_OF_FIRST_USER_FRAME" AND #coordSystem <= "LKINCTRL_CS_NO_OF_LAST_USER_FRAME") THEN
+	              #instMC_MoveDirectAbsolute.CoordSystem := "CS_WCS";
+	              "LKinCtrl_OcsToWcs"(ocsX      := #userFrames[#coordSystem].x,
+	                                  ocsY      := #userFrames[#coordSystem].y,
+	                                  ocsZ      := #userFrames[#coordSystem].z,
+	                                  ocsA      := #userFrames[#coordSystem].a,
+	                                  ocsB      := #userFrames[#coordSystem].b,
+	                                  ocsC      := #userFrames[#coordSystem].c,
+	                                  pointXOcs := #targetPosition.x,
+	                                  pointYOcs := #targetPosition.y,
+	                                  pointZOcs := #targetPosition.z,
+	                                  pointAOcs := #targetPosition.a,
+	                                  pointBOcs := #targetPosition.b,
+	                                  pointCOcs := #targetPosition.c,
+	                                  pointXWcs => #instMC_MoveDirectAbsolute.Position[1],
+	                                  pointYWcs => #instMC_MoveDirectAbsolute.Position[2],
+	                                  pointZWcs => #instMC_MoveDirectAbsolute.Position[3],
+	                                  pointAWcs => #instMC_MoveDirectAbsolute.Position[4],
+	                                  pointBWcs => #instMC_MoveDirectAbsolute.Position[5],
+	                                  pointCWcs => #instMC_MoveDirectAbsolute.Position[6]);
+	            END_IF;
+	            
+	            #instMC_MoveDirectAbsolute.VelocityFactor := #dynamics.sPTP.velocityFactor;
+	            #instMC_MoveDirectAbsolute.AccelerationFactor := #dynamics.sPTP.accelerationFactor;
+	            #instMC_MoveDirectAbsolute.DecelerationFactor := #dynamics.sPTP.decelerationFactor;
+	            #instMC_MoveDirectAbsolute.JerkFactor := #dynamics.sPTP.jerkFactor;
+	            #instMC_MoveDirectAbsolute.LinkConstellation := #linkconstellation;
+	            #instMC_MoveDirectAbsolute.PositionMode := 1;
+	            #instMC_MoveDirectAbsolute.DirectionA := #dynamics.directionA;
+	            #instMC_MoveDirectAbsolute.TurnJoint := #turnJoint;
+	          END_REGION
+	          END_IF;
+	        END_REGION
+	        
+	        REGION SET_ORIENTATION_DYNAMICS
+	          IF (((#jogDirection >= #JOG_DIRECTION_A AND #jogDirection <= #JOG_DIRECTION_RX) AND (#tempJogForward OR #tempJogBackward)) OR #tempJogToPosition)
+	            AND (#dynamics.orientation.velocity > 0.0 // check if change of orientation dynamics is required
+	            OR #dynamics.orientation.acceleration > 0.0
+	            OR #dynamics.orientation.deceleration > 0.0
+	            OR #dynamics.orientation.jerk > 0.0)
+	          THEN
+	            // safe default dynamics for orientation axis
+	            #statOrientationDynamicsOld.velocity := #axesGroup.DynamicDefaults.Orientation.Velocity;
+	            #statOrientationDynamicsOld.acceleration := #axesGroup.DynamicDefaults.Orientation.Acceleration;
+	            #statOrientationDynamicsOld.deceleration := #axesGroup.DynamicDefaults.Orientation.Deceleration;
+	            #statOrientationDynamicsOld.jerk := #axesGroup.DynamicDefaults.Orientation.Jerk;
+	            
+	            // change orientation default dynamics temporary
+	            IF #dynamics.orientation.velocity > 0.0 THEN
+	              #axesGroup.DynamicDefaults.Orientation.Velocity := #dynamics.orientation.velocity;
+	            END_IF;
+	            IF #dynamics.orientation.acceleration > 0.0 THEN
+	              #axesGroup.DynamicDefaults.Orientation.Acceleration := #dynamics.orientation.acceleration;
+	            END_IF;
+	            IF #dynamics.orientation.deceleration > 0.0 THEN
+	              #axesGroup.DynamicDefaults.Orientation.Deceleration := #dynamics.orientation.deceleration;
+	            END_IF;
+	            IF #dynamics.orientation.jerk > 0.0 THEN
+	              #axesGroup.DynamicDefaults.Orientation.Jerk := #dynamics.orientation.jerk;
+	            END_IF;
+	            
+	            // Orientation default dynamics will be reseted to previous values after jogging
+	            #statOrientationDynamicsChanged := TRUE;
+	          END_IF;
+	        END_REGION
+	        
+	        REGION STATE_TRANSITION
+	          IF (#statStatus <= #STATUS_SUBSEQUENT_CALL) THEN
+	            // check if change of tool is required
+	            IF (#tool <> #statToolOld) THEN
+	              #statFBState := #FB_STATE_SET_TOOL;
+	            ELSE // execute movement
+	              #statFBState := #FB_STATE_EXECUTE_MOVEMENT;
+	            END_IF;
+	          ELSE
+	            ;
+	          END_IF;
+	        END_REGION
+	      END_IF;
+	      
+	    #FB_STATE_SET_TOOL:
+	      REGION TOOL_CHANGE
+	        IF #axesGroup.StatusWord.%X6 // no motion command is active
+	          AND NOT #axesGroup.StatusWord.%X17 // not interrupted
+	          AND #axesGroup.StatusWord.%X12 // constant velocity
+	        THEN
+	          #instMC_SetTool.Execute := TRUE;
+	          #instMC_SetTool.ToolNumber := #tool;
+	        END_IF;
+	      END_REGION
+	      
+	      REGION STATE_TRANSITION
+	        // tool has been changed
+	        IF #instMC_SetTool.Done THEN
+	          //#statToolOld := #tool;
+	          #statFBState := #FB_STATE_EXECUTE_MOVEMENT;
+	        END_IF;
+	      END_REGION
+	      
+	    #FB_STATE_EXECUTE_MOVEMENT:
+	      REGION SET_JOG_COMMAND
+	        // Cartesian jogging
+	        IF (#tempJogForward OR #tempJogBackward) THEN
+	          IF #coordSystem = #INDEX_COORDSYSTEM_MCS OR #coordSystem = #INDEX_COORDSYSTEM_JCS THEN
+	            #instMC_MoveDirectRelative.Execute := TRUE;
+	          ELSE
+	            IF #jogDirection < #JOG_DIRECTION_RZ THEN
+	              #instMC_MoveLinearRelative.Execute := TRUE;
+	            ELSE
+	              #instMC_MoveLinearAbsolute.Execute := TRUE;
+	            END_IF;
+	          END_IF;
+	          
+	          // jog to target position  
+	        ELSIF #tempJogToPosition THEN
+	          #instMC_MoveLinearAbsolute.Execute := TRUE;
+	          
+	          //jog synchronous point to point
+	        ELSIF #tempJogSPTP THEN
+	          #instMC_MoveDirectAbsolute.Execute := TRUE;
+	          
+	        ELSE
+	          #instMC_MoveLinearRelative.Execute := FALSE;
+	          #instMC_MoveLinearAbsolute.Execute := FALSE;
+	          #instMC_MoveDirectAbsolute.Execute := FALSE;
+	          #instMC_MoveDirectRelative.Execute := FALSE;
+	        END_IF;
+	      END_REGION
+	      
+	      REGION STATE_TRANSITION
+	        IF #instMC_MoveLinearRelative.Done
+	          OR #instMC_MoveLinearAbsolute.Done
+	          OR #instMC_MoveDirectAbsolute.Done
+	          OR #instMC_MoveDirectRelative.Done
+	        THEN
+	          #statFBState := #FB_STATE_RESET_TOOL;
+	          #statStatusBeforeResetTool := #STATUS_EXECUTION_FINISHED;
+	        END_IF;
+	      END_REGION
+	      
+	    #FB_STATE_STOP:
+	      REGION STOP_KINEMATICS_MOTION
+	        // set execute if group stop not busy
+	        #instMC_GroupStop.Execute := (NOT #instMC_GroupStop.Busy AND NOT #instMC_GroupStop.Done AND NOT #instMC_GroupStop.Error AND #statStatus <> #STATUS_OUT_OF_JOINT_LIMITS);
+	      END_REGION
+	        
+	      REGION STATE_TRANSITION
+	        // save the errors or status until reset tool is done
+	        IF (#instMC_GroupStop.Done AND #axesGroup.StatusWord.%X6) THEN // Added X6 according to AW
+	          #statStatusBeforeResetTool := #STATUS_EXECUTION_FINISHED;
+	        ELSIF #axesGroup.StatusWord.%X1 THEN // general TO error
+	          #statStatusBeforeResetTool := #ERR_TO_KINEMATICS;
+	          // Avoid error - 'job cannot be executed because a "MC_GroupStop" job is active' - 16#80CD - according to JH
+	        ELSIF #instMC_MoveLinearRelative.Error AND #instMC_MoveLinearRelative.ErrorId <> 16#80CD THEN
+	          #statStatusBeforeResetTool := #instMC_MoveLinearRelative.ErrorId;
+	        ELSIF #instMC_MoveLinearAbsolute.Error AND #instMC_MoveLinearAbsolute.ErrorId <> 16#80CD THEN
+	          #statStatusBeforeResetTool := #instMC_MoveLinearAbsolute.ErrorId;
+	        ELSIF #instMC_MoveDirectAbsolute.Error AND #instMC_MoveDirectAbsolute.ErrorId <> 16#80CD THEN
+	          #statStatusBeforeResetTool := #instMC_MoveDirectAbsolute.ErrorId;
+	        ELSIF #instMC_MoveDirectRelative.Error AND #instMC_MoveDirectRelative.ErrorId <> 16#80CD THEN
+	          #statStatusBeforeResetTool := #instMC_MoveDirectRelative.ErrorId;
+	        ELSIF #instMC_SetTool.Error THEN
+	          #statStatusBeforeResetTool := #instMC_SetTool.ErrorId;
+	        ELSIF #instMC_GroupStop.Error THEN
+	          #statStatusBeforeResetTool := #instMC_GroupStop.ErrorId;
+	        ELSIF #statStatus = #STATUS_OUT_OF_JOINT_LIMITS THEN
+	          #statStatusBeforeResetTool := #STATUS_EXECUTION_FINISHED;
+	        END_IF;
+	        
+	        // reset tool as last step
+	        IF (#instMC_GroupStop.Done AND #axesGroup.StatusWord.%X6)
+	          OR #instMC_GroupStop.Error
+	        THEN
+	          #statFBState := #FB_STATE_RESET_TOOL;
+	        END_IF;
+	      END_REGION
+	      
+	    #FB_STATE_RESET_TOOL:
+	      REGION RESET_TOOL
+	        // any transition to FB_STATE_RESET_TOOL must set the statStatusBeforeResetTool
+	        IF #tool <> #statToolOld THEN
+	          IF #axesGroup.StatusWord.%X6 // no motion command is active
+	            AND NOT #axesGroup.StatusWord.%X17 // not interrupted
+	            AND #axesGroup.StatusWord.%X12 // constant velocity
+	          THEN
+	            #instMC_SetTool.Execute := TRUE;
+	            #instMC_SetTool.ToolNumber := #statToolOld;
+	          END_IF;
+	          
+	          IF #instMC_SetTool.Done OR #instMC_SetTool.Error THEN
+	            #statStatus := #statStatusBeforeResetTool;
+	          END_IF;
+	        ELSE
+	          #statStatus := #statStatusBeforeResetTool;
+	        END_IF;
+	      END_REGION
+	      
+	    ELSE // Undefined state in state machine reached
+	      #statStatus := #ERR_UNDEFINED_STATE;
+	  END_CASE;
+	  
+	END_REGION STATE_MACHINE
+	
+	REGION OUTPUTS
+	  // Write outputs
+	  IF (#statStatus = #STATUS_EXECUTION_FINISHED) AND (#statDone = FALSE) AND (#statError = FALSE) THEN // Execution finished without errors
+	    #statDone := TRUE;
+	    #statBusy := FALSE;
+	    #statActive := FALSE;
+	    #statError := FALSE;
+	    #statFBState := #FB_STATE_NO_PROCESSING; // Switch state machine to "no processing"
+	    
+	  ELSIF (#statStatus.%X15 = TRUE) AND (#statError = FALSE) THEN // Error occurred (#statStatus is 16#8000 to 16#FFFF)
+	    #statDone := FALSE;
+	    #statBusy := FALSE;
+	    #statActive := FALSE;
+	    #statError := TRUE;
+	    // Write diagnostics
+	    #tempRet := RD_SYS_T(#diagnostics.timeStamp);
+	    #diagnostics.stateNumber := #statFBState;
+	    #diagnostics.status := #statStatus;
+	    #statFBState := #FB_STATE_NO_PROCESSING; // Switch state machine to "no processing"
+	    
+	  ELSIF (#tempJogForward = FALSE AND #tempJogBackward = FALSE AND #tempJogToPosition = FALSE AND #tempJogSPTP = FALSE) AND ((#statDone = TRUE) OR (#statError = TRUE)) THEN // Reset outputs
+	    #statDone := FALSE;
+	    #statBusy := FALSE;
+	    #statActive := FALSE;
+	    #statError := FALSE;
+	    #statStatus := #STATUS_NO_CALL;
+	    #statJogForwardOld := FALSE;
+	    #statJogBackwardOld := FALSE;
+	    #statJogToPositionOld := FALSE;
+	    #statJogSPTPOld := FALSE;
+	  END_IF;
+	  
+	  // Write static values to outputs
+	  #done := #statDone;
+	  #busy := #statBusy;
+	  #active := #statActive;
+	  #error := #statError;
+	  #status := #statStatus;
+	  #remainingDistance := #statRemainingDistance;
+	END_REGION OUTPUTS
+	
+	REGION CALL_FB_CYCLICALLY
+	  // call FBs and set Execute = FALSE after the call
+	  #instMC_GroupStop(AxesGroup := #axesGroup);
+	  #instMC_GroupStop.Execute := FALSE;
+	  
+	  #instMC_MoveLinearAbsolute(AxesGroup := #axesGroup);
+	  #instMC_MoveLinearAbsolute.Execute := FALSE;
+	  
+	  #instMC_MoveLinearRelative(AxesGroup := #axesGroup);
+	  #instMC_MoveLinearRelative.Execute := FALSE;
+	  
+	  #instMC_SetTool(AxesGroup := #axesGroup);
+	  #instMC_SetTool.Execute := FALSE;
+	  
+	  #instMC_MoveDirectAbsolute(AxesGroup := #axesGroup);
+	  #instMC_MoveDirectAbsolute.Execute := FALSE;
+	  
+	  #instMC_MoveDirectRelative(AxesGroup := #axesGroup);
+	  #instMC_MoveDirectRelative.Execute := FALSE;
+	END_REGION
+	
+END_FUNCTION_BLOCK
+

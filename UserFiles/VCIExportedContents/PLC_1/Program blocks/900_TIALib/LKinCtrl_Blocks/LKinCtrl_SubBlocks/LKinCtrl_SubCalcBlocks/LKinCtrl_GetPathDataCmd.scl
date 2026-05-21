@@ -1,0 +1,144 @@
+﻿FUNCTION "LKinCtrl_GetPathDataCmd" : Word
+TITLE = LKinCtrl_GetPathDataCmd
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Copy the path command from any path data type at the given index
+   VAR_INPUT 
+      pathDataType : USInt;   // Type of path data which is connected
+      index : DInt;   // Index to be copied
+   END_VAR
+
+   VAR_OUTPUT 
+      pathDataCommand : "LKinCtrl_typePathDataElement";   // Resulting path data command
+      parameterValid : Array[1.."LKINCTRL_NO_OF_VALID_BITS"] of Bool;   // Resulting parameter valid bits
+   END_VAR
+
+   VAR_IN_OUT 
+      pathData : "LKinCtrl_typePathData";
+      pointTable : Array[*] of "LKinCtrl_typePoint";   // Point table
+   END_VAR
+
+   VAR_TEMP 
+      tempCtr : DInt;   // Temporary counter
+      tempPoint : DInt;   // Temporary index of point in point table
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2020 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN/DP
+	// Engineering: TIA Portal V15
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 2.5
+	// Functionality: LKinCtrl_GetPathDataCmd
+	// The FC copies the path data command at the given index to the output.
+	//
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   07.04.2020    FR                  First release version v1.0
+	// 02.00.00   06.12.2022    FR                  Added pointTable
+	// 02.00.01   07.02.2023    FR                  Fixed wrong index at pointTable
+	// 03.00.00   09.09.2024    FR                  Changed pathData from Variant to "LKinCtrl_typePathData"
+	// 03.01.00   17.09.2024    JH                  Do not overwrite coordinate
+	//===========================================================================================
+	
+	// Set return value
+	#LKinCtrl_GetPathDataCmd := 16#00;
+	
+	// Init to avoid warning in point part
+	#pathDataCommand.cmdName := '';
+	
+	// Copy command
+	#pathDataCommand := #pathData.commands[#index];
+	#parameterValid := #pathDataCommand.parameterValid;
+	
+	// Check target point
+	#tempPoint := #pathDataCommand.point;
+	
+	// Check if point is used, then copy point coordinates
+	IF #tempPoint >= 0 THEN
+	  // Check limits
+	  IF #tempPoint <= UPPER_BOUND(ARR := #pointTable, DIM := 1)
+	    AND #tempPoint >= LOWER_BOUND(ARR := #pointTable, DIM := 1)
+	  THEN
+	    // Point index is ok
+	    // Copy point name to cmd name if no name is provided already
+	    IF #pathDataCommand.cmdName = '' THEN
+	      #pathDataCommand.cmdName := WSTRING_TO_STRING(#pointTable[#tempPoint].name);
+	    END_IF;
+	    
+	    #pathDataCommand.cmdCoordinates.cartesianPosition.x := #pointTable[#tempPoint].position[0];
+	    #pathDataCommand.cmdCoordinates.cartesianPosition.y := #pointTable[#tempPoint].position[1];
+	    #pathDataCommand.cmdCoordinates.cartesianPosition.z := #pointTable[#tempPoint].position[2];
+	    #pathDataCommand.cmdCoordinates.cartesianPosition.a := #pointTable[#tempPoint].position[3];
+	    #pathDataCommand.cmdCoordinates.cartesianPosition.b := #pointTable[#tempPoint].position[4];
+	    #pathDataCommand.cmdCoordinates.cartesianPosition.c := #pointTable[#tempPoint].position[5];
+	    #pathDataCommand.cmdParameters.moveDirectParameters.linkConstellation := #pointTable[#tempPoint].linkConstellation;
+	    #pathDataCommand.cmdParameters.moveDirectParameters.turnJoint := #pointTable[#tempPoint].turnJoint;
+	    
+	    // do not overwrite coordinate system for set OCS/UCS command
+	    IF #pathDataCommand.cmdType <> "LKINCTRL_MC_SET_OCS_FRAME" AND #pathDataCommand.cmdType <> "LKINCTRL_MC_SET_USER_FRAME" THEN
+	      #pathDataCommand.cmdCoordinates.coordSystem := #pointTable[#tempPoint].coordSystem;
+	    END_IF;
+	    
+	    FOR #tempCtr := 1 TO "LKINCTRL_NO_OF_VALID_BITS" DO
+	      #parameterValid[#tempCtr] := TRUE;
+	    END_FOR;
+	  ELSE
+	    // Invalid point index
+	    // Set return value to error
+	    #LKinCtrl_GetPathDataCmd := 16#02;
+	    RETURN;
+	  END_IF;
+	ELSE
+	  ; // Not used
+	END_IF;
+	
+	
+	// Check auxPoint
+	#tempPoint := #pathDataCommand.cmdParameters.circleParameters.point;
+	
+	// Check if aux point is used, then copy point coordinates
+	IF #tempPoint >= 0 THEN
+	  // Check limits
+	  IF #tempPoint <= UPPER_BOUND(ARR := #pointTable, DIM := 1)
+	    AND #tempPoint >= LOWER_BOUND(ARR := #pointTable, DIM := 1)
+	  THEN
+	    ; // Point index is ok
+	    #pathDataCommand.cmdParameters.circleParameters.auxPoint[1] := #pointTable[#tempPoint].position[0];
+	    #pathDataCommand.cmdParameters.circleParameters.auxPoint[2] := #pointTable[#tempPoint].position[1];
+	    #pathDataCommand.cmdParameters.circleParameters.auxPoint[3] := #pointTable[#tempPoint].position[2];
+	    
+	    // Check if circMode only contains auxPoint then also copy coordinate system
+	    IF #pathDataCommand.cmdParameters.circleParameters.circMode = "CM_CENTER" THEN
+	      #pathDataCommand.cmdCoordinates.coordSystem := #pointTable[#tempPoint].coordSystem;
+	    END_IF;
+	    
+	  ELSE
+	    // Invalid point index
+	    // Set return value to error
+	    #LKinCtrl_GetPathDataCmd := 16#03;
+	    RETURN;
+	  END_IF;
+	ELSE
+	  ; // Not used
+	END_IF;
+	
+	
+	
+	
+	
+	
+	
+	
+END_FUNCTION
+

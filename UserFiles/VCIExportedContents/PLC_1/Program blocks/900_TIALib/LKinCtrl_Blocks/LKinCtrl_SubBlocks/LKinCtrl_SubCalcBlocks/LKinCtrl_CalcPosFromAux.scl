@@ -1,0 +1,182 @@
+﻿FUNCTION "LKinCtrl_CalcPosFromAux" : Word
+TITLE = LKinCtrl_CalcPosFromAux
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculates the resulting position from and circular command with auxPoint and arc
+   VAR_INPUT 
+      arc : LReal;   // arc input
+      circlePlane : DInt;   // circle plane input
+      pathChoice : DInt;   // path choice input
+      auxPoint : Array[1..3] of LReal;   // auxPoint input
+      startPosition : Array[1..6] of LReal;   // start position input
+   END_VAR
+
+   VAR_OUTPUT 
+      endPosition : Array[1..6] of LReal;   // resulting last position
+   END_VAR
+
+   VAR_TEMP 
+      tempCircRadiusPt1 : LReal;   // temporary variable for calculation
+      tempCircRadiusPt2 : LReal;   // temporary variable for calculation
+      tempCircRadiusPt3 : LReal;   // temporary variable for calculation
+      tempCircRadius : LReal;   // temporary variable for calculation
+      tempCircleDirectionSign : Int;   // temporary variable for calculation
+      tempAngleRadius : LReal;   // temporary variable for calculation
+      tempArgAcos : LReal;   // temporary variable for calculation
+      tempArc : LReal;   // temporary variable for arc
+   END_VAR
+
+   VAR CONSTANT 
+      NO_ERROR : Word := 16#0000;   // no error
+      ERR_INVALID_CIRCLEPLANE : Word := 16#8265;   // error due to invalid  circle plane
+      ERR_INVALID_PATHCHOICE : Word := 16#8266;   // error due to invalid path choice
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2021 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN/DP
+	// Engineering: TIA Portal V16
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 2.8
+	// Functionality: LKinCtrl_CalcPosFromAux
+	// The FC calculates the resulting position after a given command being executed
+	// starting from a given 'previous' last position 
+	//
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   05.02.2021    FR                  First released version
+	// 04.02.00   11.07.2024    AH                  Fixed wrong calculation of circularCommand in UCS
+	//===========================================================================================
+	
+	// Init return value
+	#LKinCtrl_CalcPosFromAux := #NO_ERROR;
+	
+	// Copy arc to temp
+	#tempArc := #arc;
+	
+	// check for angles bigger than full circle (360 degrees)
+	IF #tempArc > 360.0 THEN
+	    #tempArc := LREAL_TO_DINT(#tempArc) MOD 360; // check for angles being multiple of 360 degrees (system commands do run bigger circles)
+	END_IF;
+	
+	// try catching complete circles without calculation
+	IF #tempArc = 360.0 OR #tempArc = 0.0 THEN
+	    RETURN; // keep old positions, do nothing
+	END_IF;
+	
+	// calculate radius of circle around auxPoint - new 
+	CASE #circlePlane OF
+	    "CP_XZ":  // 0: "CP_XZ" - circle plane XZ
+	        #tempCircRadiusPt1 := (#startPosition[1] - #auxPoint[1]) * (#startPosition[1] - #auxPoint[1]);
+	        #tempCircRadiusPt2 := 0.0;//((lastPos[2] - lastAuxPoint[2]) * (lastPos[2] - lastAuxPoint[2]);
+	        #tempCircRadiusPt3 := (#startPosition[3] - #auxPoint[3]) * (#startPosition[3] - #auxPoint[3]);
+	    "CP_YZ":  // 1: "CP_YZ" - circle plane YZ
+	        #tempCircRadiusPt1 := 0.0;//((lastPos[1] - lastAuxPoint[1]) * (lastPos[1] - lastAuxPoint[1]);
+	        #tempCircRadiusPt2 := (#startPosition[2] - #auxPoint[2]) * (#startPosition[2] - #auxPoint[2]);
+	        #tempCircRadiusPt3 := (#startPosition[3] - #auxPoint[3]) * (#startPosition[3] - #auxPoint[3]);
+	    "CP_XY":  // 2: "CP_XY" - circle plane XY
+	        #tempCircRadiusPt1 := (#startPosition[1] - #auxPoint[1]) * (#startPosition[1] - #auxPoint[1]);
+	        #tempCircRadiusPt2 := (#startPosition[2] - #auxPoint[2]) * (#startPosition[2] - #auxPoint[2]);
+	        #tempCircRadiusPt3 := 0.0;//(lastPos[3] - lastAuxPoint[3]) * (lastPos[3] - lastAuxPoint[3]);
+	    ELSE
+	        // wrong circle plane, error will be caught earlier when checking PathDataElement
+	        #LKinCtrl_CalcPosFromAux := #ERR_INVALID_CIRCLEPLANE;
+	        RETURN;
+	END_CASE;
+	
+	// Calculate radius
+	#tempCircRadius := SQRT_LREAL(#tempCircRadiusPt1 + #tempCircRadiusPt2 + #tempCircRadiusPt3);
+	
+	IF #tempCircRadius = 0.0 THEN
+	    // Radius is 0.0 --> Not allowed
+	    // #LKinCtrl_CalcPosFromAux := #ERR_RADIUS_ZERO;
+	    RETURN;
+	END_IF;
+	
+	// check for circleDirection -> define sign for motion command parameter 'arc'
+	CASE #pathChoice OF
+	    "PC_POSITIVE":  // 0: PC_Positive - positive direction (CCW)
+	        #tempCircleDirectionSign := 1;
+	    "PC_NEGATIVE":  // 1: PC_Negative - negative direction (CW)
+	        #tempCircleDirectionSign := -1;
+	    ELSE
+	        // Wrong circle direction
+	        #LKinCtrl_CalcPosFromAux := #ERR_INVALID_PATHCHOICE;
+	        RETURN;
+	END_CASE;
+	
+	// Init endposition with start
+	#endPosition := #startPosition;
+	
+	// Calculate position
+	CASE #circlePlane OF
+	    "CP_XZ":  // 0: "CP_XZ" - circle plane XZ
+	        // invert circle direction again --> See definition of XZ plane is actually ZX plane!
+	        #tempCircleDirectionSign *= -1;
+	        
+	        // calculate argument for ACOS (angle in between of two vectors - radius and x axis)
+	        #tempArgAcos := ((#startPosition[1] - #auxPoint[1]) * 1) / (#tempCircRadius * SQRT_LREAL(1));
+	        // calculate ACOS for angle between to vectors
+	        #tempAngleRadius := ACOS_LREAL(#tempArgAcos) * 180.0 / "LKINCTRL_PI";
+	        
+	        // check circle center point to be below (y direction) start point
+	        IF #auxPoint[3] > #startPosition[3] THEN
+	            #tempAngleRadius := #tempAngleRadius * -1; // acos result changed to negative angle
+	        ELSIF #auxPoint[3] < #startPosition[3] THEN
+	            #tempAngleRadius := #tempAngleRadius;
+	        END_IF;
+	        
+	        #endPosition[1] := #tempCircRadius * COS_LREAL((#tempArc * #tempCircleDirectionSign + #tempAngleRadius) * "LKINCTRL_PI" / 180.0) + #auxPoint[1];
+	        #endPosition[3] := #tempCircRadius * SIN_LREAL((#tempArc * #tempCircleDirectionSign + #tempAngleRadius) * "LKINCTRL_PI" / 180.0) + #auxPoint[3];
+	        
+	        
+	    "CP_YZ":   // 1: "CP_YZ" - circle plane YZ
+	        // calculate argument for ACOS (angle in between of two vectors - radius and x axis)
+	        #tempArgAcos := ((#startPosition[2] - #auxPoint[2]) * 1) / (#tempCircRadius * SQRT_LREAL(1));
+	        // calculate ACOS for angle between to vectors
+	        #tempAngleRadius := ACOS_LREAL(#tempArgAcos) * 180.0 / "LKINCTRL_PI";
+	        
+	        // check circle center point to be below (y direction) start point
+	        IF #auxPoint[3] > #startPosition[3] THEN
+	            #tempAngleRadius := #tempAngleRadius * -1; // acos result changed to negative angle
+	        ELSIF #auxPoint[3] < #startPosition[3] THEN
+	            #tempAngleRadius := #tempAngleRadius;
+	        END_IF;
+	        
+	        #endPosition[2] := #tempCircRadius * COS_LREAL((#tempArc * #tempCircleDirectionSign + #tempAngleRadius) * "LKINCTRL_PI" / 180.0) + #auxPoint[2];
+	        #endPosition[3] := #tempCircRadius * SIN_LREAL((#tempArc * #tempCircleDirectionSign + #tempAngleRadius) * "LKINCTRL_PI" / 180.0) + #auxPoint[3];
+	        
+	        
+	    "CP_XY":  // 2: "CP_XY" - circle plane XY
+	        // calculate argument for ACOS (angle in between of two vectors - radius and x axis)
+	        #tempArgAcos := ((#startPosition[1] - #auxPoint[1]) * 1) / (#tempCircRadius * SQRT_LREAL(1));
+	        // calculate ACOS for angle between to vectors
+	        #tempAngleRadius := ACOS_LREAL(#tempArgAcos) * 180.0 / "LKINCTRL_PI";
+	        
+	        // check circle center point to be below (y direction) start point
+	        IF #auxPoint[2] > #startPosition[2] THEN
+	            #tempAngleRadius := #tempAngleRadius * -1;// acos result changed to negative angle
+	        ELSIF #auxPoint[2] < #startPosition[2] THEN // Changed > to < // FR 2019/04/17
+	            #tempAngleRadius := #tempAngleRadius;
+	        END_IF;
+	        
+	        #endPosition[1] := #tempCircRadius * COS_LREAL((#tempArc * #tempCircleDirectionSign + #tempAngleRadius) * "LKINCTRL_PI" / 180.0) + #auxPoint[1];
+	        #endPosition[2] := #tempCircRadius * SIN_LREAL((#tempArc * #tempCircleDirectionSign + #tempAngleRadius) * "LKINCTRL_PI" / 180.0) + #auxPoint[2];
+	    ELSE
+	        // Wrong circle direction
+	        #LKinCtrl_CalcPosFromAux := #ERR_INVALID_CIRCLEPLANE;
+	        RETURN;
+	END_CASE;
+	
+END_FUNCTION
+

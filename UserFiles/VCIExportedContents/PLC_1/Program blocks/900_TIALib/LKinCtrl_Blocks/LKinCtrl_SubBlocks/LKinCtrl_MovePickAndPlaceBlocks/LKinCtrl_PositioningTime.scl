@@ -1,0 +1,193 @@
+﻿FUNCTION "LKinCtrl_PositioningTime" : Word
+TITLE = LKinCtrl_PositioningTime
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculate positioning time of motion profile
+   VAR_INPUT 
+      distance : LReal;   // Distance between start and end of motion command
+      velocity : LReal;   // Velocity of motion command
+      acceleration : LReal;   // Acceleration of motion command
+      deceleration : LReal;   // Deceleration of motion command
+      jerk : LReal;   // Jerk of motion command (Value = 0.0: Trapezoid velocity profile)
+   END_VAR
+
+   VAR_OUTPUT 
+      "time" : LReal;   // Calculated time between start and end of motion command
+   END_VAR
+
+   VAR_TEMP 
+      tempT02 : LReal;
+      tempT1 : LReal;
+      tempT2 : LReal;
+      tempT3 : LReal;
+      tempT4 : LReal;
+      tempT46 : LReal;
+      tempT5 : LReal;
+      tempT6 : LReal;
+      tempTGes : LReal;
+      tempVelMax : LReal;
+      tempDecMax : LReal;
+      tempSetAcc : LReal;
+      tempSetDec : LReal;
+      tempAccDecMax : LReal;
+      tempAccReach : LReal;
+      tempAcc : LReal;
+      tempDec : LReal;
+      tempProfile : Int;
+   END_VAR
+
+   VAR CONSTANT 
+      ERR_ACCEL_INVALID : Word := 16#8201;   // Acceleration value range exceeded (0.0 to 1.0e12)
+      ERR_DECEL_INVALID : Word := 16#8202;   // Deceleration value range exceeded (0.0 to 1.0e12)
+      ERR_DISTANCE_INVALID : Word := 16#8203;   // Distance value range exceeded (must be greater than 0.0)
+      ERR_JERK_INVALID : Word := 16#8204;   // Jerk value range exceeded (0.0 to 1.0e12)
+      ERR_VELOCITY_INVALID : Word := 16#8207;   // Velocity value range exceeded
+   END_VAR
+
+
+BEGIN
+	//================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2023 All Rights Reserved
+	// -------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1515T-2 PN
+	// Engineering: TIA Portal V14
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.0
+	// Functionality: Calculate time needed for MC_MoveAbsolute or MC_MoveRelative
+	//                command
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	// -------------------------------------------------------------------------------
+	// Change log table:
+	// Version   Date        Expert in charge  Changes applied
+	// 01.00.00  16.08.2017  CR                First released version
+	// 01.00.01  07.02.2020  KT                Error constants are now local (library conformance)
+	// 01.00.02  02.03.2023  YT                Bug-fix: limit acceleration to not exceed
+	//                                         the velocity input
+	//================================================================================
+	
+	#LKinCtrl_PositioningTime := 16#0000;
+	
+	IF (#jerk < 0.0 OR #jerk > 1.0E12) THEN
+	  #LKinCtrl_PositioningTime := #ERR_JERK_INVALID;
+	  RETURN;
+	ELSIF (#acceleration <= 0.0) OR (#acceleration > 1.0e12) THEN
+	  #LKinCtrl_PositioningTime := #ERR_ACCEL_INVALID;
+	  RETURN;
+	ELSIF (#deceleration <= 0.0) OR (#deceleration > 1.0e12) THEN
+	  #LKinCtrl_PositioningTime := #ERR_DECEL_INVALID;
+	  RETURN;
+	ELSIF (#distance <= 0.0) THEN
+	  #LKinCtrl_PositioningTime := #ERR_DISTANCE_INVALID;
+	  RETURN;
+	ELSIF (#velocity <= 0.0) OR (#velocity > 1.0e12) THEN
+	  #LKinCtrl_PositioningTime := #ERR_VELOCITY_INVALID;
+	  RETURN;
+	END_IF;
+	
+	IF (#jerk > 0.0) THEN
+	  
+	  #tempAccDecMax := (0.5 * #distance * (#jerk * #jerk)) ** (1.0 / 3.0);
+	  
+	  #tempVelMax := (0.25 * #jerk * (#distance * #distance)) ** (1.0 / 3.0);
+	  
+	  #tempAccReach := #velocity / SQRT_LREAL(MAX(IN1 := 0.0, IN2 := (#velocity / #jerk)));
+	  
+	  
+	  #tempAcc := MIN(IN1 := #tempAccReach, IN2 := #acceleration, IN3 := #tempAccDecMax);
+	  #tempDec := MIN(IN1 := #tempAccReach, IN2 := #deceleration, IN3 := #tempAccDecMax);
+	  
+	  IF (#tempAcc <= #tempDec) THEN
+	    #tempSetAcc := #tempAcc;
+	    #tempSetDec := #tempDec;
+	  ELSE
+	    #tempSetAcc := #tempDec;
+	    #tempSetDec := #tempAcc;
+	  END_IF;
+	  
+	  
+	  IF #tempAccDecMax <= #acceleration OR #tempAccDecMax <= #deceleration OR #tempAccReach <= #acceleration OR #tempAccReach <= #deceleration THEN
+	    IF (#tempAccDecMax <= #acceleration AND #tempAccDecMax <= #deceleration) OR (#tempAccReach <= #acceleration AND #tempAccReach <= #deceleration) THEN
+	      IF #tempVelMax <= #velocity THEN
+	        #tempProfile := 10;
+	        #tempTGes := 4.0 * #tempAcc / #jerk;
+	        
+	      ELSE
+	        #tempProfile := 20;
+	        
+	        #tempT4 := #distance / #velocity - (#tempAcc + #tempDec) * (#jerk * #velocity + #tempAcc * #tempDec) / (2.0 * #jerk * #tempAcc * #tempDec);
+	        #tempTGes := 4.0 * #tempAcc / #jerk + #tempT4;
+	      END_IF;
+	      
+	    ELSE
+	      
+	      #tempT46 := (SQRT_LREAL(MAX(IN1 := 0.0, IN2 := ((#tempSetAcc * #tempSetAcc) + 4.0 * #jerk * SQRT_LREAL(MAX(IN1 := 0.0, IN2 := (2.0 * #distance * #tempSetAcc)))))) - #tempSetAcc) / (2.0 * #jerk);
+	      #tempDecMax := #jerk * #tempT46;
+	      #tempT02 := #tempSetAcc / #jerk;
+	      #tempVelMax := #tempDecMax * #tempT46;
+	      
+	      
+	      IF (#tempVelMax <= #velocity) THEN
+	        #tempProfile := 30;
+	        
+	        #tempT2 := (#jerk / #tempSetAcc) * ((#tempT46 * #tempT46) - (#tempT02 * #tempT02));
+	        #tempTGes := 2.0 * #tempT02 + 2.0 * #tempT46 + #tempT2;
+	        
+	      ELSE
+	        #tempProfile := 40;
+	        #tempT1 := #tempT02;
+	        #tempT2 := #velocity / #tempSetAcc - #tempT1;
+	        #tempT5 := SQRT_LREAL(MAX(IN1 := 0.0, IN2 := (#velocity / #jerk)));
+	        #tempT4 := #distance / #velocity - #tempT5 - (#velocity * #jerk + (#tempSetAcc * #tempSetAcc)) / (2.0 * #tempSetAcc * #jerk);
+	        #tempTGes := 2.0 * #tempT1 + #tempT2 + #tempT4 + 2.0 * #tempT5;
+	        
+	      END_IF;
+	    END_IF;
+	  ELSE
+	    
+	    #tempT02 := #tempSetAcc / #jerk;
+	    
+	    #tempT46 := #tempSetDec / #jerk;
+	    #tempT5 := SQRT_LREAL(MAX(IN1 := 0.0, IN2 := (((#tempSetAcc * #tempSetAcc) / (4.0 * (#jerk * #jerk))) + (2.0 * #distance * #tempSetAcc / (#tempSetDec * (#tempSetAcc + #tempSetDec)))))) - ((#tempSetAcc + 2.0 * #tempSetDec) / (2.0 * #jerk));
+	    
+	    #tempVelMax := #tempSetDec * (#tempT46 + #tempT5);
+	    
+	    IF (#tempVelMax <= #velocity) THEN
+	      #tempProfile := 5;
+	      #tempT1 := #tempSetAcc / #jerk;
+	      #tempT2 := ((#tempSetDec * #tempSetDec) - (#tempSetAcc * #tempSetAcc) + #tempSetDec * #jerk * #tempT5) / (#tempSetAcc * #jerk);
+	      #tempT5 := #tempSetDec / #jerk;
+	      #tempT6 := SQRT_LREAL(MAX(IN1 := 0.0, IN2 := (((#tempSetAcc * #tempSetAcc) / (4.0 * (#jerk * #jerk))) + (2.0 * #distance * #tempSetAcc / (#tempSetDec * (#tempSetAcc + #tempSetDec)))))) - ((#tempSetAcc + 2.0 * #tempSetDec) / (2.0 * #jerk));
+	      
+	      #tempTGes := 2.0 * #tempT1 + #tempT2 + 2.0 * #tempT5 + #tempT6;
+	      
+	    ELSE
+	      #tempProfile := 6;
+	      #tempT1 := #tempSetAcc / #jerk;
+	      #tempT5 := #tempSetDec / #jerk;
+	      #tempT2 := #velocity / #tempSetAcc - #tempT02;
+	      #tempT6 := #velocity / #tempSetDec - #tempT46;
+	      #tempT4 := #distance / #velocity - (#tempSetAcc + #tempSetDec) * (#jerk * #velocity + #tempSetAcc * #tempSetDec) / (2.0 * #jerk * #tempSetAcc * #tempSetDec);
+	      #tempTGes := 2.0 * #tempT1 + #tempT2 + #tempT4 + 2.0 * #tempT5 + #tempT6;
+	    END_IF;
+	  END_IF;
+	ELSE
+	  
+	  #tempProfile := 100;
+	  
+	  #tempTGes := SQRT_LREAL(MAX(IN1 := 0.0, IN2 := ((#acceleration + #deceleration) * (2.0 * #distance) / (#acceleration * #deceleration))));
+	  #tempVelMax := #tempTGes * (#acceleration * #deceleration) / (#acceleration + #deceleration);
+	  
+	  IF (#tempVelMax > #velocity) THEN
+	    #tempProfile := 200;
+	    #tempTGes := #distance / #velocity + (#velocity / 2.0) * (#acceleration + #deceleration) / (#acceleration * #deceleration);
+	  END_IF;
+	END_IF;
+	
+	#time := #tempTGes;
+END_FUNCTION
+

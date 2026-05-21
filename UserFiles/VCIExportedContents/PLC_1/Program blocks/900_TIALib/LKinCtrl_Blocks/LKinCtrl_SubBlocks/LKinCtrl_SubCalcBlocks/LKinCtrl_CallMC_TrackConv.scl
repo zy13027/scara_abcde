@@ -1,0 +1,84 @@
+﻿FUNCTION "LKinCtrl_CallMC_TrackConv" : Void
+TITLE = LKinCtrl_CallMC_TrackConv
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Call given MC_TrackConveyorBelt instance
+   VAR_INPUT 
+      axis : DB_ANY;   // Axis input
+      axesGroup {InstructionName := 'TO_Kinematics'; LibVersion := '9.0'} : TO_Kinematics;   // Kinematics input
+   END_VAR
+
+   VAR_IN_OUT 
+      instTrackConveyorBelt {InstructionName := 'MC_TRACKCONVEYORBELT'; LibVersion := '9.0'} : MC_TRACKCONVEYORBELT;   // Instance of MC_TrackConveyorBelt to be called
+   END_VAR
+
+   VAR_TEMP 
+      tempRefAxis {InstructionName := 'TO_PositioningAxis'; LibVersion := '9.0'} : REF_TO TO_PositioningAxis;   // Temporary reference to positioning axis
+      tempRefEncoder {InstructionName := 'TO_ExternalEncoder'; LibVersion := '9.0'} : REF_TO TO_ExternalEncoder;   // Temporary reference to external encoder
+      tempRefProxy {InstructionName := 'TO_LeadingAxisProxy'; LibVersion := '9.0'} : REF_TO TO_LeadingAxisProxy;   // Temporary reference to leading axis proxy
+   END_VAR
+
+
+BEGIN
+	//================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2023 All Rights Reserved
+	//--------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN
+	// Engineering: TIA Portal V18
+	// Restrictions: -
+	// Requirements: S7-1500T FW 3.0
+	// Functionality: Call MC_TrackConveyorBelt
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   11.01.2022    FR                  First released version
+	//===========================================================================================
+	
+	CASE TypeOfDB(#axis) OF
+	  TO_PositioningAxis, TO_SynchronousAxis:
+	    #tempRefAxis ?= #axis;
+	    IF #tempRefAxis = NULL THEN
+	      // Error
+	      RETURN;
+	    END_IF;
+	    
+	    // call MC_TrackConveyorBelt
+	    #instTrackConveyorBelt(AxesGroup := #axesGroup,
+	                           ConveyorBelt := #tempRefAxis^);
+	    
+	  TO_ExternalEncoder:
+	    #tempRefEncoder ?= #axis;
+	    IF #tempRefEncoder = NULL THEN
+	      // Error
+	      RETURN;
+	    END_IF;
+	    
+	    // call MC_TrackConveyorBelt
+	    #instTrackConveyorBelt(AxesGroup := #axesGroup,
+	                           ConveyorBelt := #tempRefEncoder^);
+	    
+	  TO_LeadingAxisProxy:
+	    #tempRefProxy ?= #axis;
+	    IF #tempRefProxy = NULL THEN
+	      // Error
+	      RETURN;
+	    END_IF;
+	    
+	    // call MC_TrackConveyorBelt
+	    #instTrackConveyorBelt(AxesGroup := #axesGroup,
+	                           ConveyorBelt := #tempRefProxy^);
+	    
+	  ELSE
+	    // invalid TO type
+	    ;
+	END_CASE;
+	
+	
+END_FUNCTION
+

@@ -1,0 +1,37 @@
+﻿FUNCTION "LKinCtrl_VecCrossProd" : "LKinCtrl_typeCOff3DPoint"
+TITLE = LKinCtrl_VecCrossProd
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Cross product of two coordinates (X, Y, Z) of "LKinCtrl_typeCOff3DPoint"
+   VAR_INPUT 
+      vIn1 : "LKinCtrl_typeCOff3DPoint";   // Input vector 1
+      vIn2 : "LKinCtrl_typeCOff3DPoint";   // Input vector 2
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2018 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library: - 
+	// Tested with: S7-1516T-3 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.5
+	// Functionality: Cross product of two coordinates (X, Y, Z) of "LKinCtrl_typeCOff3DPoint"
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 2019-01-24 AW               created
+	//=============================================================================
+	
+	#LKinCtrl_VecCrossProd.x := #vIn1.y * #vIn2.z - #vIn1.z * #vIn2.y;
+	#LKinCtrl_VecCrossProd.y := #vIn1.z * #vIn2.x - #vIn1.x * #vIn2.z;
+	#LKinCtrl_VecCrossProd.z := #vIn1.x * #vIn2.y - #vIn1.y * #vIn2.x;
+	
+	
+END_FUNCTION
+

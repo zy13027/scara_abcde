@@ -1,0 +1,92 @@
+﻿FUNCTION "LKinCtrl_GetTrackingInfo" : Word
+TITLE = LKinCtrl_GetTrackingInfo
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Get information about active conveyor tracking on specific OCS
+   VAR_INPUT 
+      coordSystem : DInt;   // Coordiante system to be checked
+   END_VAR
+
+   VAR_OUTPUT 
+      trackingPar : "LKinCtrl_typePnPTrackingProperties";   // Tracking info
+   END_VAR
+
+   VAR_IN_OUT 
+      axesGroup {InstructionName := 'TO_Kinematics'; LibVersion := '9.0'} : TO_Kinematics;   // Reference to axes group
+   END_VAR
+
+   VAR_TEMP 
+      tempInt : Int;
+      tempLreal : LReal;
+      tempWord : Word;
+   END_VAR
+
+   VAR CONSTANT 
+      STATUS_NO_ERR : Word := 16#0000;   // No error
+      ERR_GET_AXIS_MOTION_VEC : Word := 16#8000;   // Error - Get axis motion vector
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2023
+	//-----------------------------------------------------------------------------
+	// Library:       LKinCtrl
+	// Tested with:   S7-1518TF-4 PN/DP, FW V3.1
+	// Engineering:   TIA Portal V19
+	// Restrictions:  ---
+	// Requirements:  S7-1500T, FW V3.0
+	// Functionality: This block returns information about active conveyor tracking of a OCS
+	//                (Usage for LKinCtrl_MC_MovePickAndPlace...)
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 21.09.2023 SF               First released version
+	//=============================================================================
+	
+	#LKinCtrl_GetTrackingInfo := #STATUS_NO_ERR;
+	//preset active as false
+	#trackingPar.active := FALSE;
+	
+	FOR #tempInt := "CS_OCS1" TO "CS_OCS3" DO
+	  IF (#coordSystem = #tempInt) THEN
+	    IF (#axesGroup.StatusConveyor[#tempInt].TrackingState > 0) THEN
+	      //Tracking on start is actvie
+	      #trackingPar.active := TRUE;
+	      //Get CS frame (one by one due to system...)
+	      #trackingPar.frame.x := #axesGroup.StatusOcsFrame[#tempInt].x;
+	      #trackingPar.frame.y := #axesGroup.StatusOcsFrame[#tempInt].y;
+	      #trackingPar.frame.z := #axesGroup.StatusOcsFrame[#tempInt].z;
+	      #trackingPar.frame.a := #axesGroup.StatusOcsFrame[#tempInt].a;
+	      #trackingPar.frame.b := #axesGroup.StatusOcsFrame[#tempInt].b;
+	      #trackingPar.frame.c := #axesGroup.StatusOcsFrame[#tempInt].c;
+	      //Get Obj position (one by one due to system...)
+	      #trackingPar.objectPosition.x := #axesGroup.StatusConveyor[#tempInt].ObjectPosition.x;
+	      #trackingPar.objectPosition.y := #axesGroup.StatusConveyor[#tempInt].ObjectPosition.y;
+	      #trackingPar.objectPosition.z := #axesGroup.StatusConveyor[#tempInt].ObjectPosition.z;
+	      #trackingPar.objectPosition.a := #axesGroup.StatusConveyor[#tempInt].ObjectPosition.a;
+	      #trackingPar.objectPosition.b := #axesGroup.StatusConveyor[#tempInt].ObjectPosition.b;
+	      #trackingPar.objectPosition.c := #axesGroup.StatusConveyor[#tempInt].ObjectPosition.c;
+	      //Get conveyor axis motion values
+	      #tempWord := "LKinCtrl_GetAxisMotionVec"(actualValues := FALSE,
+	                                               position => #tempLreal,
+	                                               velocity => #trackingPar.velocity,
+	                                               acceleration => #tempLreal,
+	                                               axis := #axesGroup.StatusConveyor[#tempInt].ConveyorBelt);
+	      IF (#tempWord.%X15 = TRUE) THEN
+	        #LKinCtrl_GetTrackingInfo := #ERR_GET_AXIS_MOTION_VEC;
+	        RETURN; //TODO use EXIT for performance?
+	      END_IF;
+	      RETURN; //TODO use EXIT for performance?
+	    ELSE
+	      #trackingPar.active := FALSE;
+	    END_IF;
+	  END_IF;
+	END_FOR;
+END_FUNCTION
+

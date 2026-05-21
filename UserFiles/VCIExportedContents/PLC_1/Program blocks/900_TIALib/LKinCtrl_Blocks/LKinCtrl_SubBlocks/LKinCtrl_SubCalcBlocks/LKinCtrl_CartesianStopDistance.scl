@@ -1,0 +1,138 @@
+﻿FUNCTION "LKinCtrl_CartesianStopDistance" : Word
+TITLE = LKinCtrl_CartesianStopDistance
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calcualte cartesian stop distance
+   VAR_INPUT 
+      velX : LReal;   // WCS velocity X
+      velY : LReal;   // WCS velocity Y
+      velZ : LReal;   // WCS velocity Z
+      accX : LReal;   // WCS acceleration X
+      accY : LReal;   // WCS acceleration Y
+      accZ : LReal;   // WCS acceleration Z
+      acceleration : LReal;   // programmed path acceleration
+      deceleration : LReal;   // programmed path deceleration
+      jerk : LReal;   // programmed path jerk
+   END_VAR
+
+   VAR_OUTPUT 
+      stopDistance : Array[1..6] of LReal;   // cartesian stop distance
+   END_VAR
+
+   VAR_TEMP 
+      tempPathAccel : LReal;
+      tempPathVelo : LReal;
+      tempPathTangent : Array[1..3] of LReal;
+      tempReturn : Word;
+      tempStopDistance : LReal;
+      tempStopDistanceVector : Array[1..6] of LReal;
+      tempRetLCM : "LKinCtrl_typeRetProfileDist";
+      tempDet1 : LReal;
+      tempDet2 : LReal;
+   END_VAR
+
+   VAR CONSTANT 
+      DISTANCE_FACTOR : LReal := 1.0;
+      LCM_MODE_STATE_RELATED : DInt := 91;
+      LCM_MODE_DIRECTION_RELATED : DInt := 173;
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2021 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN/DP
+	// Engineering: TIA Portal V16
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 2.8
+	// Functionality: LKinCtrl_CartesianStopDistance
+	// Calc path stop vector (distance for relative positioning xyz)
+	//
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   10.06.2021    FR                  First released version
+	// 02.00.00   18.01.2022    FR                  Update to 6 axis
+	//===========================================================================================
+	
+	//----------------------------------------------------------------------
+	// Calc path stop vector (distance for relative positioning xyz)
+	// Current movement must be linear
+	//----------------------------------------------------------------------
+	
+	//predefine outputs
+	#tempStopDistanceVector[1] := 0.0;
+	#tempStopDistanceVector[2] := 0.0;
+	#tempStopDistanceVector[3] := 0.0;
+	#tempStopDistanceVector[4] := 0.0;
+	#tempReturn := 16#0;
+	
+	// Calc path vector
+	// V = T * vp -> vp = sqrt(vx^2 + vy^2 + vz^2)
+	// A = T * ap + K * vp^2, suppose K = 0 (Linear tracking)
+	#tempDet1 := #velX * #velX + #velY * #velY + #velZ * #velZ;
+	#tempDet2 := #accX * #accX + #accY * #accY + #accZ * #accZ;
+	IF #tempDet1 < 0.0 OR #tempDet2 < 0.0 THEN
+	    //Plausibility error
+	    #tempReturn := 16#FFFF;
+	ELSE
+	    //Calculate path velo and tangent
+	    #tempPathVelo := SQRT(#tempDet1);
+	    //Calculate path acceleration
+	    #tempPathAccel := SQRT(#tempDet2);
+	    //Calculate path tangent
+	    IF #tempPathVelo > 0.0 THEN
+	        //is path velo > 0?
+	        #tempPathTangent[1] := #velX / #tempPathVelo;
+	        #tempPathTangent[2] := #velY / #tempPathVelo;
+	        #tempPathTangent[3] := #velZ / #tempPathVelo;
+	    ELSE
+	        IF #tempPathAccel > 0.0 THEN
+	            //Check if acceleration is > 0?
+	            #tempPathTangent[1] := #accX / #tempPathVelo;
+	            #tempPathTangent[2] := #accY / #tempPathVelo;
+	            #tempPathTangent[3] := #accZ / #tempPathVelo;
+	        ELSE
+	            //No motion
+	            #tempPathTangent[1] := 0.0;
+	            #tempPathTangent[2] := 0.0;
+	            #tempPathTangent[3] := 0.0;
+	        END_IF;
+	    END_IF;
+	    //Calc stop distance from current path velocity to 0.0
+	    #tempRetLCM := "LKinCtrl_CalcTransProfileDist"(actVelocity := #tempPathVelo,
+	                                                   setVelocity := 0.0, //target velocity
+	                                                   actAcceleration := #tempPathAccel,
+	                                                   setAcceleration := #acceleration,
+	                                                   setDeceleration := #deceleration,
+	                                                   setJerk := #jerk,
+	                                                   mode := #LCM_MODE_STATE_RELATED);
+	    
+	    
+	    IF #tempRetLCM.functionResult <> 16#0 THEN
+	        //error
+	        #tempReturn := DINT_TO_WORD(#tempRetLCM.functionResult);
+	    ELSE
+	        #tempStopDistance := #tempRetLCM.dist;
+	        // calculate distance vector
+	        // increase accuracy by taking next interpolation step into account! (-> command usually starts in next servo cycle, depending on OB Look-Ahead)
+	        #tempStopDistanceVector[1] := #DISTANCE_FACTOR * (#tempPathTangent[1] * #tempStopDistance); // + #velX * #SERVO_CYCLE_TIME + 0.5 * #accX * #SERVO_CYCLE_TIME * #SERVO_CYCLE_TIME);
+	        #tempStopDistanceVector[2] := #DISTANCE_FACTOR * (#tempPathTangent[2] * #tempStopDistance); // + #velY * #SERVO_CYCLE_TIME + 0.5 * #accY * #SERVO_CYCLE_TIME * #SERVO_CYCLE_TIME);
+	        #tempStopDistanceVector[3] := #DISTANCE_FACTOR * (#tempPathTangent[3] * #tempStopDistance); // + #velZ * #SERVO_CYCLE_TIME + 0.5 * #accZ * #SERVO_CYCLE_TIME * #SERVO_CYCLE_TIME);
+	        #tempStopDistanceVector[4] := 0.0;
+	    END_IF;
+	END_IF;
+	
+	//Output
+	//-----------------------------------------------------
+	#stopDistance := #tempStopDistanceVector;
+	#LKinCtrl_CartesianStopDistance := #tempReturn;
+END_FUNCTION
+

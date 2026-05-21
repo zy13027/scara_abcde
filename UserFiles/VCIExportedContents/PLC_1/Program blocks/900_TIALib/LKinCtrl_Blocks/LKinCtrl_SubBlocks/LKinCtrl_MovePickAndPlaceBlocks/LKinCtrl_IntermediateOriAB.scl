@@ -1,0 +1,127 @@
+﻿FUNCTION "LKinCtrl_IntermediateOriAB" : Word
+TITLE = LKinCtrl_IntermediateOriAB
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculate intermediate orientation (A, B) between start and target orientation
+   VAR_INPUT 
+      startOri : "LKinCtrl_typePnPOrientationFrame";   // Start orientation frame
+      targetOri : "LKinCtrl_typePnPOrientationFrame";   // Target orientation frame
+      ratio : LReal;   // Intermediate point ratio
+   END_VAR
+
+   VAR_IN_OUT 
+      intermediateOri : "LKinCtrl_typePnPOrientationFrame";   // Intermediate orientation frame
+   END_VAR
+
+   VAR_TEMP 
+      temp1 : LReal;
+      temp2 : LReal;
+      tempDistB : Array[1..2] of LReal;
+      tempDistRatio : Array[1..2] of LReal;
+      tempDistA : LReal;
+      tempPoleFrame1 : Array[1..2] of "LKinCtrl_typePnPOrientationFrame";
+      tempPoleFrame2 : Array[1..2] of "LKinCtrl_typePnPOrientationFrame";
+      tempDistSum : Array[1..2] of LReal;
+      tempDistC : LReal;
+      tempIndex : USInt;
+      tempPole : LReal;
+   END_VAR
+
+   VAR CONSTANT 
+      CALC_TOL : LReal := 0.001;   // Calculation tolerance
+      STATUS_NO_ERR : Word := 16#0000;   // No error
+      NORTHPOLE : USInt := 1;   // Move across northpole of orientation sphere
+      SOUTHPOLE : USInt := 2;   // Move across southpole of orientation sphere
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2023
+	//-----------------------------------------------------------------------------
+	// Library:       LKinCtrl
+	// Tested with:   S7-1518TF-4 PN/DP, FW V3.1
+	// Engineering:   TIA Portal V19
+	// Restrictions:  ---
+	// Requirements:  S7-1500T, FW V3.0
+	// Functionality: Calc intermediate frame A, B between start and target A, B
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 21.09.2023 SF               First released version
+	//=============================================================================
+	
+	//regard C
+	IF ABS(#targetOri.c - #startOri.c) < #CALC_TOL THEN //same C
+	  #intermediateOri.a := "LKinCtrl_GetValueInRange"(#startOri.a + "LKinCtrl_GetValueInRange"(#targetOri.a - #startOri.a) * #ratio);
+	  #intermediateOri.b := #startOri.b + (#targetOri.b - #startOri.b) * #ratio;
+	  #intermediateOri.c := 0.0;
+	ELSE //different C
+	  //Distance for C (-180 or +180?)
+	  #tempDistC := #targetOri.c - #startOri.c;
+	  //Calculate frame at poles
+	  FOR #tempIndex := #NORTHPOLE TO #SOUTHPOLE DO
+	    //Specify pole motion
+	    IF (#tempIndex = #NORTHPOLE) THEN
+	      #tempPole := -90.0; //Check northpole motion
+	    ELSE
+	      #tempPole := 90.0; //Check southpole motion
+	    END_IF;
+	    
+	    //Get distance ratio START -> POLE -> TARGET (Orientation B)
+	    #temp1 := #tempPole - #startOri.b;
+	    #temp2 := #tempPole - #targetOri.b;
+	    #tempDistB[#tempIndex] := #temp1 + #temp2;
+	    IF #tempDistB[#tempIndex] <> 0.0 THEN
+	      #tempDistRatio[#tempIndex] := #temp1 / #tempDistB[#tempIndex];
+	    ELSE
+	      //Already at pole
+	      #tempDistRatio[#tempIndex] := 0.0;
+	    END_IF;
+	    //Calculate estimated distance of A
+	    #tempDistA := "LKinCtrl_GetValueInRange"(#targetOri.a - #startOri.a - #tempDistC);
+	    // ---> Frames at Pole (A = ?; B = +90 or -90; C  = 0/-180)
+	    #tempPoleFrame1[#tempIndex].a := "LKinCtrl_GetValueInRange"(#startOri.a + #tempDistA * #tempDistRatio[#tempIndex]);
+	    #tempPoleFrame1[#tempIndex].b := #tempPole;
+	    #tempPoleFrame1[#tempIndex].c := #startOri.c;
+	    
+	    #tempPoleFrame2[#tempIndex].a := "LKinCtrl_GetValueInRange"(#startOri.a + #tempDistA * #tempDistRatio[#tempIndex] - #tempDistC);
+	    #tempPoleFrame2[#tempIndex].b := #tempPole;
+	    #tempPoleFrame2[#tempIndex].c := #targetOri.c;
+	    
+	    //Calculate geometric distance for evalulation
+	    #tempDistSum[#tempIndex] := SQRT((#tempPoleFrame1[#tempIndex].a - #startOri.a) ** 2 + (#tempPoleFrame1[#tempIndex].b - #startOri.b) ** 2)
+	    + SQRT((#targetOri.a - #tempPoleFrame2[#tempIndex].a) ** 2 + (#targetOri.b - #tempPoleFrame2[#tempIndex].b) ** 2);
+	  END_FOR;
+	  
+	  //Check for shortest distance
+	  IF (#tempDistSum[#NORTHPOLE] < #tempDistSum[#SOUTHPOLE]) THEN
+	    #tempIndex := #NORTHPOLE; //Move over northpole (-90°)
+	  ELSE
+	    #tempIndex := #SOUTHPOLE; //Move over southpole (+90°)
+	  END_IF;
+	  
+	  //intermediate ratio <= distance ratio --> Calculation between START and POLE 1, else Calculation between POLE 2 and TARGET
+	  IF (#ratio <= #tempDistRatio[#tempIndex]) AND (#tempDistRatio[#tempIndex] > 0.0) THEN
+	    //Intermediate point is between start and pole
+	    #intermediateOri.a := "LKinCtrl_GetValueInRange"(#startOri.a + "LKinCtrl_GetValueInRange"(#tempPoleFrame1[#tempIndex].a - #startOri.a) * #ratio / #tempDistRatio[#tempIndex]);
+	    #intermediateOri.b := #startOri.b + (#tempPoleFrame1[#tempIndex].b - #startOri.b) * #ratio / #tempDistRatio[#tempIndex];
+	    #intermediateOri.c := #startOri.c;
+	  ELSE
+	    //Intermediate point is between pole and target
+	    #intermediateOri.a := "LKinCtrl_GetValueInRange"(#tempPoleFrame2[#tempIndex].a + "LKinCtrl_GetValueInRange"(#targetOri.a - #tempPoleFrame2[#tempIndex].a) * (1.0 - #tempDistRatio[#tempIndex] - #ratio) / (1.0 - #tempDistRatio[#tempIndex]));
+	    #intermediateOri.b := #tempPoleFrame2[#tempIndex].b + (#targetOri.b - #tempPoleFrame2[#tempIndex].b) * (1.0 - #tempDistRatio[#tempIndex] - #ratio) / (1.0 - #tempDistRatio[#tempIndex]);
+	    #intermediateOri.c := #tempPoleFrame2[#tempIndex].c;
+	  END_IF;
+	END_IF;
+	//set return value
+	#LKinCtrl_IntermediateOriAB := #STATUS_NO_ERR;
+	
+	
+END_FUNCTION
+

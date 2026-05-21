@@ -1,0 +1,110 @@
+﻿FUNCTION "LKinCtrl_CalcCircEndPointWithGivenCenterAndAngle" : Word
+TITLE = LKinCtrl_CalcCircEndPointWithGivenCenterAndAngle
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculate circle end point with given start point, circle center and angle
+   VAR_INPUT 
+      circleStartPoint : "LKinCtrl_typeCOff3DPoint";   // Circle start point
+      circleCenterPoint : "LKinCtrl_typeCOff3DPoint";   // Circle center point
+      pathPlane : Int;   // Path plane: XZ= 0, YZ=1, XY= 2
+      pathChoice : DInt;   // Circle path choice: positive= 0, negative= 1
+      angle : LReal;   // Circle angle
+   END_VAR
+
+   VAR_OUTPUT 
+      endPoint : "LKinCtrl_typeCOff3DPoint";
+   END_VAR
+
+   VAR_TEMP 
+      tempSin : LReal;
+      tempCos : LReal;
+      tempVOrthogonal : "LKinCtrl_typeCOff3DPoint";   // Othogonal vector
+      tempVRotated : "LKinCtrl_typeCOff3DPoint";
+   END_VAR
+
+   VAR CONSTANT 
+      ERR_COFF_INVALID_PATH_PLANE : Word := 16#8303;   // Error - invalid path plane
+      ERR_COFF_INVALID_COMPENSATION_DIRECTION : Word := 16#8304;   // Error - invalid compensation direction
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library: - 
+	// Tested with: S7-1516T-3 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.5
+	// Functionality: Calculate circle end point with given
+	// start point, circle center and angle
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 2019-01-24 AW               created
+	//=============================================================================
+	
+	REGION PLAUSIBILITY_CHECK
+	  // Check path plane
+	  IF ((#pathPlane >= "CP_XZ") AND (#pathPlane <= "CP_XY"))
+	  THEN
+	    // Check compensation direction
+	    IF ((#pathChoice >= 0) AND (#pathChoice <= 1))
+	    THEN
+	      ;
+	    ELSE
+	      #LKinCtrl_CalcCircEndPointWithGivenCenterAndAngle := #ERR_COFF_INVALID_COMPENSATION_DIRECTION; // Invalid compensation direction
+	      RETURN;
+	    END_IF;
+	  ELSE
+	    #LKinCtrl_CalcCircEndPointWithGivenCenterAndAngle := #ERR_COFF_INVALID_PATH_PLANE; // Invalid path plane
+	    RETURN;
+	  END_IF;
+	END_REGION PLAUSIBILITY_CHECK
+	
+	REGION CALCULATION
+	  
+	// Calc radius vector (difference vector) circle center to start point
+	#tempVOrthogonal := "LKinCtrl_VecSub"(vIn1 := #circleStartPoint, vIn2 := #circleCenterPoint);
+	
+	IF (#pathChoice = 0) THEN
+	  // positive
+	  #tempSin := SIN(#angle * "LKINCTRL_PI" / 180.0);
+	  #tempCos := COS(#angle * "LKINCTRL_PI" / 180.0);
+	ELSE
+	  #tempSin := SIN(- #angle * "LKINCTRL_PI" / 180.0);
+	  #tempCos := COS(- #angle * "LKINCTRL_PI" / 180.0);
+	END_IF;
+	
+	// Check path plane
+	IF (#pathPlane = "CP_XY") THEN
+	  // Rotation around Z
+	  #tempVRotated.x := #tempVOrthogonal.x * #tempCos - #tempVOrthogonal.y * #tempSin;      // Calculation X
+	  #tempVRotated.y := #tempVOrthogonal.x * #tempSin + #tempVOrthogonal.y * #tempCos;      // Calculation Y
+	  #tempVRotated.z := #tempVOrthogonal.z;                                                 // Calculation Z
+	  
+	ELSIF (#pathPlane = "CP_XZ") THEN
+	  // Rotation around Y
+	  #tempVRotated.x := #tempVOrthogonal.x * #tempCos + #tempVOrthogonal.z * #tempSin;      // Calculation X
+	  #tempVRotated.y := #tempVOrthogonal.y;                                                 // Calculation Y
+	  #tempVRotated.z := -#tempVOrthogonal.x * #tempSin + #tempVOrthogonal.z * #tempCos;     // Calculation Z
+	  
+	ELSIF (#pathPlane = "CP_YZ") THEN
+	  // Rotation around X
+	  #tempVRotated.x := #tempVOrthogonal.x;      // Calculation X
+	  #tempVRotated.y := #tempVOrthogonal.y * #tempCos - #tempVOrthogonal.z * #tempSin;       // Calculation Y
+	  #tempVRotated.z := #tempVOrthogonal.y * #tempSin + #tempVOrthogonal.z * #tempCos;     // Calculation Z
+	END_IF;
+	
+	// Calculate end point of circle by adding the rotated vector to the circle center point
+	#endPoint := "LKinCtrl_VecAdd"(vIn1:=#tempVRotated, vIn2:=#circleCenterPoint);
+	
+	END_REGION CALCULATION
+	
+	#LKinCtrl_CalcCircEndPointWithGivenCenterAndAngle := 0;
+END_FUNCTION
+

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Document>
   <Engineering version="V20" />
   <SW.Blocks.GlobalDB ID="0">
@@ -8,58 +8,52 @@
     <Member Name="bo_InitPath" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">HMI: rising edge → initialize ABCDE 5-point path data</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">HMI: 上升沿 → 初始化 ABCDE 5 点路径</MultiLanguageText>
       </Comment>
     </Member>
     <Member Name="bo_Start" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">HMI: rising edge → start auto cycle (i16_AutoStep := 10)</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">HMI: 上升沿 → 启动自动循环</MultiLanguageText>
       </Comment>
     </Member>
     <Member Name="bo_Stop" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">HMI: rising edge → stop auto cycle (i16_AutoStep := 0)</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">HMI: 上升沿 → 停止自动循环</MultiLanguageText>
       </Comment>
     </Member>
     <Member Name="bo_Mode" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">HMI: AUTO mode selector (TRUE = auto cycle enabled, FALSE = ignored)</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">HMI: 自动模式开关</MultiLanguageText>
       </Comment>
       <StartValue>TRUE</StartValue>
     </Member>
     <Member Name="bo_ESTOP_LOCK" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">Safety: E-Stop chain healthy (TRUE = OK, FALSE = E-Stop active)</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">安全: 急停健康状态</MultiLanguageText>
       </Comment>
       <StartValue>TRUE</StartValue>
     </Member>
     <Member Name="bo_PathInitialed" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">Status: ABCDE path has been initialized (set after bo_InitPath rising edge)</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">状态: 路径已初始化</MultiLanguageText>
       </Comment>
     </Member>
     <Member Name="bo_Alarm" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">Status: any system alarm (placeholder, always FALSE in minimal demo)</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">状态: 系统报警</MultiLanguageText>
       </Comment>
     </Member>
     <Member Name="i16_AutoStep" Datatype="Int">
       <Comment>
         <MultiLanguageText Lang="en-US">Main state machine step. 6-state per source spec 杨子楠5月17日周计划.md §3.3: 0=idle, 10=going-to-A, 20=going-to-B, 30=going-to-C, 40=going-to-D, 50=going-to-E. Cycle wraps 50→10 (source spec §3.5). Wang Shuo / Huashili 4-REGION pattern.</MultiLanguageText>
-        <MultiLanguageText Lang="zh-CN">主状态机步号 (6 状态, 来源 §3.3): 0=空闲, 10=去A, 20=去B, 30=去C, 40=去D, 50=去E. 循环 50→10 (§3.5). 王硕模式</MultiLanguageText>
       </Comment>
     </Member>
   </Section>
 </Sections></Interface>
       <MemoryLayout>Optimized</MemoryLayout>
+      <MemoryReserve>100</MemoryReserve>
       <Name>GDB_MachineCmd</Name>
       <Namespace />
+      <Number>1</Number>
       <ProgrammingLanguage>DB</ProgrammingLanguage>
     </AttributeList>
     <ObjectList>

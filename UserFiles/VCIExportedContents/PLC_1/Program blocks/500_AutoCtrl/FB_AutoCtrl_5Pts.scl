@@ -1,0 +1,66 @@
+﻿FUNCTION_BLOCK "FB_AutoCtrl_5Pts"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+BEGIN
+	REGION Initialise path
+	    
+	    
+	END_REGION
+	
+	
+	REGION startup
+	    
+	END_REGION
+	
+	
+	REGION Pause
+	    
+	    
+	END_REGION
+	
+	
+	REGION Stop
+	    
+	    
+	    
+	END_REGION
+	
+	
+	
+	REGION Alarm
+	    
+	    
+	END_REGION
+	
+	
+	REGION E_Stop 
+	    
+	    
+	END_REGION
+	
+	
+	REGION Auto
+	    
+	    CASE "GDB_MachineCmd".i16_AutoStep OF
+	            
+	        0: //Idle
+	            ;
+	            
+	        10: //Parameters Reset
+	            ;
+	            
+	        20://Appreity Device Start 
+	            ;
+	            
+	        30://Path Data Assignment
+	            
+	            ;
+	            
+	            
+	            
+	    END_CASE;
+	    
+	END_REGION
+END_FUNCTION_BLOCK
+

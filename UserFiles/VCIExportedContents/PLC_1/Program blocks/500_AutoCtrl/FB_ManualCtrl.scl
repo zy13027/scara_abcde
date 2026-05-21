@@ -1,36 +1,36 @@
-FUNCTION_BLOCK "FB_ManualCtrl"
+﻿FUNCTION_BLOCK "FB_ManualCtrl"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.2
 // rev 0.2 (2026-05-18 post-first-smoke):
 //   - REGION 4: Execute now uses a STATIC Bool (statKinExecutePulse) computed
 //     before MC_MoveLinAbs call (matches FB_AutoCtrl_ABCDE pattern verbatim).
 //     Previous inline `(statManualOK AND R_TRIG.Q)` expression observed not to
-//     fire MC_MoveLinAbs.Busy in smoke run #1 — root cause unclear, working
+//     fire MC_MoveLinAbs.Busy in smoke run #1 â€” root cause unclear, working
 //     theory: Siemens MC sometimes prefers a stable static Bool for Execute.
 //   - REGION 4: BufferMode 0 (MC_Aborting) -> 1 (MC_Buffered). From idle Kin,
 //     both should work, but Buffered is the canonical first-cut.
 //   - REGION 5: bo_J{n}_Enabled now mirrors instFB_AxisCtrl.instPower_J{n}.Status
 //     directly (cross-iDB read). Previously used StatusWord.%X3 which read
-//     FALSE on this ABCDE deployment even when MC_Power.Status was TRUE —
+//     FALSE on this ABCDE deployment even when MC_Power.Status was TRUE â€”
 //     bit position varies across S7-1500T MC TO versions. Cross-iDB MC_Power
 //     output is the semantically correct + universally working source.
 // =====================================================================
-// SCARA ABCDE Phase G (C67, 2026-05-18) — Manual Control Surface
+// SCARA ABCDE Phase G (C67, 2026-05-18) â€” Manual Control Surface
 //
 // Routes HMI manual-mode commands (GDB_ManualCmd) to motion primitives:
-//   REGION 1 — Mode gate:        compute statManualOK (mutex + safety)
-//   REGION 2 — Group routing:    Enable/Home/Reset → GDB_Control flags
-//   REGION 3 — Per-axis jog:     4× MC_MoveJog with XOR forward/backward
-//   REGION 4 — Kin manual move:  1× MC_MoveLinearAbsolute on ScaraArm3D
-//   REGION 5 — Status mirror:    TO StatusWord bits → GDB_ManualStatus
+//   REGION 1 â€” Mode gate:        compute statManualOK (mutex + safety)
+//   REGION 2 â€” Group routing:    Enable/Home/Reset â†’ GDB_Control flags
+//   REGION 3 â€” Per-axis jog:     4Ã— MC_MoveJog with XOR forward/backward
+//   REGION 4 â€” Kin manual move:  1Ã— MC_MoveLinearAbsolute on ScaraArm3D
+//   REGION 5 â€” Status mirror:    TO StatusWord bits â†’ GDB_ManualStatus
 //
 // Architectural choices (per HMI agent cycle-7.1 ACK 2026-05-18 + scara-PM defaults):
 //   - Option A clean PLC mirror (12 per-joint + 4 Kin Bools in GDB_ManualStatus)
-//   - Binary bo_Mode mutex (NOT 3-way enum) — simpler, matches Phase 1+2 pattern
+//   - Binary bo_Mode mutex (NOT 3-way enum) â€” simpler, matches Phase 1+2 pattern
 //   - cfgKinTarget{X,Y,Z,A} are HMI R/W IOFields (operator sets target before bo_KinGo)
 //   - JOG buttons HOLD pattern (level-tracked; release decelerates to standstill)
 //   - Per-axis Enable HOLD-while-pressed (matches v9 FB_AxisManualWiring cmd_Enable)
-//   - Jog velocity PLC-fixed (10°/s revolute J1/J2/J4, 50mm/s prismatic J3)
+//   - Jog velocity PLC-fixed (10Â°/s revolute J1/J2/J4, 50mm/s prismatic J3)
 //   - Per-axis Enable/Home/Reset routes to GROUP via GDB_Control.{enable,home,reset}Axes
 //     (FB_AxisCtrl owns MC_Power on joints; per-axis cannot be independent)
 //
@@ -43,8 +43,8 @@ VERSION : 0.2
 //   mirror always runs (HMI lamps show truth regardless of mode).
 //
 // Per-scan MC instruction count:
-//   - 4× MC_MoveJog       (one per joint)
-//   - 1× MC_MoveLinearAbsolute (Kin manual)
+//   - 4Ã— MC_MoveJog       (one per joint)
+//   - 1Ã— MC_MoveLinearAbsolute (Kin manual)
 //   Total: 5 new instances; combined with FB_AxisCtrl (14) + FB_AutoCtrl_ABCDE (1)
 //          = 20 declared; ~5-6 actively pulsing at any time. OB91 headroom preserved.
 //
@@ -55,31 +55,19 @@ VERSION : 0.2
 //   .%X7 = Standstill (NOT-%X7 = motion in progress, used for JogActive lamp)
 //   Proven in v9 FB_AxisManualWiring (production) + ABCDE Phase C smoke test.
 // =====================================================================
-
-   VAR
-      // === Multi-instance MC_MoveJog per joint (REGION 3) ===
-      instJog_J1 { InstructionName := 'MC_MOVEJOG'; LibVersion := '9.0' } : MC_MOVEJOG;
-      instJog_J2 { InstructionName := 'MC_MOVEJOG'; LibVersion := '9.0' } : MC_MOVEJOG;
-      instJog_J3 { InstructionName := 'MC_MOVEJOG'; LibVersion := '9.0' } : MC_MOVEJOG;
-      instJog_J4 { InstructionName := 'MC_MOVEJOG'; LibVersion := '9.0' } : MC_MOVEJOG;
-
-      // === Single MC_MoveLinearAbsolute for Kin manual point-to-point (REGION 4) ===
-      // BufferMode (set in REGION 4 call). rev 0.2: added S7_SetPoint='False'
-      // attribute matching FB_AutoCtrl_ABCDE's working instMoveLinAbs declaration
-      // — without this, iDB Member gets SetPoint=true which can prevent the MC
-      // subsystem from properly managing the instruction state.
-      instMoveLinAbs { InstructionName := 'MC_MOVELINEARABSOLUTE'; LibVersion := '9.0'; S7_SetPoint := 'False' } : MC_MOVELINEARABSOLUTE;
-
-      // === Rising-edge detector for bo_KinGo (REGION 4) ===
-      sRTRIGKinGo { InstructionName := 'R_TRIG'; LibVersion := '1.0' } : R_TRIG;
-
-      // === Statics ===
-      statManualOK : Bool;            // REGION 1 gate result (cached for REGION 2-4)
-      statKinExecutePulse : Bool;     // REGION 4 (rev 0.2): MC_MoveLinAbs Execute drive
+// === Multi-instance MC_MoveJog per joint (REGION 3) ===
+   VAR 
+      instJog_J1 {InstructionName := 'MC_MOVEJOG'; LibVersion := '9.0'} : MC_MOVEJOG;
+      instJog_J2 {InstructionName := 'MC_MOVEJOG'; LibVersion := '9.0'} : MC_MOVEJOG;
+      instJog_J3 {InstructionName := 'MC_MOVEJOG'; LibVersion := '9.0'} : MC_MOVEJOG;
+      instJog_J4 {InstructionName := 'MC_MOVEJOG'; LibVersion := '9.0'} : MC_MOVEJOG;   // === Single MC_MoveLinearAbsolute for Kin manual point-to-point (REGION 4) === BufferMode (set in REGION 4 call). rev 0.2: added S7_SetPoint='False' attribute matching FB_AutoCtrl_ABCDE's working instMoveLinAbs declaration  - without this, iDB Member gets SetPoint=true which can prevent the MC subsystem from properly managing the instruction state.
+      instMoveLinAbs {InstructionName := 'MC_MOVELINEARABSOLUTE'; LibVersion := '9.0'; S7_SetPoint := 'False'} : MC_MOVELINEARABSOLUTE;   // === Rising-edge detector for bo_KinGo (REGION 4) ===
+      sRTRIGKinGo {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;   // === Statics ===
+      statManualOK : Bool;   // REGION 1 gate result (cached for REGION 2-4)
+      statKinExecutePulse : Bool;   // REGION 4 (rev 0.2): MC_MoveLinAbs Execute drive Per-axis XOR jog direction selectors (REGION 3)
    END_VAR
 
-   VAR_TEMP
-      // Per-axis XOR jog direction selectors (REGION 3)
+   VAR_TEMP 
       tempJ1Fwd : Bool;
       tempJ1Bwd : Bool;
       tempJ2Fwd : Bool;
@@ -87,217 +75,216 @@ VERSION : 0.2
       tempJ3Fwd : Bool;
       tempJ3Bwd : Bool;
       tempJ4Fwd : Bool;
-      tempJ4Bwd : Bool;
-
-      // Kin manual target position array for MC_MoveLinearAbsolute (REGION 4)
-      tempKinTarget : Array[1..6] of LReal;
-
-      // REGION 2 group flag composites
+      tempJ4Bwd : Bool;   // Kin manual target position array for MC_MoveLinearAbsolute (REGION 4)
+      tempKinTarget : Array[1..6] of LReal;   // REGION 2 group flag composites
       tempEnableAxes : Bool;
-      tempHomeAxes   : Bool;
-      tempResetAxes  : Bool;
+      tempHomeAxes : Bool;
+      tempResetAxes : Bool;
    END_VAR
 
 
 BEGIN
-
-	// =====================================================================
-	// REGION 1 — Mode gate
-	// statManualOK gates REGION 2-4. REGION 5 (status mirror) is unconditional.
-	// Mutex with FB_AutoCtrl_ABCDE: gate explicitly requires bo_Mode (ABCDE auto)
-	// is FALSE. Operator must toggle one mode off before enabling the other.
-	// =====================================================================
-	#statManualOK := "GDB_ManualCmd".bo_Mode
-	                 AND "GDB_ManualCmd".bo_ESTOP_LOCK
-	                 AND NOT "GDB_MachineCmd".bo_Mode;
-
-	// =====================================================================
-	// REGION 2 — Group Enable/Home/Reset routing
-	// Per-axis cmd buttons (J{1..4}) + Kin group cmd buttons OR into the
-	// shared GDB_Control.*Axes flags. FB_AxisCtrl reads those flags and
-	// drives the 4 MC_Power / 4 MC_Home / 5 MC_Reset instances.
-	//
-	// IMPORTANT: per-axis "Enable" is a UX nicety — it physically enables
-	// all 4 joints together (group-level wiring). HMI documents this in
-	// the bo_J{n}_Enable Comment so operator understands.
-	//
-	// Only writes GDB_Control flags when statManualOK = TRUE. Outside
-	// manual mode, FB_ManualCtrl leaves enableAxes/homeAxes/resetAxes
-	// alone for legacy auto-mode HMI direct-write path.
-	// =====================================================================
-	IF #statManualOK THEN
-	    #tempEnableAxes := "GDB_ManualCmd".bo_J1_Enable
-	                       OR "GDB_ManualCmd".bo_J2_Enable
-	                       OR "GDB_ManualCmd".bo_J3_Enable
-	                       OR "GDB_ManualCmd".bo_J4_Enable
-	                       OR "GDB_ManualCmd".bo_KinEnable;
-	    #tempHomeAxes := "GDB_ManualCmd".bo_J1_Home
-	                     OR "GDB_ManualCmd".bo_J2_Home
-	                     OR "GDB_ManualCmd".bo_J3_Home
-	                     OR "GDB_ManualCmd".bo_J4_Home
-	                     OR "GDB_ManualCmd".bo_KinHome;
-	    #tempResetAxes := "GDB_ManualCmd".bo_J1_Reset
-	                      OR "GDB_ManualCmd".bo_J2_Reset
-	                      OR "GDB_ManualCmd".bo_J3_Reset
-	                      OR "GDB_ManualCmd".bo_J4_Reset
-	                      OR "GDB_ManualCmd".bo_KinReset;
-
-	    "GDB_Control".enableAxes := #tempEnableAxes;
-	    "GDB_Control".homeAxes   := #tempHomeAxes;
-	    "GDB_Control".resetAxes  := #tempResetAxes;
-	END_IF;
-
-	// =====================================================================
-	// REGION 3 — Per-axis MC_MoveJog with XOR safety
-	// HOLD pattern: button held = jog active; button released = decelerate
-	// to standstill. XOR: if both forward + backward held simultaneously,
-	// neither direction wins (defensive — prevents conflicting commands).
-	//
-	// Jog velocities PLC-fixed (operator can override in V0.2 via cfgJogVelocity):
-	//   J1 base shoulder (revolute):     10 °/s
-	//   J2 elbow (revolute):             10 °/s
-	//   J3 vertical prismatic:           50 mm/s
-	//   J4 wrist (revolute):             10 °/s
-	// =====================================================================
-	#tempJ1Fwd := #statManualOK
-	              AND "GDB_ManualCmd".bo_J1_JogForward
-	              AND NOT "GDB_ManualCmd".bo_J1_JogBackward;
-	#tempJ1Bwd := #statManualOK
-	              AND "GDB_ManualCmd".bo_J1_JogBackward
-	              AND NOT "GDB_ManualCmd".bo_J1_JogForward;
-	#instJog_J1(Axis         := "J1_SCARA_Arm3D",
-	            JogForward   := #tempJ1Fwd,
-	            JogBackward  := #tempJ1Bwd,
-	            Velocity     := 10.0,
-	            Acceleration := 100.0,
-	            Deceleration := 100.0,
-	            Jerk         := 1000.0);
-
-	#tempJ2Fwd := #statManualOK
-	              AND "GDB_ManualCmd".bo_J2_JogForward
-	              AND NOT "GDB_ManualCmd".bo_J2_JogBackward;
-	#tempJ2Bwd := #statManualOK
-	              AND "GDB_ManualCmd".bo_J2_JogBackward
-	              AND NOT "GDB_ManualCmd".bo_J2_JogForward;
-	#instJog_J2(Axis         := "J2_SCARA_Arm3D",
-	            JogForward   := #tempJ2Fwd,
-	            JogBackward  := #tempJ2Bwd,
-	            Velocity     := 10.0,
-	            Acceleration := 100.0,
-	            Deceleration := 100.0,
-	            Jerk         := 1000.0);
-
-	#tempJ3Fwd := #statManualOK
-	              AND "GDB_ManualCmd".bo_J3_JogForward
-	              AND NOT "GDB_ManualCmd".bo_J3_JogBackward;
-	#tempJ3Bwd := #statManualOK
-	              AND "GDB_ManualCmd".bo_J3_JogBackward
-	              AND NOT "GDB_ManualCmd".bo_J3_JogForward;
-	#instJog_J3(Axis         := "J3_SCARA_Arm3D",
-	            JogForward   := #tempJ3Fwd,
-	            JogBackward  := #tempJ3Bwd,
-	            Velocity     := 50.0,
-	            Acceleration := 500.0,
-	            Deceleration := 500.0,
-	            Jerk         := 5000.0);
-
-	#tempJ4Fwd := #statManualOK
-	              AND "GDB_ManualCmd".bo_J4_JogForward
-	              AND NOT "GDB_ManualCmd".bo_J4_JogBackward;
-	#tempJ4Bwd := #statManualOK
-	              AND "GDB_ManualCmd".bo_J4_JogBackward
-	              AND NOT "GDB_ManualCmd".bo_J4_JogForward;
-	#instJog_J4(Axis         := "J4_SCARA_Arm3D",
-	            JogForward   := #tempJ4Fwd,
-	            JogBackward  := #tempJ4Bwd,
-	            Velocity     := 10.0,
-	            Acceleration := 100.0,
-	            Deceleration := 100.0,
-	            Jerk         := 1000.0);
-
-	// =====================================================================
-	// REGION 4 — Kin manual point-to-point (MC_MoveLinearAbsolute)
-	// Rising-edge bo_KinGo (gated by statManualOK) fires MC_MoveLinearAbsolute
-	// on ScaraArm3D to operator-set (cfgKinTargetX, Y, Z, A).
-	//
-	// BufferMode=0 (MC_Aborting): preempts any in-flight motion on bo_KinGo
-	// rising edge. Auto cycle should already be stopped (mutex via bo_Mode),
-	// but defense-in-depth via aborting buffer mode.
-	//
-	// Velocity/Accel/Jerk defaults conservative (50% of auto cycle values):
-	//   Velocity     := 200 mm/s  (auto: 300)
-	//   Acceleration := 2000      (auto: 3000)
-	//   Jerk         := 20000     (auto: 30000)
-	// =====================================================================
-	#sRTRIGKinGo(CLK := "GDB_ManualCmd".bo_KinGo);
-
-	// rev 0.2: capture Execute pulse into static Bool BEFORE the MC call.
-	// This matches FB_AutoCtrl_ABCDE.statExecutePulse pattern verbatim and
-	// avoids any subtle inline-AND-expression timing artifacts on Siemens
-	// MC Execute input.
-	#statKinExecutePulse := #statManualOK AND #sRTRIGKinGo.Q;
-
-	#tempKinTarget[1] := "GDB_ManualCmd".cfgKinTargetX;
-	#tempKinTarget[2] := "GDB_ManualCmd".cfgKinTargetY;
-	#tempKinTarget[3] := "GDB_ManualCmd".cfgKinTargetZ;
-	#tempKinTarget[4] := "GDB_ManualCmd".cfgKinTargetA;
-	#tempKinTarget[5] := 0.0;
-	#tempKinTarget[6] := 0.0;
-
-	#instMoveLinAbs(AxesGroup    := "ScaraArm3D",
-	                Execute      := #statKinExecutePulse,
-	                Position     := #tempKinTarget,
-	                Velocity     := 200.0,
-	                Acceleration := 2000.0,
-	                Deceleration := 2000.0,
-	                Jerk         := 20000.0,
-	                BufferMode   := 1);   // rev 0.2: 0 (Aborting) -> 1 (Buffered)
-
-	// =====================================================================
-	// REGION 5 — Status mirror (TO StatusWord bits → GDB_ManualStatus)
-	// Runs every scan (NOT gated on statManualOK) so HMI lamps show TO truth
-	// regardless of mode. HMI uses these for BackColor Range dyn on per-axis
-	// status lamps + Kin status banner.
-	//
-	// StatusWord bit positions (Siemens TO_PositioningAxis MC 9.0):
-	//   .%X1 = Error
-	//   .%X3 = Ready  (axis powered + commissioned + ready to move)
-	//   .%X5 = Homed
-	//   .%X7 = Standstill (so NOT-%X7 = motion in progress)
-	//
-	// Note J{n}_SCARA_Arm3D direct-read matches HMI per-axis deep-drill
-	// screen bindings (PLC tape via Phase C.0 GDB_MCDData mirror).
-	// =====================================================================
-	// rev 0.2: cross-iDB read of MC_Power.Status (canonical + universal).
-	// Previous %X3 read was unreliable on this ABCDE deployment (bit position
-	// varies across S7-1500T MC TO versions). Power.Status IS the "axis ready"
-	// semantic per Siemens MC docs.
-	"GDB_ManualStatus".bo_J1_Enabled := "instFB_AxisCtrl".instPower_J1.Status;
-	"GDB_ManualStatus".bo_J2_Enabled := "instFB_AxisCtrl".instPower_J2.Status;
-	"GDB_ManualStatus".bo_J3_Enabled := "instFB_AxisCtrl".instPower_J3.Status;
-	"GDB_ManualStatus".bo_J4_Enabled := "instFB_AxisCtrl".instPower_J4.Status;
-
-	"GDB_ManualStatus".bo_J1_Homed := "J1_SCARA_Arm3D".StatusWord.%X5;
-	"GDB_ManualStatus".bo_J2_Homed := "J2_SCARA_Arm3D".StatusWord.%X5;
-	"GDB_ManualStatus".bo_J3_Homed := "J3_SCARA_Arm3D".StatusWord.%X5;
-	"GDB_ManualStatus".bo_J4_Homed := "J4_SCARA_Arm3D".StatusWord.%X5;
-
-	"GDB_ManualStatus".bo_J1_Error := "J1_SCARA_Arm3D".StatusWord.%X1;
-	"GDB_ManualStatus".bo_J2_Error := "J2_SCARA_Arm3D".StatusWord.%X1;
-	"GDB_ManualStatus".bo_J3_Error := "J3_SCARA_Arm3D".StatusWord.%X1;
-	"GDB_ManualStatus".bo_J4_Error := "J4_SCARA_Arm3D".StatusWord.%X1;
-
-	"GDB_ManualStatus".bo_J1_JogActive := NOT "J1_SCARA_Arm3D".StatusWord.%X7;
-	"GDB_ManualStatus".bo_J2_JogActive := NOT "J2_SCARA_Arm3D".StatusWord.%X7;
-	"GDB_ManualStatus".bo_J3_JogActive := NOT "J3_SCARA_Arm3D".StatusWord.%X7;
-	"GDB_ManualStatus".bo_J4_JogActive := NOT "J4_SCARA_Arm3D".StatusWord.%X7;
-
-	// Kin-group status: mirror GDB_Control fields (already written by FB_AxisCtrl
-	// in same scan when called BEFORE this FB in Main.scl)
-	"GDB_ManualStatus".bo_KinEnabled := "GDB_Control".axesEnabled;
-	"GDB_ManualStatus".bo_KinHomed   := "GDB_Control".axesHomed;
-	"GDB_ManualStatus".bo_KinError   := "GDB_Control".axesError;
-	"GDB_ManualStatus".bo_KinReady   := "GDB_Control".axesReady;
-	"GDB_ManualStatus".bo_KinManualBusy := #instMoveLinAbs.Busy;
-
+	
+	
+	 // =====================================================================
+	 // REGION 1  - Mode gate
+	 // statManualOK gates REGION 2-4. REGION 5 (status mirror) is unconditional.
+	 // Mutex with FB_AutoCtrl_ABCDE: gate explicitly requires bo_Mode (ABCDE auto)
+	 // is FALSE. Operator must toggle one mode off before enabling the other.
+	 // =====================================================================
+	 #statManualOK := "GDB_ManualCmd".bo_Mode
+	                  AND "GDB_ManualCmd".bo_ESTOP_LOCK
+	                  AND NOT "GDB_MachineCmd".bo_Mode;
+	
+	 // =====================================================================
+	 // REGION 2  - Group Enable/Home/Reset routing
+	 // Per-axis cmd buttons (J{1..4}) + Kin group cmd buttons OR into the
+	 // shared GDB_Control.*Axes flags. FB_AxisCtrl reads those flags and
+	 // drives the 4 MC_Power / 4 MC_Home / 5 MC_Reset instances.
+	 //
+	 // IMPORTANT: per-axis "Enable" is a UX nicety  - it physically enables
+	 // all 4 joints together (group-level wiring). HMI documents this in
+	 // the bo_J{n}_Enable Comment so operator understands.
+	 //
+	 // Only writes GDB_Control flags when statManualOK = TRUE. Outside
+	 // manual mode, FB_ManualCtrl leaves enableAxes/homeAxes/resetAxes
+	 // alone for legacy auto-mode HMI direct-write path.
+	 // =====================================================================
+	 IF #statManualOK THEN
+	     #tempEnableAxes := "GDB_ManualCmd".bo_J1_Enable
+	                        OR "GDB_ManualCmd".bo_J2_Enable
+	                        OR "GDB_ManualCmd".bo_J3_Enable
+	                        OR "GDB_ManualCmd".bo_J4_Enable
+	                        OR "GDB_ManualCmd".bo_KinEnable;
+	     #tempHomeAxes := "GDB_ManualCmd".bo_J1_Home
+	                      OR "GDB_ManualCmd".bo_J2_Home
+	                      OR "GDB_ManualCmd".bo_J3_Home
+	                      OR "GDB_ManualCmd".bo_J4_Home
+	                      OR "GDB_ManualCmd".bo_KinHome;
+	     #tempResetAxes := "GDB_ManualCmd".bo_J1_Reset
+	                       OR "GDB_ManualCmd".bo_J2_Reset
+	                       OR "GDB_ManualCmd".bo_J3_Reset
+	                       OR "GDB_ManualCmd".bo_J4_Reset
+	                       OR "GDB_ManualCmd".bo_KinReset;
+	
+	     "GDB_Control".enableAxes := #tempEnableAxes;
+	     "GDB_Control".homeAxes   := #tempHomeAxes;
+	     "GDB_Control".resetAxes  := #tempResetAxes;
+	 END_IF;
+	
+	 // =====================================================================
+	 // REGION 3  Per-axis MC_MoveJog with XOR safety
+	 // HOLD pattern: button held = jog active; button released = decelerate
+	 // to standstill. XOR: if both forward + backward held simultaneously,
+	 // neither direction wins (defensive  - prevents conflicting commands).
+	 //
+	 // Jog velocities PLC-fixed (operator can override in V0.2 via cfgJogVelocity):
+	 //   J1 base shoulder (revolute):     10 Â°/s
+	 //   J2 elbow (revolute):             10 Â°/s
+	 //   J3 vertical prismatic:           50 mm/s
+	 //   J4 wrist (revolute):             10 Â°/s
+	 // =====================================================================
+	 #tempJ1Fwd := #statManualOK
+	               AND "GDB_ManualCmd".bo_J1_JogForward
+	               AND NOT "GDB_ManualCmd".bo_J1_JogBackward;
+	 #tempJ1Bwd := #statManualOK
+	               AND "GDB_ManualCmd".bo_J1_JogBackward
+	               AND NOT "GDB_ManualCmd".bo_J1_JogForward;
+	 #instJog_J1(Axis         := "J1_SCARA_Arm3D",
+	             JogForward   := #tempJ1Fwd,
+	             JogBackward  := #tempJ1Bwd,
+	             Velocity     := 10.0,
+	             Acceleration := 100.0,
+	             Deceleration := 100.0,
+	             Jerk         := 1000.0);
+	
+	 #tempJ2Fwd := #statManualOK
+	               AND "GDB_ManualCmd".bo_J2_JogForward
+	               AND NOT "GDB_ManualCmd".bo_J2_JogBackward;
+	 #tempJ2Bwd := #statManualOK
+	               AND "GDB_ManualCmd".bo_J2_JogBackward
+	               AND NOT "GDB_ManualCmd".bo_J2_JogForward;
+	 #instJog_J2(Axis         := "J2_SCARA_Arm3D",
+	             JogForward   := #tempJ2Fwd,
+	             JogBackward  := #tempJ2Bwd,
+	             Velocity     := 10.0,
+	             Acceleration := 100.0,
+	             Deceleration := 100.0,
+	             Jerk         := 1000.0);
+	
+	 #tempJ3Fwd := #statManualOK
+	               AND "GDB_ManualCmd".bo_J3_JogForward
+	               AND NOT "GDB_ManualCmd".bo_J3_JogBackward;
+	 #tempJ3Bwd := #statManualOK
+	               AND "GDB_ManualCmd".bo_J3_JogBackward
+	               AND NOT "GDB_ManualCmd".bo_J3_JogForward;
+	 #instJog_J3(Axis         := "J3_SCARA_Arm3D",
+	             JogForward   := #tempJ3Fwd,
+	             JogBackward  := #tempJ3Bwd,
+	             Velocity     := 50.0,
+	             Acceleration := 500.0,
+	             Deceleration := 500.0,
+	             Jerk         := 5000.0);
+	
+	 #tempJ4Fwd := #statManualOK
+	               AND "GDB_ManualCmd".bo_J4_JogForward
+	               AND NOT "GDB_ManualCmd".bo_J4_JogBackward;
+	 #tempJ4Bwd := #statManualOK
+	               AND "GDB_ManualCmd".bo_J4_JogBackward
+	               AND NOT "GDB_ManualCmd".bo_J4_JogForward;
+	 #instJog_J4(Axis         := "J4_SCARA_Arm3D",
+	             JogForward   := #tempJ4Fwd,
+	             JogBackward  := #tempJ4Bwd,
+	             Velocity     := 10.0,
+	             Acceleration := 100.0,
+	             Deceleration := 100.0,
+	             Jerk         := 1000.0);
+	
+	 // =====================================================================
+	 // REGION 4  - Kin manual point-to-point (MC_MoveLinearAbsolute)
+	 // Rising-edge bo_KinGo (gated by statManualOK) fires MC_MoveLinearAbsolute
+	 // on ScaraArm3D to operator-set (cfgKinTargetX, Y, Z, A).
+	 //
+	 // BufferMode=0 (MC_Aborting): preempts any in-flight motion on bo_KinGo
+	 // rising edge. Auto cycle should already be stopped (mutex via bo_Mode),
+	 // but defense-in-depth via aborting buffer mode.
+	 //
+	 // Velocity/Accel/Jerk defaults conservative (50% of auto cycle values):
+	 //   Velocity     := 200 mm/s  (auto: 300)
+	 //   Acceleration := 2000      (auto: 3000)
+	 //   Jerk         := 20000     (auto: 30000)
+	 // =====================================================================
+	 #sRTRIGKinGo(CLK := "GDB_ManualCmd".bo_KinGo);
+	
+	 // rev 0.2: capture Execute pulse into static Bool BEFORE the MC call.
+	 // This matches FB_AutoCtrl_ABCDE.statExecutePulse pattern verbatim and
+	 // avoids any subtle inline-AND-expression timing artifacts on Siemens
+	 // MC Execute input.
+	 #statKinExecutePulse := #statManualOK AND #sRTRIGKinGo.Q;
+	
+	 #tempKinTarget[1] := "GDB_ManualCmd".cfgKinTargetX;
+	 #tempKinTarget[2] := "GDB_ManualCmd".cfgKinTargetY;
+	 #tempKinTarget[3] := "GDB_ManualCmd".cfgKinTargetZ;
+	 #tempKinTarget[4] := "GDB_ManualCmd".cfgKinTargetA;
+	 #tempKinTarget[5] := 0.0;
+	 #tempKinTarget[6] := 0.0;
+	
+	 #instMoveLinAbs(AxesGroup    := "ScaraArm3D",
+	                 Execute      := #statKinExecutePulse,
+	                 Position     := #tempKinTarget,
+	                 Velocity     := 200.0,
+	                 Acceleration := 2000.0,
+	                 Deceleration := 2000.0,
+	                 Jerk         := 20000.0,
+	                 BufferMode   := 1);   // rev 0.2: 0 (Aborting) -> 1 (Buffered)
+	
+	 // =====================================================================
+	 // REGION 5  - Status mirror (TO StatusWord bits â†’ GDB_ManualStatus)
+	 // Runs every scan (NOT gated on statManualOK) so HMI lamps show TO truth
+	 // regardless of mode. HMI uses these for BackColor Range dyn on per-axis
+	 // status lamps + Kin status banner.
+	 //
+	 // StatusWord bit positions (Siemens TO_PositioningAxis MC 9.0):
+	 //   .%X1 = Error
+	 //   .%X3 = Ready  (axis powered + commissioned + ready to move)
+	 //   .%X5 = Homed
+	 //   .%X7 = Standstill (so NOT-%X7 = motion in progress)
+	 //
+	 // Note J{n}_SCARA_Arm3D direct-read matches HMI per-axis deep-drill
+	 // screen bindings (PLC tape via Phase C.0 GDB_MCDData mirror).
+	 // =====================================================================
+	 // rev 0.2: cross-iDB read of MC_Power.Status (canonical + universal).
+	 // Previous %X3 read was unreliable on this ABCDE deployment (bit position
+	 // varies across S7-1500T MC TO versions). Power.Status IS the "axis ready"
+	 // semantic per Siemens MC docs.
+	 "GDB_ManualStatus".bo_J1_Enabled := "instFB_AxisCtrl".instPower_J1.Status;
+	 "GDB_ManualStatus".bo_J2_Enabled := "instFB_AxisCtrl".instPower_J2.Status;
+	 "GDB_ManualStatus".bo_J3_Enabled := "instFB_AxisCtrl".instPower_J3.Status;
+	 "GDB_ManualStatus".bo_J4_Enabled := "instFB_AxisCtrl".instPower_J4.Status;
+	
+	 "GDB_ManualStatus".bo_J1_Homed := "J1_SCARA_Arm3D".StatusWord.%X5;
+	 "GDB_ManualStatus".bo_J2_Homed := "J2_SCARA_Arm3D".StatusWord.%X5;
+	 "GDB_ManualStatus".bo_J3_Homed := "J3_SCARA_Arm3D".StatusWord.%X5;
+	 "GDB_ManualStatus".bo_J4_Homed := "J4_SCARA_Arm3D".StatusWord.%X5;
+	
+	 "GDB_ManualStatus".bo_J1_Error := "J1_SCARA_Arm3D".StatusWord.%X1;
+	 "GDB_ManualStatus".bo_J2_Error := "J2_SCARA_Arm3D".StatusWord.%X1;
+	 "GDB_ManualStatus".bo_J3_Error := "J3_SCARA_Arm3D".StatusWord.%X1;
+	 "GDB_ManualStatus".bo_J4_Error := "J4_SCARA_Arm3D".StatusWord.%X1;
+	
+	 "GDB_ManualStatus".bo_J1_JogActive := NOT "J1_SCARA_Arm3D".StatusWord.%X7;
+	 "GDB_ManualStatus".bo_J2_JogActive := NOT "J2_SCARA_Arm3D".StatusWord.%X7;
+	 "GDB_ManualStatus".bo_J3_JogActive := NOT "J3_SCARA_Arm3D".StatusWord.%X7;
+	 "GDB_ManualStatus".bo_J4_JogActive := NOT "J4_SCARA_Arm3D".StatusWord.%X7;
+	
+	 // Kin-group status: mirror GDB_Control fields (already written by FB_AxisCtrl
+	 // in same scan when called BEFORE this FB in Main.scl)
+	 "GDB_ManualStatus".bo_KinEnabled := "GDB_Control".axesEnabled;
+	 "GDB_ManualStatus".bo_KinHomed   := "GDB_Control".axesHomed;
+	 "GDB_ManualStatus".bo_KinError   := "GDB_Control".axesError;
+	 "GDB_ManualStatus".bo_KinReady   := "GDB_Control".axesReady;
+	 "GDB_ManualStatus".bo_KinManualBusy := #instMoveLinAbs.Busy;
+	
+	
 END_FUNCTION_BLOCK
+

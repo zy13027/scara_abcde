@@ -1,0 +1,113 @@
+﻿FUNCTION "LKinCtrl_OcsToWcs" : Void
+TITLE = LKinCtrl_OcsToWcs
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Transfrom given position from OCS to WCS
+   VAR_INPUT 
+      ocsX : LReal;
+      ocsY : LReal;
+      ocsZ : LReal;
+      ocsA : LReal;
+      ocsB : LReal;
+      ocsC : LReal;
+      pointXOcs : LReal;
+      pointYOcs : LReal;
+      pointZOcs : LReal;
+      pointAOcs : LReal;
+      pointBOcs : LReal;
+      pointCOcs : LReal;
+   END_VAR
+
+   VAR_OUTPUT 
+      pointXWcs : LReal;
+      pointYWcs : LReal;
+      pointZWcs : LReal;
+      pointAWcs : LReal;
+      pointBWcs : LReal;
+      pointCWcs : LReal;
+   END_VAR
+
+   VAR_TEMP 
+      tempOcsTOcsP : Array[1..3, 1..1] of LReal;
+      tempWcsTWcsOcs : Array[1..3, 1..1] of LReal;
+      tempWcsTOcsP : Array[1..3, 1..1] of LReal;
+      tempRWcsOcs : Array[1..3, 1..3] of LReal;
+      tempROcsP : Array[1..3, 1..3] of LReal;
+      tempRWcsP : Array[1..3, 1..3] of LReal;
+      tempBool : Bool;
+      tempWord : Word;
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// (company)
+	// (c)Copyright (year)
+	//-----------------------------------------------------------------------------
+	// Library:       (that the source is dedicated to)
+	// Tested with:   (test system with FW version)
+	// Engineering:   TIA Portal (SW version)
+	// Restrictions:  (OB types, etc.)
+	// Requirements:  (hardware, technological package, memory needed, etc.)
+	// Functionality: Transform a target position given in the OCS frame into an WCS frame
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 19.01.2022 JH               First released version
+	//=============================================================================
+	
+	// input translation from OCS to P
+	#tempOcsTOcsP[1, 1] := #pointXOcs;
+	#tempOcsTOcsP[2, 1] := #pointYOcs;
+	#tempOcsTOcsP[3, 1] := #pointZOcs;
+	
+	// input translation from WCS to OCS
+	#tempWcsTWcsOcs[1, 1] := #ocsX;
+	#tempWcsTWcsOcs[2, 1] := #ocsY;
+	#tempWcsTWcsOcs[3, 1] := #ocsZ;
+	
+	// Create rotation matrix WCS in OCS
+	// Rxyz(A,B,C) = [Rz(A) * Ry(B) * Rx(C)]
+	"LKinCtrl_RotXYZ"(angleA := #ocsA,
+	                  angleB := #ocsB,
+	                  angleC := #ocsC,
+	                  resultMatrix := #tempRWcsOcs);
+	
+	// Switch representation of point from OCS in WCS
+	// Rxyz(A,B,C) * P
+	"LKinCtrl_MatrixMultiplication"(status => #tempWord,
+	                                matrix1 := #tempRWcsOcs,
+	                                matrix2 := #tempOcsTOcsP,
+	                                matrixResult := #tempWcsTOcsP,
+	                                error => #tempBool);
+	
+	// Translational component
+	#pointXWcs := #tempWcsTWcsOcs[1, 1] + #tempWcsTOcsP[1, 1];
+	#pointYWcs := #tempWcsTWcsOcs[2, 1] + #tempWcsTOcsP[2, 1];
+	#pointZWcs := #tempWcsTWcsOcs[3, 1] + #tempWcsTOcsP[3, 1];
+	
+	// Create rotation matrix OCS in Point
+	// Rxyz(A,B,C) = Rz(A) * Ry(B) * Rx(C)
+	"LKinCtrl_RotXYZ"(angleA := #pointAOcs,
+	                  angleB := #pointBOcs,
+	                  angleC := #pointCOcs,
+	                  resultMatrix := #tempROcsP);
+	
+	// Rotation matrix WCS in Point
+	"LKinCtrl_MatrixMultiplication"(status => #tempWord,
+	                                matrix1 := #tempRWcsOcs,
+	                                matrix2 := #tempROcsP,
+	                                matrixResult := #tempRWcsP,
+	                                error => #tempBool);
+	
+	// inverse problem from rotation matrix back to A,B,C
+	"LKinCtrl_InvRotXYZ"(rotMatrix := #tempRWcsP,
+	                     A => #pointAWcs,
+	                     B => #pointBWcs,
+	                     C => #pointCWcs);
+	
+	
+END_FUNCTION
+

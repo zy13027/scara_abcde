@@ -1,0 +1,63 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="name" Datatype="WString[&quot;LKINCTRL_LENGTH_OF_CMDPOINT_NAME&quot;]">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Specification of a point name</MultiLanguageText>
+      </Comment>
+      <StartValue ConstantName="&quot;LKINCTRL_DEFAULT_NAME&quot;" />
+    </Member>
+    <Member Name="position" Datatype="Array[0..5] of LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Specification of Cartesian position for a point</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="coordSystem" Datatype="USInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Specification of a point coordinate system</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="linkConstellation" Datatype="DWord">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Specification of the target link constellation</MultiLanguageText>
+      </Comment>
+      <StartValue>16#FFFF_FFFF</StartValue>
+    </Member>
+    <Member Name="turnJoint" Datatype="Array[0..5] of DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Only relevant with more than four interpolating kinematics axes - When "CoordSystem" = 0, 1, 2 or 3: target joint position range of the joint J[1..6] </MultiLanguageText>
+      </Comment>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>LKinCtrl_typePoint</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

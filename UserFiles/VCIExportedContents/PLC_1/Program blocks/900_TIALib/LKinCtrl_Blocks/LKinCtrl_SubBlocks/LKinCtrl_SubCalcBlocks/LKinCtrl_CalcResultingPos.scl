@@ -1,0 +1,309 @@
+﻿FUNCTION "LKinCtrl_CalcResultingPos" : Word
+TITLE = LKinCtrl_CalcResultingPos
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//The FC calculates the resulting last position after a given command being executed starting from a given 'previous' last position 
+   VAR_INPUT 
+      cmdType : Int;   // command type
+      cartesianPos : Array[1..6] of LReal;   // cartesian position (target from command)
+      circleParameters : "LKinCtrl_typeCircleParameters";   // circle parameters
+      startPosition : Array[1..6] of LReal;   // start of command (last target position)
+   END_VAR
+
+   VAR_OUTPUT 
+      commandLengthIsZero : Bool;   // TRUE: command has a length of 0.0; FALSE: Command has a length
+      resultingPosition : Array[1..6] of LReal;   // resulting last position
+      resultingDistance : Array[1..6] of LReal;   // distance between start and endpoint for relative commands
+      resultingAuxPoint : Array[1..3] of LReal;   // resulting auxPoint
+   END_VAR
+
+   VAR_TEMP 
+      tempIndex : Int;   // temporary counter
+      tempCartesianPos : Array[1..6] of LReal;   // temporary copy of cartesian position (target from command)
+      tempResultingAuxPoint : Array[1..3] of LReal;   // temporary resulting auxPoint
+   END_VAR
+
+   VAR CONSTANT 
+      STATUS_NO_ERROR : Word := 16#0000;   // status no error occured
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2020 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN/DP
+	// Engineering: TIA Portal V16
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 2.8
+	// Functionality: LKinCtrl_CalcResultingPos
+	// The FC calculates the resulting last position after a given command being executed
+	// starting from a given 'previous' last position 
+	//
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   11.03.2019    JR                  First release version v1.0
+	// 01.00.01   17.05.2019    JR                  formal code changes fitting to styleguide
+	// 02.00.00   06.04.2020    FR                  Changed interface to fit PathDataPreBuf and normal element; Also updated the calculation
+	// 02.01.00   16.04.2020    FR                  Added moveDirect
+	// 03.00.00   25.01.2021    FR                  Changed interface and rework
+	// 04.00.00   18.01.2022    FR                  Update to 6 axis, added distance
+	// 04.01.00   16.10.2023    AH                  Added relative shift
+	// 04.01.00   09.01.2024    SF                  Added PickAndPlace command#
+	// 04.01.01   25.04.2024    JH                  Bugfix for uninitialized output
+	// 04.02.00   11.07.2024    AH                  Fixed wrong calculation of circularCommand in UCS
+	//===========================================================================================
+	
+	// ---------------------------------------------------------
+	// Initialize return value to no error
+	// ---------------------------------------------------------
+	#LKinCtrl_CalcResultingPos := #STATUS_NO_ERROR;
+	#commandLengthIsZero := FALSE;
+	
+	// ---------------------------------------------------------
+	// Copy input position to temp
+	// ---------------------------------------------------------
+	#tempCartesianPos := #cartesianPos;
+	
+	// Reset distance output
+	FOR #tempIndex := 1 TO 6 DO
+	    #resultingDistance[#tempIndex] := 0.0;
+	END_FOR;
+	
+	// ---------------------------------------------------------
+	// Check if command has length 0.0 --> Nothing to calculate
+	// ---------------------------------------------------------
+	CASE #cmdType OF
+	    "LKINCTRL_MC_MOVELINEARABS", "LKINCTRL_MC_MOVEDIRECTABS":
+	        // Check all coordinates to be last position
+	        FOR #tempIndex := 1 TO 6 DO
+	            IF #tempCartesianPos[#tempIndex] = #startPosition[#tempIndex] THEN
+	                #commandLengthIsZero := TRUE;
+	            ELSE
+	                #commandLengthIsZero := FALSE;
+	                EXIT;
+	            END_IF;
+	        END_FOR;
+	        
+	    "LKINCTRL_MC_MOVELINEARREL", "LKINCTRL_MC_MOVEDIRECTREL":
+	        // Check all coordinates to be 0.0
+	        FOR #tempIndex := 1 TO 6 DO
+	            IF #tempCartesianPos[#tempIndex] = 0.0 THEN
+	                #commandLengthIsZero := TRUE;
+	            ELSE
+	                #commandLengthIsZero := FALSE;
+	                EXIT;
+	            END_IF;
+	        END_FOR;
+	        
+	    "LKINCTRL_MC_MOVECIRCULARABS", "LKINCTRL_MC_MOVECIRCULARREL":
+	        // Always calculate circular commands
+	        #commandLengthIsZero := FALSE;
+	        
+	    "LKINCTRL_MC_MOVELINEARPICKANDPLACE":
+	        // Check all coordinates to be last position
+	        FOR #tempIndex := 1 TO 6 DO
+	            IF #tempCartesianPos[#tempIndex] = #startPosition[#tempIndex] THEN
+	                #commandLengthIsZero := TRUE;
+	            ELSE
+	                #commandLengthIsZero := FALSE;
+	                EXIT;
+	            END_IF;
+	        END_FOR;
+	        
+	    "LKINCTRL_CMD_FLAG_ONLY",
+	    "LKINCTRL_MC_TRACKCONVEYORBELT",
+	    "LKINCTRL_MC_SET_OCS_FRAME",
+	    "LKINCTRL_MC_SET_USER_FRAME",
+	    "LKINCTRL_MC_SHIFT_CS_REL",               //added relative shift + reset
+	    "LKINCTRL_MC_RESET_SHIFT",
+	    "LKINCTRL_MC_ACTIVATE_TOOL",
+	    "LKINCTRL_MC_SET_TOOL_FRAME",
+	    "LKINCTRL_MC_DEFINE_WS_ZONE",
+	    "LKINCTRL_MC_ACTIVATE_WS_ZONE",
+	    "LKINCTRL_MC_DEACTIVATE_WS_ZONE",
+	    "LKINCTRL_MC_DEFINE_KIN_ZONE",
+	    "LKINCTRL_MC_ACTIVATE_KIN_ZONE",
+	    "LKINCTRL_MC_DEACTIVATE_KIN_ZONE",
+	    "LKINCTRL_CONFIG_END_OFFSET_COMP",
+	    "LKINCTRL_CONFIG_START_OFFSET_COMP_LEFT",
+	    "LKINCTRL_CONFIG_START_OFFSET_COMP_RIGHT",
+	    "LKINCTRL_CMD_WAIT_TIME",
+	    "LKINCTRL_MC_DESYNC_CONVEYOR":
+	        // All configuration commands or other
+	        #commandLengthIsZero := TRUE;
+	        
+	    ELSE
+	        
+	        #commandLengthIsZero := FALSE;
+	END_CASE;
+	
+	// ---------------------------------------------------------
+	// Check if length of command is 0.0 -> Skip calculation and return
+	// ---------------------------------------------------------
+	IF #commandLengthIsZero = TRUE THEN
+	    #resultingPosition := #startPosition;
+	    FOR #tempIndex := 1 TO 6 DO
+	        #resultingDistance[#tempIndex] := 0.0;
+	    END_FOR;
+	    RETURN;
+	END_IF;
+	
+	// ---------------------------------------------------------
+	// Calculate resulting position and auxPoint
+	// ---------------------------------------------------------
+	CASE #cmdType OF
+	    "LKINCTRL_MC_MOVELINEARABS", "LKINCTRL_MC_MOVEDIRECTABS", "LKINCTRL_MC_MOVELINEARPICKANDPLACE":  // Linear absolute & MoveDirect absolute
+	        // Calculate resulting distance for linear absolute commands
+	        FOR #tempIndex := 1 TO 6 DO
+	            #resultingDistance[#tempIndex] := #tempCartesianPos[#tempIndex] - #startPosition[#tempIndex];
+	        END_FOR;
+	        #resultingPosition := #tempCartesianPos; // Directly copy given target position
+	        
+	    "LKINCTRL_MC_MOVELINEARREL", "LKINCTRL_MC_MOVEDIRECTREL": // Linear relative & MoveDirect relative
+	        // Calculate resulting targetPosition for linear relative command
+	        FOR #tempIndex := 1 TO 6 DO
+	            #resultingPosition[#tempIndex] := #startPosition[#tempIndex] + #tempCartesianPos[#tempIndex];
+	        END_FOR;
+	        #resultingDistance := #tempCartesianPos;
+	        
+	    "LKINCTRL_MC_MOVECIRCULARABS":
+	        CASE #circleParameters.circMode OF
+	            "CM_BORDER", "LKINCTRL_CIRCMODE_GCODE": // CM 0 & 3
+	                FOR #tempIndex := 1 TO 6 DO
+	                    #resultingDistance[#tempIndex] := #tempCartesianPos[#tempIndex] - #startPosition[#tempIndex];
+	                END_FOR;
+	                
+	                #resultingPosition := #tempCartesianPos; // directly copy given endPoint as LastPos
+	                #tempResultingAuxPoint := #circleParameters.auxPoint; // directly copy given auxPoint
+	                
+	                
+	            "CM_CENTER":  // CM 1
+	                #tempResultingAuxPoint := #circleParameters.auxPoint; // directly copy given auxPoint
+	                
+	                // Calculate lastPos[1..3] from arc
+	                #LKinCtrl_CalcResultingPos := "LKinCtrl_CalcPosFromAux"(arc := #circleParameters.arc,
+	                                                                        circlePlane := #circleParameters.circlePlane,
+	                                                                        pathChoice := #circleParameters.pathChoice,
+	                                                                        auxPoint := #tempResultingAuxPoint,
+	                                                                        startPosition := #startPosition,
+	                                                                        endPosition => #resultingPosition);
+	                
+	                #resultingPosition[4] := #tempCartesianPos[4]; // Update orientation position
+	                #resultingPosition[5] := #tempCartesianPos[5]; // Update orientation position
+	                #resultingPosition[6] := #tempCartesianPos[6]; // Update orientation position
+	                
+	                IF #LKinCtrl_CalcResultingPos <> #STATUS_NO_ERROR THEN
+	                    #resultingAuxPoint := #tempResultingAuxPoint;
+	                    RETURN;
+	                END_IF;
+	                
+	            "CM_RADIUS": // CM 2
+	                FOR #tempIndex := 1 TO 6 DO
+	                    #resultingDistance[#tempIndex] := #tempCartesianPos[#tempIndex] - #startPosition[#tempIndex];
+	                END_FOR;
+	                
+	                // only write parameters for used planes ==> exclude unused plane coordinates for relative commands
+	                IF #circleParameters.circlePlane = "CP_XZ" THEN   // XZ plane
+	                    #resultingPosition[1] := #tempCartesianPos[1];
+	                    // exclude y coordinate
+	                    #resultingPosition[3] := #tempCartesianPos[3];
+	                ELSIF #circleParameters.circlePlane = "CP_YZ" THEN   // YZ plane
+	                    // exclude x coordinate
+	                    #resultingPosition[2] := #tempCartesianPos[2];
+	                    #resultingPosition[3] := #tempCartesianPos[3];
+	                ELSIF #circleParameters.circlePlane = "CP_XY" THEN   // XY plane
+	                    #resultingPosition[1] := #tempCartesianPos[1];
+	                    #resultingPosition[2] := #tempCartesianPos[2];
+	                    // exclude z coordinate
+	                END_IF;
+	                
+	                // Always write orientation
+	                #resultingPosition[4] := #tempCartesianPos[4];
+	                #resultingPosition[5] := #tempCartesianPos[5];
+	                #resultingPosition[6] := #tempCartesianPos[6];
+	                
+	                
+	        END_CASE;
+	        
+	        
+	    "LKINCTRL_MC_MOVECIRCULARREL":
+	        CASE #circleParameters.circMode OF
+	            "CM_BORDER", "LKINCTRL_CIRCMODE_GCODE": // CM 0 & 3
+	                // Calculate absoulte AuxPoint first with starting point (last pos)
+	                FOR #tempIndex := 1 TO 3 DO
+	                    #tempResultingAuxPoint[#tempIndex] := #startPosition[#tempIndex] + #circleParameters.auxPoint[#tempIndex];
+	                END_FOR;
+	                // Calculate absoulte EndPoint after auxPoint -> lastPos is now endPoint
+	                FOR #tempIndex := 1 TO 6 DO
+	                    #resultingPosition[#tempIndex] := #startPosition[#tempIndex] + #tempCartesianPos[#tempIndex];
+	                END_FOR;
+	                
+	                #resultingDistance := #tempCartesianPos;
+	                
+	                
+	            "CM_CENTER":  // CM 1
+	                // run same calculation to MC_MOVECIRCULARABS, but convert (rel -> abs) auxPoint before
+	                FOR #tempIndex := 1 TO 3 DO
+	                    #tempResultingAuxPoint[#tempIndex] := #startPosition[#tempIndex] + #circleParameters.auxPoint[#tempIndex];
+	                END_FOR;
+	                
+	                // Calculate lastPos[1..3] from arc
+	                #LKinCtrl_CalcResultingPos := "LKinCtrl_CalcPosFromAux"(arc := #circleParameters.arc,
+	                                                                        circlePlane := #circleParameters.circlePlane,
+	                                                                        pathChoice := #circleParameters.pathChoice,
+	                                                                        auxPoint := #tempResultingAuxPoint,
+	                                                                        startPosition := #startPosition,
+	                                                                        endPosition => #resultingPosition);
+	                
+	                #resultingPosition[4] := #startPosition[4] + #tempCartesianPos[4]; // Update orientation position
+	                #resultingPosition[5] := #startPosition[5] + #tempCartesianPos[5]; // Update orientation position
+	                #resultingPosition[6] := #startPosition[6] + #tempCartesianPos[6]; // Update orientation position
+	                
+	                IF #LKinCtrl_CalcResultingPos <> #STATUS_NO_ERROR THEN
+	                    #resultingAuxPoint := #tempResultingAuxPoint;
+	                    RETURN;
+	                END_IF;
+	                
+	            "CM_RADIUS": // CM 2
+	                // only write parameters for used planes ==> exclude unused plane coordinates for relative commands
+	                IF #circleParameters.circlePlane = "CP_XZ" THEN   // XZ plane
+	                    #resultingPosition[1] := #startPosition[1] + #tempCartesianPos[1];
+	                    // exclude y coordinate
+	                    #resultingPosition[3] := #startPosition[3] + #tempCartesianPos[3];
+	                ELSIF #circleParameters.circlePlane = "CP_YZ" THEN   // YZ plane
+	                    // exclude x coordinate
+	                    #resultingPosition[2] := #startPosition[2] + #tempCartesianPos[2];
+	                    #resultingPosition[3] := #startPosition[3] + #tempCartesianPos[3];
+	                ELSIF #circleParameters.circlePlane = "CP_XY" THEN   // XY plane
+	                    #resultingPosition[1] := #startPosition[1] + #tempCartesianPos[1];
+	                    #resultingPosition[2] := #startPosition[2] + #tempCartesianPos[2];
+	                    // exclude z coordinate
+	                END_IF;
+	                // Always write orientation
+	                #resultingPosition[4] := #startPosition[4] + #tempCartesianPos[4];
+	                #resultingPosition[5] := #startPosition[5] + #tempCartesianPos[5];
+	                #resultingPosition[6] := #startPosition[6] + #tempCartesianPos[6];
+	                
+	                #resultingDistance := #tempCartesianPos;
+	        END_CASE;
+	        
+	    ELSE
+	        // Other commands
+	        ;
+	END_CASE;
+	
+	// copy to output
+	#resultingAuxPoint := #tempResultingAuxPoint;
+	
+	
+	
+END_FUNCTION
+

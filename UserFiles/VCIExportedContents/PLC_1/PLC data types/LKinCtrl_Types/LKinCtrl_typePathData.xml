@@ -1,0 +1,124 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="pathDataName" Datatype="String[&quot;LKINCTRL_LENGTH_OF_PATHDATA_NAME&quot;]">
+      <Comment>
+        <MultiLanguageText Lang="en-US">name of PathData</MultiLanguageText>
+      </Comment>
+      <StartValue ConstantName="&quot;LKINCTRL_DEFAULT_NAME_STRING&quot;" />
+    </Member>
+    <Member Name="LKinLangInterface" Datatype="&quot;LKinCtrl_typeAdvPointers&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">pointers to add / retrieve cmds in PathData</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="commands" Datatype="Array[1..&quot;LKINCTRL_NO_OF_PATHDATA_ELEMENTS&quot;] of &quot;LKinCtrl_typePathDataElement&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">command list</MultiLanguageText>
+      </Comment>
+      <Sections>
+        <Section Name="None">
+          <Member Name="cmdParameters" Datatype="&quot;LKinCtrl_typePointParameter&quot;">
+            <Sections>
+              <Section Name="None">
+                <Member Name="transitionParameters" Datatype="Array[1..5] of LReal">
+                  <Subelement Path="1,1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="2,1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="3,1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="4,1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="5,1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="6,1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="7,1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="8,1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="9,1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="10,1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="11,1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="12,1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="13,1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="14,1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="15,1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="16,1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="17,1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="18,1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="19,1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                  <Subelement Path="20,1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                </Member>
+              </Section>
+            </Sections>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>LKinCtrl_typePathData</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

@@ -1,0 +1,119 @@
+﻿FUNCTION "LKinCtrl_CalcLineCircleIntersectionPoint" : Word
+TITLE = LKinCtrl_CalcLineCircleIntersectionPoint
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculate the intersection of a ray and a sphere
+   VAR_INPUT 
+      startPointLine : "LKinCtrl_typeCOff3DPoint";   // Start point line
+      endPointLine : "LKinCtrl_typeCOff3DPoint";   // End point line
+      circleCenter : "LKinCtrl_typeCOff3DPoint";   // Circle center
+      circleRadius : LReal;   // Circle radius
+   END_VAR
+
+   VAR_OUTPUT 
+      intersectionPointA : "LKinCtrl_typeCOff3DPoint";   // Intersection point a
+      intersectionPointB : "LKinCtrl_typeCOff3DPoint";   // Intersection point b
+   END_VAR
+
+   VAR_TEMP 
+      tempP13 : "LKinCtrl_typeCOff3DPoint";
+      tempP43 : "LKinCtrl_typeCOff3DPoint";
+      tempA : LReal;
+      tempB : LReal;
+      tempC : LReal;
+      tempBb4ac : LReal;
+      tempDp : "LKinCtrl_typeCOff3DPoint";
+      tempP22 : "LKinCtrl_typeCOff3DPoint";
+      tempMuA : LReal;
+      tempMuB : LReal;
+   END_VAR
+
+   VAR CONSTANT 
+      COFF_EPS : LReal := 0.001;   // Internal constant
+      ERR_COFF_LINE_CIRCLE_DO_NOT_INTERSECT : Word := 16#8315;   // Error - no solution - line and circle don't intersect
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library: - 
+	// Tested with: S7-1516T-3 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.5
+	// Functionality: Calculate the intersection of a ray and a sphere
+	// The line segment is defined from p1 to p2
+	// The sphere is of radius r and centered at sc
+	// There are potentially two points of intersection given by
+	// p = p1 + mu1 (p2 - p1)
+	// p = p1 + mu2 (p2 - p1)
+	// Return error if the ray doesn't intersect the sphere.
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 2019-02-05 AW               created
+	// 01.01.00 2020-07-24 AW               #tempBb4ac fix (<= --> <) and tolerance added
+	//=============================================================================
+	
+	REGION CALCULATION  
+	  #tempDp.x := #endPointLine.x - #startPointLine.x;
+	  #tempDp.y := #endPointLine.y - #startPointLine.y;
+	  #tempDp.z := #endPointLine.z - #startPointLine.z;
+	  #tempA := #tempDp.x * #tempDp.x + #tempDp.y * #tempDp.y + #tempDp.z * #tempDp.z;
+	  
+	  
+	  #tempB := 2.0 * (#tempDp.x * (#startPointLine.x - #circleCenter.x) + #tempDp.y * (#startPointLine.y - #circleCenter.y) + #tempDp.z * (#startPointLine.z - #circleCenter.z));
+	  #tempC := #circleCenter.x * #circleCenter.x + #circleCenter.y * #circleCenter.y + #circleCenter.z * #circleCenter.z;
+	  #tempC := #tempC + #startPointLine.x * #startPointLine.x + #startPointLine.y * #startPointLine.y + #startPointLine.z * #startPointLine.z;
+	  #tempC := #tempC - 2.0 * (#circleCenter.x * #startPointLine.x + #circleCenter.y * #startPointLine.y + #circleCenter.z * #startPointLine.z);
+	  #tempC := #tempC - #circleRadius * #circleRadius;
+	  #tempBb4ac := #tempB * #tempB - 4.0 * #tempA * #tempC;
+	  
+	  IF ((ABS(#tempA) < #COFF_EPS))
+	  THEN
+	    #tempMuA := 0;
+	    #tempMuB := 0;
+	    #LKinCtrl_CalcLineCircleIntersectionPoint := #ERR_COFF_LINE_CIRCLE_DO_NOT_INTERSECT;
+	    RETURN;
+	  END_IF;
+	  
+	  // Three possible solution:
+	  // #tempBb4ac > 0 - two intersection points
+	  // #tempBb4ax = 0 - one intersection point (additional tolerance)
+	  // #tempBb4ax < 0 - no intersection point (additional tolerance) 
+	  
+	  // 01.00.01 2020-07-24
+	  IF (#tempBb4ac < 0.0) THEN
+	    // Within tolerance (accept tiny floating point deviations)
+	    IF (ABS(#tempBb4ac) < #COFF_EPS) THEN
+	      #tempBb4ac := 0.0;
+	    ELSE
+	      #LKinCtrl_CalcLineCircleIntersectionPoint := #ERR_COFF_LINE_CIRCLE_DO_NOT_INTERSECT;
+	      RETURN;
+	    END_IF;
+	  END_IF;
+	  
+	  
+	  #tempMuA := (- #tempB + SQRT(#tempBb4ac)) / (2.0 * #tempA);
+	  #tempMuB := (- #tempB - SQRT(#tempBb4ac)) / (2.0 * #tempA);
+	  //pa  := p1 + mu1 (p2 - p1)
+	  //pb  := p1 + mu2 (p2 - p1)
+	  
+	  
+	  #intersectionPointA.x := #startPointLine.x + #tempMuA * #tempDp.x;
+	  #intersectionPointA.y := #startPointLine.y + #tempMuA * #tempDp.y;
+	  #intersectionPointA.z := #startPointLine.z + #tempMuA * #tempDp.z;
+	  #intersectionPointB.x := #startPointLine.x + #tempMuB * #tempDp.x;
+	  #intersectionPointB.y := #startPointLine.y + #tempMuB * #tempDp.y;
+	  #intersectionPointB.z := #startPointLine.z + #tempMuB * #tempDp.z;
+	  
+	END_REGION
+	
+	#LKinCtrl_CalcLineCircleIntersectionPoint := 0;
+END_FUNCTION
+

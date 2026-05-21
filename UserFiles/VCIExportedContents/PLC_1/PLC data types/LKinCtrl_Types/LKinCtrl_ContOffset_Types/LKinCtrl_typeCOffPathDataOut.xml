@@ -1,0 +1,91 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="nextCommand" Datatype="&quot;LKinCtrl_typePathDataElement&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Target data - next command</MultiLanguageText>
+      </Comment>
+      <Sections>
+        <Section Name="None">
+          <Member Name="cmdParameters" Datatype="&quot;LKinCtrl_typePointParameter&quot;">
+            <Sections>
+              <Section Name="None">
+                <Member Name="transitionParameters" Datatype="Array[1..5] of LReal">
+                  <Subelement Path="1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                </Member>
+              </Section>
+            </Sections>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="intermediateCommand" Datatype="&quot;LKinCtrl_typePathDataElement&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Target data - intermediate (additional) command</MultiLanguageText>
+      </Comment>
+      <Sections>
+        <Section Name="None">
+          <Member Name="cmdParameters" Datatype="&quot;LKinCtrl_typePointParameter&quot;">
+            <Sections>
+              <Section Name="None">
+                <Member Name="transitionParameters" Datatype="Array[1..5] of LReal">
+                  <Subelement Path="1">
+                    <StartValue>-1.0</StartValue>
+                  </Subelement>
+                </Member>
+              </Section>
+            </Sections>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="nextButOneCommand" Datatype="&quot;LKinCtrl_typeCOffOutNextButOneCmd&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Target data - next but one command</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="nextPositionAbsolute" Datatype="&quot;LKinCtrl_typeCartesianPosition&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Source data - next absolute position</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="nextPositionAbsoluteRadComp" Datatype="&quot;LKinCtrl_typeCartesianPosition&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Source data - next absolute position (radius compensated)</MultiLanguageText>
+      </Comment>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>LKinCtrl_typeCOffPathDataOut</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

@@ -1,0 +1,236 @@
+﻿FUNCTION "LKinCtrl_SubCalcTransProfileDist" : "LKinCtrl_typeRetProfileDist"
+TITLE = LKinCtrl_SubCalcTransProfileDist
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Subfunction to LKinCtrl_CalcTransProfileDist
+   VAR_INPUT 
+      actVelocity : LReal;   // Start velocity
+      setVelocity : LReal;   // End velocity
+      actAcceleration : LReal;   // Start acceleration
+      setAcceleration : LReal;   // Acceleration limit
+      setDeceleration : LReal;   // Deceleration limit
+      setJerk : LReal;   // Jerk limit
+      mode : DInt;   // Mode
+   END_VAR
+
+   VAR_TEMP 
+      tempTsum : LReal;
+      tempDist : LReal;
+      tempMaxAcc : LReal;
+      tempMaxDec : LReal;
+      tempActAcc : LReal;
+      tempAcc : LReal;
+      tempDec : LReal;
+      tempActVel : LReal;
+      tempVel : LReal;
+      tempT1 : LReal;
+      tempT2 : LReal;
+      tempT3 : LReal;
+      tempDeltaVelocity : LReal;
+      tempMinJerk : LReal;
+      tempSign : SInt;
+      tempVelTest : LReal;
+   END_VAR
+
+   VAR CONSTANT 
+      LCM_MODE_STATE_RELATED : DInt := 91;
+      LCM_MODE_DIRECTION_RELATED : DInt := 173;
+      LCM_ERR_JERK_OUT_OF_BOUNDS : DInt := 113;
+      LCM_MINJERK_TOLERANCE : LReal := 1.0E-06;
+   END_VAR
+
+
+BEGIN
+	//================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2016 All Rights Reserved
+	//--------------------------------------------------------------------------------
+	// Library:  
+	// Tested with: 
+	// Engineering: TIA Portal V16
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.8
+	// Functionality:
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//--------------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date        Expert in charge  Changes applied
+	//
+	//================================================================================
+	
+	(*
+	Notes on value assignment:
+	The values of the initial speed or target speed are assigned so that the target speed is the greater speed in each case.
+	The limits of acceleration and deceleration must also be swapped according to the mode.
+	Likewise, the initial acceleration changes its sign.
+	So that the distance can be returned with the correct sign, the direction of movement is noted in "tempSign".
+	*)
+	
+	REGION GET_MOTION_DIRECTION
+	    IF (#actVelocity = 0.0 AND #setVelocity = 0.0 AND #actAcceleration <= 0.0) THEN
+	        #tempActVel := #actVelocity;
+	        #tempVel := #setVelocity;
+	        IF (#mode = #LCM_MODE_DIRECTION_RELATED) THEN
+	            #tempAcc := #setAcceleration;
+	            #tempDec := #setDeceleration;
+	        ELSIF (#mode = #LCM_MODE_STATE_RELATED) THEN
+	            #tempAcc := #setDeceleration;
+	            #tempDec := #setAcceleration;
+	        END_IF;
+	        #tempActAcc := #actAcceleration;
+	        #tempSign := 1;
+	        
+	    ELSIF (#actVelocity = 0.0 AND #setVelocity = 0.0 AND #actAcceleration >= 0.0) THEN
+	        #tempActVel := #actVelocity;
+	        #tempVel := #setVelocity;
+	        #tempAcc := #setAcceleration;
+	        #tempDec := #setDeceleration;
+	        #tempActAcc := #actAcceleration;
+	        #tempSign := 1;
+	        
+	    ELSIF (#actVelocity <= #setVelocity AND #actVelocity >= 0.0 AND #setVelocity >= 0.0) THEN
+	        #tempActVel := #actVelocity;
+	        #tempVel := #setVelocity;
+	        #tempAcc := #setAcceleration;
+	        #tempDec := #setDeceleration;
+	        #tempActAcc := #actAcceleration;
+	        #tempSign := 1;
+	        
+	    ELSIF (#actVelocity <= #setVelocity AND #actVelocity <= 0.0 AND #setVelocity <= 0.0) THEN
+	        #tempActVel := #actVelocity;
+	        #tempVel := #setVelocity;
+	        IF (#mode = #LCM_MODE_DIRECTION_RELATED) THEN
+	            #tempAcc := #setAcceleration;
+	            #tempDec := #setDeceleration;
+	        ELSIF (#mode = #LCM_MODE_STATE_RELATED) THEN
+	            #tempAcc := #setDeceleration;
+	            #tempDec := #setAcceleration;
+	        END_IF;
+	        #tempActAcc := #actAcceleration;
+	        #tempSign := 1;
+	        
+	    ELSIF (#actVelocity >= #setVelocity AND #actVelocity >= 0.0 AND #setVelocity >= 0.0) THEN
+	        #tempActVel := - #actVelocity;
+	        #tempVel := - #setVelocity;
+	        IF (#mode = #LCM_MODE_DIRECTION_RELATED) THEN
+	            #tempAcc := #setDeceleration;
+	            #tempDec := #setAcceleration;
+	        ELSIF (#mode = #LCM_MODE_STATE_RELATED) THEN
+	            #tempAcc := #setDeceleration;
+	            #tempDec := #setAcceleration;
+	        END_IF;
+	        #tempActAcc := - #actAcceleration;
+	        #tempSign := -1;
+	        
+	    ELSIF (#actVelocity >= #setVelocity AND #actVelocity <= 0.0 AND #setVelocity <= 0.0) THEN
+	        #tempActVel := - #actVelocity;
+	        #tempVel := - #setVelocity;
+	        IF (#mode = #LCM_MODE_DIRECTION_RELATED) THEN
+	            #tempAcc := #setDeceleration;
+	            #tempDec := #setAcceleration;
+	        ELSIF (#mode = #LCM_MODE_STATE_RELATED) THEN
+	            #tempAcc := #setAcceleration;
+	            #tempDec := #setDeceleration;
+	        END_IF;
+	        #tempActAcc := - #actAcceleration;
+	        #tempSign := -1;
+	        
+	    END_IF;
+	    #tempDeltaVelocity := #tempVel - #tempActVel;
+	END_REGION
+	
+	REGION MOTION_CALCULATION
+	    // Check if smooth or trapeziodal profile is used
+	    IF (#setJerk <> 0.0) THEN
+	        REGION SMOOTH_PROFILE
+	            // Use smooth profile
+	            // Check dynamics limits
+	            IF (#tempActAcc > 0.0 AND #tempActVel < 0.0) THEN
+	                #tempMinJerk := -0.5 * (#tempActAcc * #tempActAcc) / #tempActVel;
+	                IF (#setJerk < #tempMinJerk * (1 - #LCM_MINJERK_TOLERANCE)) THEN
+	                    #LKinCtrl_SubCalcTransProfileDist.dist := 0.0;
+	                    #LKinCtrl_SubCalcTransProfileDist.functionResult := #LCM_ERR_JERK_OUT_OF_BOUNDS;
+	                    RETURN;
+	                    
+	                END_IF;
+	            END_IF;
+	            IF (#tempActAcc < 0.0 AND #tempActVel > 0.0) THEN
+	                #tempMinJerk := 0.5 * (#tempActAcc * #tempActAcc) / #tempActVel;
+	                IF (#setJerk < #tempMinJerk * (1 - #LCM_MINJERK_TOLERANCE)) THEN
+	                    #LKinCtrl_SubCalcTransProfileDist.dist := 0.0;
+	                    #LKinCtrl_SubCalcTransProfileDist.functionResult := #LCM_ERR_JERK_OUT_OF_BOUNDS;
+	                    RETURN;
+	                    
+	                END_IF;
+	            END_IF;
+	            #tempVelTest := (#tempActAcc * #tempActAcc) / 2.0 / #setJerk;
+	            IF (#tempDeltaVelocity < #tempVelTest AND #tempActAcc > 0.0) THEN
+	                // Profile 4 or 5
+	                #tempTsum := #tempActAcc / #setJerk + SQRT((2.0 * (#tempActAcc * #tempActAcc) - 4.0 * #setJerk * #tempDeltaVelocity) / ((#setJerk * #setJerk)));
+	                #tempT1 := #tempTsum / 2.0 + #tempActAcc / 2.0 / #setJerk;
+	                #tempT2 := #tempTsum / 2.0 - #tempActAcc / 2.0 / #setJerk;
+	                #tempMaxDec := #setJerk * #tempT2;  //tempMaxDec as absolute value
+	                IF (#tempDec > #tempMaxDec) THEN
+	                    //Profile 4
+	                    #tempDist := ((#tempT2 * #tempT2 * #tempT2) - (#tempT1 * #tempT1 * #tempT1)) * #setJerk / 6.0 - #setJerk / 2.0 * #tempT1 * #tempT2 * #tempTsum + #tempTsum * (#tempActAcc / 2.0 * #tempTsum + #tempActVel);
+	                    #LKinCtrl_SubCalcTransProfileDist.dist := #tempSign * #tempDist;
+	                    
+	                ELSE
+	                    //Profile 5
+	                    #tempTsum := (#tempActAcc + #tempDec) / #setJerk - #tempDeltaVelocity / #tempDec + (#tempActAcc * #tempActAcc) / 2.0 / #setJerk / #tempDec;
+	                    #tempT1 := (#tempDec + #tempActAcc) / #setJerk;
+	                    #tempT3 := #tempDec / #setJerk;
+	                    #tempT2 := #tempTsum - #tempT1 - #tempT3;
+	                    #tempDist := #setJerk / 6.0 * ((#tempT3 * #tempT3 * #tempT3) - (#tempT1 * #tempT1 * #tempT1)) - #tempDec / 2.0 * ((#tempT2 + #tempT3) * (#tempT2 + #tempT3))
+	                    + #tempActVel * #tempTsum + #tempActAcc * #tempT1 * (#tempT1 / 2.0 + #tempT2 + #tempT3)
+	                    - #setJerk / 2.0 * (#tempT1 * #tempT1) * (#tempT2 + #tempT3);
+	                    #LKinCtrl_SubCalcTransProfileDist.dist := #tempSign * #tempDist;
+	                    
+	                END_IF;
+	            ELSE
+	                // Profile 1,2 or 3
+	                IF (#tempActAcc > #tempAcc) THEN
+	                    // Profile 3
+	                    #tempTsum := #tempActAcc / #setJerk - (#tempActAcc * #tempActAcc) / 2.0 / #tempAcc / #setJerk + #tempDeltaVelocity / #tempAcc;
+	                    #tempDist := (#tempActAcc * #tempActAcc) / (#setJerk * #setJerk) * (#tempActAcc / 3.0 - #tempAcc / 4.0 - (#tempActAcc * #tempActAcc) / 8.0 / #tempAcc)
+	                    + ((#tempAcc * #tempAcc) * (#tempVel - #tempActVel) + 2.0 * #tempActAcc * #tempActVel * #tempAcc - (#tempActAcc * #tempActAcc) * #tempActVel) / 2.0 / #setJerk / #tempAcc
+	                    + ((#tempVel * #tempVel) - (#tempActVel * #tempActVel)) / 2.0 / #tempAcc;
+	                    #LKinCtrl_SubCalcTransProfileDist.dist := #tempSign * #tempDist;
+	                    
+	                ELSE
+	                    // Profile 1 or 2
+	                    #tempTsum := SQRT(2.0 * (#tempActAcc / #setJerk) * (#tempActAcc / #setJerk) + 4.0 / #setJerk * #tempDeltaVelocity) - #tempActAcc / #setJerk;
+	                    #tempMaxAcc := (#tempActAcc + #setJerk * #tempTsum) / 2.0;
+	                    IF (#tempMaxAcc <= #tempAcc) THEN
+	                        // Profile 1
+	                        #tempT2 := (#tempActAcc + #setJerk * #tempTsum) / (2.0 * #setJerk);
+	                        #tempDist := #tempActVel * #tempTsum + 0.5 * #tempActAcc * (#tempTsum * #tempTsum) + (#setJerk / 6.0) * ((#tempTsum * #tempTsum * #tempTsum) - 2.0 * (#tempT2 * #tempT2 * #tempT2));
+	                        #LKinCtrl_SubCalcTransProfileDist.dist := #tempSign * #tempDist;
+	                        
+	                    ELSE
+	                        // Profile 2 
+	                        #tempTsum := ((#tempAcc * #tempAcc) + 0.5 * (#tempActAcc * #tempActAcc) - #tempActAcc * #tempAcc + #setJerk * #tempDeltaVelocity) / (#setJerk * #tempAcc);
+	                        #tempDist := #tempAcc / 2.0 / #setJerk * (#tempActVel + #tempVel) + #tempActAcc * #tempActVel / #setJerk * (#tempActAcc / 2.0 / #tempAcc - 1.0)
+	                        + ((#tempVel * #tempVel) - (#tempActVel * #tempActVel)) / 2.0 / #tempAcc
+	                        + ((#tempActAcc * #tempActAcc)) / (#setJerk * #setJerk) * (#tempActAcc / 3.0 - (#tempActAcc * #tempActAcc) / 8.0 / #tempAcc - #tempAcc / 4.0);
+	                        #LKinCtrl_SubCalcTransProfileDist.dist := #tempSign * #tempDist;
+	                        
+	                    END_IF;
+	                END_IF;
+	            END_IF;
+	        END_REGION
+	    ELSE
+	        REGION TRAPEZIODAL_PROFILE
+	            // Use trapeziodal profile
+	            #tempTsum := #tempDeltaVelocity / #tempAcc;
+	            #tempDist := ((#tempVel * #tempVel) - (#tempActVel * #tempActVel)) / 2.0 / #tempAcc;
+	            #LKinCtrl_SubCalcTransProfileDist.dist := #tempSign * #tempDist;
+	        END_REGION
+	    END_IF;
+	END_REGION
+	
+END_FUNCTION
+

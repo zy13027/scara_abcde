@@ -1,0 +1,141 @@
+﻿FUNCTION "LKinCtrl_CalcLinearDistance" : Word
+TITLE = LKinCtrl_CalcLinearDistance
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculation of the linear distance between two points (WCS or OCS)
+   VAR_INPUT 
+      previous : "LKinCtrl_typePnPLinPointParameter";   // Previous point info
+   END_VAR
+
+   VAR_IN_OUT 
+      actual : "LKinCtrl_typePnPLinPointParameter";   // Actual point info
+      axesGroup {InstructionName := 'TO_Kinematics'; LibVersion := '9.0'} : TO_Kinematics;   // Reference to axes group
+   END_VAR
+
+   VAR_TEMP 
+      tempPrevPointWCS : Array[1..6] of LReal;
+      tempPrevPointOCS : Array[1..6] of LReal;
+      tempActPointWCS : Array[1..6] of LReal;
+      tempActPointOCS : Array[1..6] of LReal;
+      tempPrevPointWCS3D : "LKinCtrl_typeCOff3DPoint";
+      tempActPointWCS3D : "LKinCtrl_typeCOff3DPoint";
+   END_VAR
+
+   VAR CONSTANT 
+      STATUS_NO_ERR : Word := 16#0000;   // No error
+      ERR_POINT_NOT_USED : Word := 16#8000;   // Error - Point is not used
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2023
+	//-----------------------------------------------------------------------------
+	// Library:       LKinCtrl
+	// Tested with:   S7-1518TF-4 PN/DP, FW V3.1
+	// Engineering:   TIA Portal V19
+	// Restrictions:  ---
+	// Requirements:  S7-1500T, FW V3.0
+	// Functionality: This block is calculating the linear distance between two points (WCS or OCS)
+	//                (Usage for LKinCtrl_MC_MovePickAndPlace...)
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 21.09.2023 SF               First released version
+	//=============================================================================
+	
+	#LKinCtrl_CalcLinearDistance := #STATUS_NO_ERR;
+	
+	REGION CHECK_INPUT
+	  IF (#actual.usePoint = FALSE) THEN
+	    #LKinCtrl_CalcLinearDistance := #ERR_POINT_NOT_USED;
+	    RETURN;
+	  END_IF;
+	  IF (#previous.usePoint = FALSE) THEN
+	    //input -1 as distance
+	    #actual.distanceToPrevious := -1.0;
+	    RETURN;
+	  END_IF;
+	END_REGION
+	
+	REGION FRAME_TO_WCS
+	  //Start in OCS?
+	  IF (#previous.coordSystem >= "CS_OCS1") AND (#previous.coordSystem <= "CS_OCS3") THEN
+	    #tempPrevPointOCS := #previous.position;
+	    IF (#previous.tracking.active = TRUE) THEN
+	      //in tracking - add object position
+	      #tempPrevPointOCS[1] += #previous.tracking.objectPosition.x;
+	    END_IF;
+	    //Frame to WCS
+	    "LKinCtrl_OcsToWcs"(ocsX := #axesGroup.StatusOcsFrame[#previous.coordSystem].x,
+	                        ocsY := #axesGroup.StatusOcsFrame[#previous.coordSystem].y,
+	                        ocsZ := #axesGroup.StatusOcsFrame[#previous.coordSystem].z,
+	                        ocsA := #axesGroup.StatusOcsFrame[#previous.coordSystem].a,
+	                        ocsB := #axesGroup.StatusOcsFrame[#previous.coordSystem].b,
+	                        ocsC := #axesGroup.StatusOcsFrame[#previous.coordSystem].c,
+	                        pointXOcs := #tempPrevPointOCS[1],
+	                        pointYOcs := #tempPrevPointOCS[2],
+	                        pointZOcs := #tempPrevPointOCS[3],
+	                        pointAOcs := #tempPrevPointOCS[4],
+	                        pointBOcs := #tempPrevPointOCS[5],
+	                        pointCOcs := #tempPrevPointOCS[6],
+	                        pointXWcs => #tempPrevPointWCS[1],
+	                        pointYWcs => #tempPrevPointWCS[2],
+	                        pointZWcs => #tempPrevPointWCS[3],
+	                        pointAWcs => #tempPrevPointWCS[4],
+	                        pointBWcs => #tempPrevPointWCS[5],
+	                        pointCWcs => #tempPrevPointWCS[6]);
+	  ELSE
+	    #tempPrevPointWCS := #previous.position;
+	  END_IF;
+	  
+	  //Actual in OCS?
+	  IF (#actual.coordSystem >= "CS_OCS1") AND (#actual.coordSystem <= "CS_OCS3") THEN
+	    #tempActPointOCS := #actual.position;
+	    IF (#actual.tracking.active = TRUE) THEN
+	      //in tracking - add object position
+	      #tempActPointOCS[1] += #actual.tracking.objectPosition.x;
+	    END_IF;
+	    //Frame to WCS
+	    "LKinCtrl_OcsToWcs"(ocsX := #axesGroup.StatusOcsFrame[#actual.coordSystem].x,
+	                        ocsY := #axesGroup.StatusOcsFrame[#actual.coordSystem].y,
+	                        ocsZ := #axesGroup.StatusOcsFrame[#actual.coordSystem].z,
+	                        ocsA := #axesGroup.StatusOcsFrame[#actual.coordSystem].a,
+	                        ocsB := #axesGroup.StatusOcsFrame[#actual.coordSystem].b,
+	                        ocsC := #axesGroup.StatusOcsFrame[#actual.coordSystem].c,
+	                        pointXOcs := #tempActPointOCS[1],
+	                        pointYOcs := #tempActPointOCS[2],
+	                        pointZOcs := #tempActPointOCS[3],
+	                        pointAOcs := #tempActPointOCS[4],
+	                        pointBOcs := #tempActPointOCS[5],
+	                        pointCOcs := #tempActPointOCS[6],
+	                        pointXWcs => #tempActPointWCS[1],
+	                        pointYWcs => #tempActPointWCS[2],
+	                        pointZWcs => #tempActPointWCS[3],
+	                        pointAWcs => #tempActPointWCS[4],
+	                        pointBWcs => #tempActPointWCS[5],
+	                        pointCWcs => #tempActPointWCS[6]);
+	  ELSE
+	    #tempActPointWCS := #actual.position;
+	  END_IF;
+	END_REGION
+	
+	REGION CALC_DISTANCE
+	  #tempPrevPointWCS3D.x := #tempPrevPointWCS[1];
+	  #tempPrevPointWCS3D.y := #tempPrevPointWCS[2];
+	  #tempPrevPointWCS3D.z := #tempPrevPointWCS[3];
+	  
+	  #tempActPointWCS3D.x := #tempActPointWCS[1];
+	  #tempActPointWCS3D.y := #tempActPointWCS[2];
+	  #tempActPointWCS3D.z := #tempActPointWCS[3];
+	  
+	  #actual.distanceToPrevious := "LKinCtrl_VecAbs"("LKinCtrl_VecSub"(vIn1 := #tempActPointWCS3D, vIn2 := #tempPrevPointWCS3D));
+	END_REGION
+	
+END_FUNCTION
+

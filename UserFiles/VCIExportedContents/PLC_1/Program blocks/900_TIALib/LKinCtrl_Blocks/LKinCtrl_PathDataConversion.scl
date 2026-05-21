@@ -1,0 +1,164 @@
+﻿FUNCTION "LKinCtrl_PathDataConversion" : Word
+TITLE = LKinCtrl_PathDataConversion
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+   VAR_INPUT 
+      pathDataInput : Variant;   // Path data of legacy types LKinCtrl_typePathData_reduced and LKinCtrl_typePathData_advanced
+   END_VAR
+
+   VAR_OUTPUT 
+      pathData : "LKinCtrl_typePathData";   // Converted path data
+   END_VAR
+
+   VAR_TEMP 
+      tempRefPathDataReduced : REF_TO "LKinCtrl_typePathData_reduced";
+      tempRefPathDataAdvanced : REF_TO "LKinCtrl_typePathData_advanced";
+      tempRefPathData : REF_TO "LKinCtrl_typePathData";
+      tempCommand : "LKinCtrl_typePathDataElement" := ((), (), (), (), (), (((), (), (), (), (), ()), ()), (((), (), (), ()), ((), (), (), ()), (), (), [-1.0], (), (), ((), (), [()]), ((), ()), (()), ((), (), [()], (), (), (), ()), ((), (), ()), (([()], (), (), ()), ([()], (), (), ()))), [((), (), ()), ((), (), ()), ((), (), ())], [((), (), (), ()), ((), (), (), ()), ((), (), (), ()), ((), (), (), ())], [6(TRUE)]);
+      tempCommandReduced : "LKinCtrl_typePathDataElement_reduced" := ((), (), (), (), (((), (), (), (), (), ()), ()), (((), (), (), ()), (), (), [-1.0], ()), [((), (), ()), ((), (), ()), ((), (), ())], [((), (), (), ()), ((), (), (), ()), ((), (), (), ()), ((), (), (), ())]);
+      tempIndex : DInt;
+      tempIndex2 : DInt;
+      tempInputPathLimit : DInt;
+      tempOutputPathLimit : DInt;
+   END_VAR
+
+   VAR CONSTANT 
+      NO_ERROR : Word := 16#0000;
+      ERROR_INVALID_INPUT : Word := 16#8200;
+      ERROR_COMMANDS_DO_NOT_FIT : Word := 16#8201;
+      ERROR_INVALID_REFERENCE : Word := 16#8202;
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2024 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN/DP
+	// Engineering: TIA Portal V19
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 3.1
+	// Functionality: 
+	// The FC converts a given legacy pathData type reduced or advanced to a regular pathData.
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   13.09.2024    FR                  First released version
+	//===========================================================================================
+	// Initialize return value
+	#LKinCtrl_PathDataConversion := #NO_ERROR;
+	
+	// Check input type
+	CASE TypeOf(#pathDataInput) OF
+	  "LKinCtrl_typePathData_reduced":
+	    #tempRefPathDataReduced ?= #pathDataInput;
+	    
+	    IF #tempRefPathDataReduced = NULL THEN
+	      #LKinCtrl_PathDataConversion := #ERROR_INVALID_REFERENCE;
+	      RETURN;
+	    END_IF;
+	    
+	    #tempInputPathLimit := "LKINCTRL_NO_OF_PATHDATA_ELEMENTS_REDUCED";
+	    #tempOutputPathLimit := "LKINCTRL_NO_OF_PATHDATA_ELEMENTS";
+	    
+	    IF #tempInputPathLimit <= #tempOutputPathLimit THEN
+	      ;// Commands will fit
+	    ELSE
+	      // Check if there are commands after last index for regular path
+	      FOR #tempIndex := #tempOutputPathLimit + 1 TO #tempInputPathLimit DO
+	        IF #tempRefPathDataReduced^.commands[#tempIndex].cmdType <> -1 THEN
+	          #LKinCtrl_PathDataConversion := #ERROR_COMMANDS_DO_NOT_FIT;
+	          RETURN;
+	        END_IF;
+	      END_FOR;
+	    END_IF;
+	    
+	    // Copy path name
+	    #pathData.pathDataName := #tempRefPathDataReduced^.pathDataName;
+	    
+	    // Copy commands
+	    FOR #tempIndex := 1 TO MIN(IN1 := #tempOutputPathLimit, IN2 := #tempInputPathLimit) DO
+	      #tempCommandReduced := #tempRefPathDataReduced^.commands[#tempIndex];
+	      
+	      // Copy command
+	      #tempCommand.cmdType := #tempCommandReduced.cmdType;
+	      #tempCommand.cmdActivated := #tempCommandReduced.cmdActivated;
+	      #tempCommand.cmdName := #tempCommandReduced.cmdName;
+	      #tempCommand.point := #tempCommandReduced.point;
+	      #tempCommand.cmdCoordinates := #tempCommandReduced.cmdCoordinates;
+	      #tempCommand.cmdParameters.pathDynamics := #tempCommandReduced.cmdParameters.pathDynamics;
+	      #tempCommand.cmdParameters.orientationDirection := #tempCommandReduced.cmdParameters.orientationDirection;
+	      #tempCommand.cmdParameters.bufferMode := #tempCommandReduced.cmdParameters.bufferMode;
+	      #tempCommand.cmdParameters.transitionParameters := #tempCommandReduced.cmdParameters.transitionParameters;
+	      #tempCommand.cmdParameters.dynamicAdaption := #tempCommandReduced.cmdParameters.dynamicAdaption;
+	      #tempCommand.setFlags := #tempCommandReduced.setFlags;
+	      #tempCommand.valueFlags := #tempCommandReduced.valueFlags;
+	      
+	      // Set valid bits to true
+	      FOR #tempIndex2 := 1 TO "LKINCTRL_NO_OF_VALID_BITS" DO
+	        #tempCommand.parameterValid[#tempIndex2] := TRUE;
+	      END_FOR;
+	      
+	      // Copy temp to pathData
+	      #pathData.commands[#tempIndex] := #tempCommand;
+	    END_FOR;
+	    
+	  "LKinCtrl_typePathData":
+	    // Just copy input to output
+	    #tempRefPathData ?= #pathDataInput;
+	    
+	    IF #tempRefPathData = NULL THEN
+	      #LKinCtrl_PathDataConversion := #ERROR_INVALID_REFERENCE;
+	      RETURN;
+	    END_IF;
+	    
+	    #pathData := #tempRefPathData^;
+	    
+	  "LKinCtrl_typePathData_advanced":
+	    #tempRefPathDataAdvanced ?= #pathDataInput;
+	    
+	    IF #tempRefPathDataAdvanced = NULL THEN
+	      #LKinCtrl_PathDataConversion := #ERROR_INVALID_REFERENCE;
+	      RETURN;
+	    END_IF;
+	    
+	    #tempInputPathLimit := "LKINCTRL_NO_OF_PATHDATA_ELEMENTS_ADVANCED";
+	    #tempOutputPathLimit := "LKINCTRL_NO_OF_PATHDATA_ELEMENTS";
+	    
+	    IF #tempInputPathLimit <= #tempOutputPathLimit THEN
+	      ;// Commands will fit
+	    ELSE
+	      // Check if there are commands after last index for regular path
+	      FOR #tempIndex := #tempOutputPathLimit + 1 TO #tempInputPathLimit DO
+	        IF #tempRefPathDataAdvanced^.commands[#tempIndex].cmdType <> -1 THEN
+	          #LKinCtrl_PathDataConversion := #ERROR_COMMANDS_DO_NOT_FIT;
+	          RETURN;
+	        END_IF;
+	      END_FOR;
+	    END_IF;
+	    
+	    // Copy path name
+	    #pathData.pathDataName := #tempRefPathDataAdvanced^.pathDataName;
+	    
+	    // Copy commands
+	    FOR #tempIndex := 1 TO MIN(IN1 := #tempOutputPathLimit, IN2 := #tempInputPathLimit) DO
+	      #pathData.commands[#tempIndex] := #tempRefPathDataAdvanced^.commands[#tempIndex];
+	    END_FOR;
+	    
+	  ELSE
+	    #LKinCtrl_PathDataConversion := #ERROR_INVALID_INPUT;
+	    RETURN;
+	END_CASE;
+	
+	
+	
+	
+	
+END_FUNCTION
+

@@ -1,0 +1,999 @@
+﻿FUNCTION_BLOCK "LKinCtrl_MC_MovePickAndPlaceLinear"
+TITLE = LKinCtrl_MC_MovePickAndPlaceLinear
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//This block is executing a linear command sequence for encapsuling motion programming of typical pick and place applications
+   VAR_INPUT 
+      execute : Bool;   // Rising edge starts motion sequence; FB status must be 16#7000
+      position : Array[1..6] of LReal;   // Target position
+      coordSystem : DInt;   // Target coordinate system, = 0: WCS, = 1: OCS[1], = 2: OCS[2], = 3: OCS[3]
+      directionA : DInt := 3;   // Direction for movement of A (Only necessary for kinematic types 2D+A/3D+A), = 1: positive, = 2: negative, = 3: shortest way
+      startParameter : "LKinCtrl_typePnPParameter";   // Start vector parameter
+      targetParameter : "LKinCtrl_typePnPParameter";   // Target vector parameter
+      conveyorTracking : "LKinCtrl_typePnPConveyorTracking";   // Conveyor tracking parameter
+      dynamics : "LKinCtrl_typePnPDynamics";   // Dynamics specification
+      bufferMode : DInt := 1;   // bufferMode for start of path motion
+      transitionParameter : Array[1..5] of LReal := [-1.0];   // transitionParameter for start of path motion
+   END_VAR
+
+   VAR_OUTPUT 
+      done { ExternalWritable := 'False'} : Bool;   // TRUE: Commanded functionality has been completed successfully
+      busy { ExternalWritable := 'False'} : Bool;   // TRUE: FB is not finished and new output values can be expected
+      active { ExternalWritable := 'False'} : Bool;   // TRUE: Active interpolation
+      commandAborted { ExternalWritable := 'False'} : Bool;   // TRUE: Commanded functionality has been aborted by another command
+      commandStep { ExternalWritable := 'False'} : DInt;   // Active command step, = 0: not active, = 1: linear start vector, = 2: blending at start vector, = 3: linear transition, = 4: blending at target vector, = 5: linear target vector
+      remainingPathLength { ExternalWritable := 'False'} : LReal := -1.0;   // Remaining path length of sequence
+      readyForNextCommand { ExternalWritable := 'False'} : Bool;   // TRUE: All commands buffered and prepared - subsequent commands can be buffered
+      error { ExternalWritable := 'False'} : Bool;   // TRUE: An error occurred during the execution of the FB
+      status { ExternalWritable := 'False'} : Word := #STATUS_NO_CALL;   // 16#0000 - 16#7FFF: Status of the FB, 16#8000 - 16#FFFF: Error identification
+      diagnostics { ExternalWritable := 'False'} : "LKinCtrl_TypePnPDiagnostics";   // Diagnostics information of FB
+   END_VAR
+
+   VAR_IN_OUT 
+      axesGroup {InstructionName := 'TO_Kinematics'; LibVersion := '9.0'} : TO_Kinematics;   // Reference to the axes group
+   END_VAR
+
+   VAR 
+      statExecuteOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // Old value of 'execute' input for edge detection
+      statDone { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // Static value for output 'done'
+      statBusy { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // Static value for output 'busy'
+      statActive { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // Static value for output 'active'
+      statCommandAborted { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // Static value for output 'commandAborted'
+      statError { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // Static value for output 'error'
+      statStatus { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Word := #STATUS_NO_CALL;   // Static value for output 'status'
+      statSubfunctionStatus { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Word;   // Status or return value of called FBs, FCs and system blocks
+      statFBState { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt := #FB_STATE_NO_PROCESSING;   // State in the state machine of the FB
+      statEmptyDiagnostics { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_TypePnPDiagnostics";   // Empty diagnostics information (for initialization purposes only)
+      statReadyForNextCommand { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // Static value for output 'readyForNextCommand'
+      statCommandStep { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // Static value for output 'commandStep'
+      statRemainingPathLength { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : LReal;   // Static value for output 'remainingPathLength'
+      instGroupInterrupt {InstructionName := 'MC_GROUPINTERRUPT'; LibVersion := '9.0'; ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : MC_GROUPINTERRUPT;   // Instance for MC_GroupInterrupt command
+      instGroupContinue {InstructionName := 'MC_GROUPCONTINUE'; LibVersion := '9.0'; ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : MC_GROUPCONTINUE;   // Instance for MC_GroupContinue command
+      instMoveLinearAbsPostStart {InstructionName := 'MC_MOVELINEARABSOLUTE'; LibVersion := '9.0'; ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : MC_MOVELINEARABSOLUTE;   // Instance for MC_MoveLinearAbsolute command
+      instMoveLinearAbsIntermediate {InstructionName := 'MC_MOVELINEARABSOLUTE'; LibVersion := '9.0'; ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : MC_MOVELINEARABSOLUTE;   // Instance for MC_MoveLinearAbsolute command
+      instMoveLinearAbsPreTarget {InstructionName := 'MC_MOVELINEARABSOLUTE'; LibVersion := '9.0'; ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : MC_MOVELINEARABSOLUTE;   // Instance for MC_MoveLinearAbsolute command
+      instMoveLinearAbsTarget {InstructionName := 'MC_MOVELINEARABSOLUTE'; LibVersion := '9.0'; ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : MC_MOVELINEARABSOLUTE;   // Instance for MC_MoveLinearAbsolute command
+      statUseStartDirection { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // TRUE: PostStart point is used
+      statUseTargetDirection { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // TRUE: PreTarget point is used
+      statStartParameter { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typePnPParameter";   // Local copy of input variable
+      statTargetParameter { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typePnPParameter";   // Local copy of input variable
+      statPosition { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..6] of LReal;   // Local copy of input variable
+      statCoordSystem { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // Local copy of input variable
+      statDirectionA { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // Local copy of input variable
+      statDynamics { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typePnPDynamics";   // Local copy of input variable
+      statBufferMode { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // Local copy of input variable
+      statTransitionParameter { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..5] of LReal;   // Local copy of input variable
+      statInitTOData { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typePnPInitTOData";   // Inital TO Values which might be changed during block call and restored afterwards
+      statCmdPar { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typePnPLinCmdSeqParameter" := (((), [()], (), (), [-1.0], ((), (), ((), (), (), (), (), ()), ((), (), (), (), (), ())), (), ((), (), (), ()), (), ()), ((), [()], (), (), [-1.0], ((), (), ((), (), (), (), (), ()), ((), (), (), (), (), ())), (), ((), (), (), ()), (), ()), ((), [()], (), (), [-1.0], ((), (), ((), (), (), (), (), ()), ((), (), (), (), (), ())), (), ((), (), (), ()), (), ()), ((), [()], (), (), [-1.0], ((), (), ((), (), (), (), (), ()), ((), (), (), (), (), ())), (), ((), (), (), ()), (), ()), ((), [()], (), (), [-1.0], ((), (), ((), (), (), (), (), ()), ((), (), (), (), (), ())), (), ((), (), (), ()), (), ()), ());   // Necessary parameters for all possible commands / target points
+      statEmptyCmdPar { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typePnPLinCmdSeqParameter" := (((), [()], (), (), [-1.0], ((), (), ((), (), (), (), (), ()), ((), (), (), (), (), ())), (), ((), (), (), ()), (), ()), ((), [()], (), (), [-1.0], ((), (), ((), (), (), (), (), ()), ((), (), (), (), (), ())), (), ((), (), (), ()), (), ()), ((), [()], (), (), [-1.0], ((), (), ((), (), (), (), (), ()), ((), (), (), (), (), ())), (), ((), (), (), ()), (), ()), ((), [()], (), (), [-1.0], ((), (), ((), (), (), (), (), ()), ((), (), (), (), (), ())), (), ((), (), (), ()), (), ()), ((), [()], (), (), [-1.0], ((), (), ((), (), (), (), (), ()), ((), (), (), (), (), ())), (), ((), (), (), ()), (), ()), ());   // Empty copy of cmdPar for initalization
+      statTotalPathLengthStorage { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : LReal;   // Total path length at start of functionality
+      statActiveCmdRemainingDistance { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : LReal;   // To be used?
+      statActiveCmd { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // To be used?
+      statAdditionalValue { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..5] of Word;   // Additional values for diagnostics
+      statConveyorTracking { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "LKinCtrl_typePnPConveyorTracking";   // Local copy of input variable
+      instTrackConveyorBelt {InstructionName := 'MC_TRACKCONVEYORBELT'; LibVersion := '9.0'; ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : MC_TRACKCONVEYORBELT;   // MC_TrackConveyorBelt instance
+   END_VAR
+
+   VAR_TEMP 
+      tempExecute : Bool;   // Temporary value for input 'execute'
+      tempWord : Word;   // Temporary return value
+      tempInt : Int;   // Temporary return value
+      tempAdditionalValue : Array[1..5] of Word;   // Temporary additional value
+   END_VAR
+
+   VAR CONSTANT 
+      FB_STATE_NO_PROCESSING : DInt := 0;   // FB state: No processing
+      FB_STATE_WAIT_UNTIL_PREVIOUS_MOTION_DONE : DInt := 10;   // FB state: Wait until all previous motion done
+      FB_STATE_INTERRUPT : DInt := 20;   // FB state: Interrupt motion
+      FB_STATE_TRACK_CONVEYOR : DInt := 30;   // FB state: Track conveyor belt
+      FB_STATE_BUFFER_ALL_CMDS : DInt := 40;   // FB state: Buffer all commands at once
+      FB_STATE_BUFFER_FIRST_CMD : DInt := 50;   // FB state: Buffer first command (blending)
+      FB_STATE_WAIT_FIRST_CMD_PREPARED : DInt := 55;   // FB state: Wait until first command is prepared (blending)
+      FB_STATE_BUFFER_SUBSEQ_CMDS : DInt := 60;   // FB state: Buffer subsequent command (blending)
+      FB_STATE_WAIT_FOR_PREPARATION : DInt := 100;   // FB state: Wait until all commands are prepared
+      FB_STATE_CONTINUE : DInt := 110;   // FB state: Continue motion
+      FB_STATE_WAIT_FOR_FINISH : DInt := 200;   // FB state: Wait until motion is finished
+      STATUS_EXECUTION_FINISHED : Word := 16#0000;   // Execution finished without errors
+      STATUS_NO_CALL : Word := 16#7000;   // No job being currently processed
+      STATUS_FIRST_CALL : Word := 16#7001;   // First call after incoming new job (rising edge 'execute')
+      STATUS_SUBSEQUENT_CALL : Word := 16#7002;   // Subsequent call during active processing without further details
+      STATUS_TRACK_CONVEYOR : Word := 16#7010;   // Enable tracking
+      STATUS_WAIT_UNTIL_PREVIOUS_MOTION_DONE : Word := 16#7100;   // Wait until previous motion is done
+      STATUS_BUFFER_CMDS : Word := 16#7101;   // Buffer commands
+      STATUS_WAIT_FOR_PREPARATION : Word := 16#7102;   // Wait until commands are prepared (Abort by MC_GroupStop)
+      STATUS_PATHMOTION_RUNNING : Word := 16#7306;   // Status path motion running
+      STATUS_PATHMOTION_INTERRUPTED : Word := 16#7303;   // Status path motion interrupted
+      STATUS_COMMAND_ABORTED : Word := 16#7FFF;   // Commanded functionality has been aborted by another command
+      ERR_PAR_START : Word := 16#8201;   // Error - Start parameters invalid
+      ERR_PAR_TARGET : Word := 16#8202;   // Error - Target parameters invalid
+      ERR_COORDSYS_TARGET : Word := 16#8204;   // Error - coordSystem is invalid (Not WCS or OCS)
+      ERR_DIR_A_TARGET : Word := 16#8205;   // Error - DirectionA is invalid
+      ERR_DYN_FACTOR_START : Word := 16#8206;   // Error - Specification of start dynamics factor
+      ERR_DYN_FACTOR_TARGET : Word := 16#8207;   // Error - Specification of target dynamics factor
+      ERR_BUFFERMODE : Word := 16#8208;   // Error - BufferMode specification
+      ERR_BLENDING_NOT_POSSIBLE : Word := 16#8209;   // Error - Blending not allowed (Set bufferMode = 1)
+      ERR_MOTIONQUEUE_LENGTH : Word := 16#820A;   // Error - Motion Queue length must be at least 4
+      ERR_TRACKING_PARAMETER : Word := 16#820B;   // Error - Invalid tracking parameter
+      ERR_UNDEFINED_STATE : Word := 16#8600;   // Error due to an undefined state in state machine
+      ERR_CREATE_CMD : Word := 16#8601;   // Error during command creation
+      ERR_TRACKING_ALREADY_ACTIVE : Word := 16#8602;   // Error - Tracking on target coordinate system is already active
+      ERR_INTERRUPT : Word := 16#8701;   // Error during interrupt
+      ERR_CONTINUE : Word := 16#8702;   // Error during continue
+      ERR_MOVE_POST_START : Word := 16#8711;   // Error during motion to post start position
+      ERR_MOVE_INTERMEDIATE : Word := 16#8713;   // Error during motion to intermediate position
+      ERR_MOVE_PRE_TARGET : Word := 16#8714;   // Error during motion to pre target position
+      ERR_MOVE_TARGET : Word := 16#8716;   // Error during motion to target position
+      ERR_TRACK_CONVEYOR : Word := 16#8720;   // Error during track conveyor belt
+      CMD_STEP_IDLE : DInt := 0;   // Command step - nothing active
+      CMD_STEP_LINEAR_START : DInt := 1;   // Command step - move linear in start direction
+      CMD_STEP_BLENDING_START : DInt := 2;   // Command step - blending above start
+      CMD_STEP_LINEAR_TRANSITION : DInt := 3;   // Command step - move between start and target
+      CMD_STEP_BLENDING_TARGET : DInt := 4;   // Command step - blending above target
+      CMD_STEP_LINEAR_TARGET : DInt := 5;   // Command step - move linear in target direction
+      CMD_ACTIVE_NONE : DInt := 0;   // Active command - nothing active
+      CMD_ACTIVE_POSTSTART : DInt := 1;   // Active command - move to post start position
+      CMD_ACTIVE_INTERMEDIATE : DInt := 2;   // Active command - move to intermediate position
+      CMD_ACTIVE_PRETARGET : DInt := 3;   // Active command - move to pre target position
+      CMD_ACTIVE_TARGET : DInt := 4;   // Active command - move to target position
+      REQ_MOTION_QUEUE_LENGTH : DInt := 4;   // Required motion queue length
+      MIN_DYN_FACTOR : LReal := 1.0;   // Minimum dynamics factor
+      MAX_DYN_FACTOR : LReal := 200.0;   // Maximum dynamics factor
+      MAX_TRANSITION_AREA_FACTOR : LReal := 100.0;   // Maximum transition area factor
+      BM_TRANSITION : DInt := 5;   // bufferMode for blending around post start / pre target
+      DYN_SCALE_MODE : DInt := 1;   // Scaling mode for start and target dynamics (0: disable, 1: velo, 2: velo and accel, 3: velo, accel and jerk)
+      BUFFER_SEQUENTIALLY : Bool := TRUE;   // TRUE: Buffer commands sequentially without interrupt / continue
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2023
+	//-----------------------------------------------------------------------------
+	// Library:       LKinCtrl
+	// Tested with:   S7-1518TF-4 PN/DP, FW V3.1
+	// Engineering:   TIA Portal V19
+	// Restrictions:  ---
+	// Requirements:  S7-1500T, FW V3.0
+	// Functionality: This block is executing a linear command sequence for encapsuling motion 
+	//                programming of typical pick and place applications
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 00.09.01 21.09.2023 SF               First prelimiary version
+	// 00.09.02 09.11.2023 SF               Integration MC_TrackConveyorBelt
+	// 01.00.00 30.11.2023 SF               Release version
+	//=============================================================================
+	
+	#tempExecute := #execute; // Work with temporary value / create process image
+	
+	REGION TRIGGERING
+	  IF (#tempExecute = TRUE) AND (#statExecuteOld = FALSE) // Check if FB is triggered
+	    // (optional): Uncomment next line if FB shall finish current job before new job can be started with rising edge of execute
+	    AND (#statStatus = #STATUS_NO_CALL)
+	  THEN // First call; initialize FB
+	    
+	    // set and reset and copy variables
+	    //-----------------
+	    REGION SET_RESET_COPY_VAR
+	      #statDone := FALSE;
+	      #statBusy := TRUE;
+	      #statActive := FALSE;
+	      #statCommandAborted := FALSE;
+	      #statError := FALSE;
+	      #statStatus := #STATUS_FIRST_CALL;
+	      #statReadyForNextCommand := FALSE;
+	      #statCommandStep := #CMD_STEP_IDLE;
+	      #statRemainingPathLength := -1.0;
+	      
+	      // Initialize functionality: reset of variables, diagnostics, etc.
+	      //----------------
+	      #diagnostics := #statEmptyDiagnostics;
+	      #statSubfunctionStatus := 16#0;
+	      #statCmdPar := #statEmptyCmdPar;
+	      
+	      #statActiveCmdRemainingDistance := 0.0;
+	      #statActiveCmd := #CMD_ACTIVE_NONE;
+	      #statTotalPathLengthStorage := 0.0;
+	      FOR #tempInt := 1 TO 5 DO
+	        #statAdditionalValue[#tempInt] := 16#0;
+	      END_FOR;
+	      
+	      //Store current TO values which are temporaly set
+	      //-----------------
+	      #statInitTOData := "LKinCtrl_InitTODataStore"(#axesGroup);
+	      
+	      // Copy inputs to static
+	      //----------------
+	      #statStartParameter := #startParameter;
+	      #statTargetParameter := #targetParameter;
+	      #statPosition := #position;
+	      #statCoordSystem := #coordSystem;
+	      #statDirectionA := #directionA;
+	      #statDynamics := #dynamics;
+	      #statBufferMode := #bufferMode;
+	      #statTransitionParameter := #transitionParameter;
+	      #statConveyorTracking := #conveyorTracking;
+	      
+	      //Deactivate tracking if target is not OCS
+	      //----------------
+	      IF (#statCoordSystem <> "CS_OCS1")
+	        AND (#statCoordSystem <> "CS_OCS2")
+	        AND (#statCoordSystem <> "CS_OCS3")
+	      THEN
+	        #statConveyorTracking.enable := FALSE;
+	      END_IF;
+	    END_REGION SET_RESET_COPY_VAR
+	    
+	    // Validate inputs
+	    //-----------------
+	    REGION VALIDATE_INPUTS
+	      //Direction info
+	      #statUseStartDirection := NOT (#statStartParameter.direction[1] = 0.0 AND #statStartParameter.direction[2] = 0.0 AND #statStartParameter.direction[3] = 0.0) AND #statStartParameter.workingHeight <> 0.0;
+	      #statUseTargetDirection := NOT (#statTargetParameter.direction[1] = 0.0 AND #statTargetParameter.direction[2] = 0.0 AND #statTargetParameter.direction[3] = 0.0) AND #statTargetParameter.workingHeight <> 0.0;
+	      // Start vector
+	      IF (#statStartParameter.workingHeight < 0.0)
+	        AND (#statUseStartDirection = TRUE)
+	      THEN
+	        #statStatus := #ERR_PAR_START;
+	      END_IF;
+	      // Target vector
+	      IF (#statTargetParameter.workingHeight < 0.0)
+	        AND (#statUseTargetDirection = TRUE)
+	      THEN
+	        #statStatus := #ERR_PAR_TARGET;
+	      END_IF;
+	      //Coordsys target
+	      IF (#statCoordSystem <> "CS_WCS")
+	        AND (#statCoordSystem <> "CS_OCS1")
+	        AND (#statCoordSystem <> "CS_OCS2")
+	        AND (#statCoordSystem <> "CS_OCS3")
+	        //Do not allow MCS, JCS as targetpos (linear motion)
+	      THEN
+	        #statStatus := #ERR_COORDSYS_TARGET;
+	      END_IF;
+	      //DirectionA target
+	      IF (#axesGroup.StatusKinematics.Type5D6D = FALSE) //only necessary for <= 4D
+	        AND (#statDirectionA <> "DIRA_POSITIVE")
+	        AND (#statDirectionA <> "DIRA_NEGATIVE")
+	        AND (#statDirectionA <> "DIRA_SHORTEST")
+	      THEN
+	        #statStatus := #ERR_DIR_A_TARGET;
+	      END_IF;
+	      //Buffer mode
+	      IF (#statBufferMode <> "BM_BUFFERED")
+	        AND (#statBufferMode <> "BM_BLENDING_LOW")
+	        AND (#statBufferMode <> "BM_BLENDING_HIGH")
+	      THEN
+	        #statStatus := #ERR_BUFFERMODE;
+	      END_IF;
+	      //Blending allowed? (only if no start direction and no interrupt is set)
+	      IF ((#statBufferMode = "BM_BLENDING_LOW") OR (#statBufferMode = "BM_BLENDING_HIGH"))
+	        AND (#statUseStartDirection = TRUE)
+	      THEN
+	        #statStatus := #ERR_BLENDING_NOT_POSSIBLE;
+	      END_IF;
+	      //Tracking
+	      IF (#statConveyorTracking.enable = TRUE)
+	        AND (TypeOfDB(#statConveyorTracking.conveyorBeltAxis) <> TO_PositioningAxis)
+	        AND (TypeOfDB(#statConveyorTracking.conveyorBeltAxis) <> TO_SynchronousAxis)
+	        AND (TypeOfDB(#statConveyorTracking.conveyorBeltAxis) <> TO_ExternalEncoder)
+	        AND (TypeOfDB(#statConveyorTracking.conveyorBeltAxis) <> TO_LeadingAxisProxy)
+	      THEN
+	        #statStatus := #ERR_TRACKING_PARAMETER;
+	      END_IF;
+	      //Tracking already active?
+	      IF (#statConveyorTracking.enable = TRUE) THEN
+	        //TODO: How to prevent double tracking if previous tracking cmd is just "busy"?
+	        IF (#axesGroup.StatusConveyor[#statCoordSystem].TrackingState > 0) THEN//coordSys is 1,2,3; otherwise enableTracking would be = FALSE
+	          #statStatus := #ERR_TRACKING_ALREADY_ACTIVE;
+	        END_IF;
+	      END_IF;
+	    END_REGION VALIDATE_INPUTS
+	    
+	    // Set internal dynamics
+	    //-----------------
+	    REGION SET_DYNAMICS
+	      //Write default dynamics to structure (if needed)
+	      //-----------------
+	      IF (#statDynamics.dynamicAdaption < 0) THEN
+	        #statDynamics.dynamicAdaption := #axesGroup.DynamicDefaults.DynamicAdaption;
+	      END_IF;
+	      IF (#statDynamics.path.velocity < 0) THEN
+	        #statDynamics.path.velocity := #axesGroup.DynamicDefaults.Path.Velocity;
+	      END_IF;
+	      IF (#statDynamics.path.acceleration < 0) THEN
+	        #statDynamics.path.acceleration := #axesGroup.DynamicDefaults.Path.Acceleration;
+	      END_IF;
+	      IF (#statDynamics.path.deceleration < 0) THEN
+	        #statDynamics.path.deceleration := #axesGroup.DynamicDefaults.Path.Deceleration;
+	      END_IF;
+	      IF (#statDynamics.path.jerk < 0) THEN
+	        #statDynamics.path.jerk := #axesGroup.DynamicDefaults.Path.Jerk;
+	      END_IF;
+	      //Set orienation dynamics for all commands
+	      //-----------------
+	      IF (#statDynamics.orientation.velocity >= 0.0) THEN
+	        #axesGroup.DynamicDefaults.Orientation.Velocity := #statDynamics.orientation.velocity;
+	      END_IF;
+	      IF (#statDynamics.orientation.acceleration >= 0.0) THEN
+	        #axesGroup.DynamicDefaults.Orientation.Acceleration := #statDynamics.orientation.acceleration;
+	      END_IF;
+	      IF (#statDynamics.orientation.deceleration >= 0.0) THEN
+	        #axesGroup.DynamicDefaults.Orientation.Deceleration := #statDynamics.orientation.deceleration;
+	      END_IF;
+	      IF (#statDynamics.orientation.jerk >= 0.0) THEN
+	        #axesGroup.DynamicDefaults.Orientation.Jerk := #statDynamics.orientation.jerk;
+	      END_IF;
+	      //Vector dynamics specification
+	      //-----------------
+	      #statStartParameter.dynamicsFactor := LIMIT(MN := #MIN_DYN_FACTOR, IN := #statStartParameter.dynamicsFactor, MX := #MAX_DYN_FACTOR);
+	      #statTargetParameter.dynamicsFactor := LIMIT(MN := #MIN_DYN_FACTOR, IN := #statTargetParameter.dynamicsFactor, MX := #MAX_DYN_FACTOR);
+	    END_REGION SET_DYNAMICS
+	    
+	    // Set or limit transition area
+	    //----------------
+	    REGION SET_TRANSITION
+	      //Set start transition area
+	      IF (#statStartParameter.transitionArea > (ABS(#MAX_TRANSITION_AREA_FACTOR) / 100.0) * #statStartParameter.workingHeight) THEN
+	        //set transition area. limit in any case to 100%
+	        #statStartParameter.transitionArea := MIN(IN1 := #statStartParameter.workingHeight, IN2 := ABS(#MAX_TRANSITION_AREA_FACTOR) / 100.0) * #statStartParameter.workingHeight;
+	      ELSIF (#statStartParameter.transitionArea < 0.0) THEN
+	        //set transition area according to TO maximum setting
+	        #statStartParameter.transitionArea := (#statInitTOData.factorBlendingLength / 100.0) * #statStartParameter.workingHeight;
+	      END_IF;
+	      //Set target transition area
+	      IF (#statTargetParameter.transitionArea > (ABS(#MAX_TRANSITION_AREA_FACTOR) / 100.0) * #statTargetParameter.workingHeight) THEN
+	        //set transition area. limit in any case to 100%
+	        #statTargetParameter.transitionArea := MIN(IN1 := #statTargetParameter.workingHeight, IN2 := ABS(#MAX_TRANSITION_AREA_FACTOR) / 100.0) * #statTargetParameter.workingHeight;
+	      ELSIF (#statTargetParameter.transitionArea < 0.0) THEN
+	        //set transition area according to TO maximum setting
+	        #statTargetParameter.transitionArea := (#statInitTOData.factorBlendingLength / 100.0) * #statTargetParameter.workingHeight;
+	      END_IF;
+	    END_REGION SET_TRANSITION
+	    
+	    REGION CALL_FB_FALSE
+	      // Initialize functionality: call subsidiary FBs with FALSE
+	      //-----------------
+	      // Group Interrupt
+	      #instGroupInterrupt(AxesGroup := #axesGroup,
+	                          Execute := FALSE);
+	      // Group Continue
+	      #instGroupContinue(AxesGroup := #axesGroup,
+	                         Execute := FALSE);
+	      // Motion to post start
+	      #instMoveLinearAbsPostStart(AxesGroup := #axesGroup,
+	                                  Execute := FALSE);
+	      // Motion to intermediate
+	      #instMoveLinearAbsIntermediate(AxesGroup := #axesGroup,
+	                                     Execute := FALSE);
+	      // Motion to pre target
+	      #instMoveLinearAbsPreTarget(AxesGroup := #axesGroup,
+	                                  Execute := FALSE);
+	      // Motion to target
+	      #instMoveLinearAbsTarget(AxesGroup := #axesGroup,
+	                               Execute := FALSE);
+	      //Track conveyor
+	      IF (#statConveyorTracking.enable = TRUE)
+	        AND (#statStatus.%X15 = FALSE)
+	      THEN
+	        //Call wrapper function for prober DB Any reference
+	        #instTrackConveyorBelt.Execute := FALSE;
+	        "LKinCtrl_CallMC_TrackConv"(axis := #statConveyorTracking.conveyorBeltAxis,
+	                                    axesGroup := #axesGroup,
+	                                    instTrackConveyorBelt := #instTrackConveyorBelt);
+	      END_IF;
+	    END_REGION CALL_FB_FALSE
+	    // State machine - start processing
+	    //----------------
+	    REGION START_PROCESSING
+	      IF (#statStatus.%X15 = FALSE) THEN //No error until now
+	        //Tracking active?
+	        IF (#statConveyorTracking.enable = TRUE) THEN
+	          //Track conveyor belt first
+	          #statFBState := #FB_STATE_TRACK_CONVEYOR;
+	          #statStatus := #STATUS_TRACK_CONVEYOR;
+	        ELSE
+	          //Buffer commands
+	          IF (#statBufferMode = "BM_BUFFERED") THEN
+	            //Buffer all commands at once (wait for standstill first, no blending)
+	            IF (#axesGroup.MotionQueue.MaxNumberOfCommands < #REQ_MOTION_QUEUE_LENGTH) THEN
+	              //Error - motion queue length is too short
+	              #statStatus := #ERR_MOTIONQUEUE_LENGTH;
+	            ELSE
+	              #statFBState := #FB_STATE_WAIT_UNTIL_PREVIOUS_MOTION_DONE;
+	              #statStatus := #STATUS_WAIT_UNTIL_PREVIOUS_MOTION_DONE;
+	            END_IF;
+	          ELSE
+	            //Blending from previous command
+	            //Create values for each command without wating for standstill
+	            #tempWord := "LKinCtrl_CreateLinCmdSequence"(startParameter := #statStartParameter,
+	                                                         targetParameter := #statTargetParameter,
+	                                                         position := #statPosition,
+	                                                         directionA := #statDirectionA,
+	                                                         coordSystem := #statCoordSystem,
+	                                                         bufferModeBegin := #statBufferMode,
+	                                                         transitionParameter := #statTransitionParameter,
+	                                                         dynamics := #statDynamics,
+	                                                         bufferModeTransition := #BM_TRANSITION,
+	                                                         scaleMode := #DYN_SCALE_MODE,
+	                                                         cmdPar => #statCmdPar,
+	                                                         additionalValue => #tempAdditionalValue,
+	                                                         axesGroup := #axesGroup);
+	            //Error command creation?
+	            IF (#tempWord.%X15 = TRUE) THEN
+	              #statStatus := #ERR_CREATE_CMD;
+	              #statSubfunctionStatus := #tempWord;
+	              #statAdditionalValue := #tempAdditionalValue;
+	            ELSE
+	              //Buffer commands sequentially (blending possible)
+	              #statFBState := #FB_STATE_BUFFER_FIRST_CMD;
+	              #statStatus := #STATUS_BUFFER_CMDS;
+	            END_IF;
+	          END_IF;
+	        END_IF;
+	      END_IF;
+	    END_REGION START_PROCESSING
+	    
+	  ELSIF (#statStatus = #STATUS_FIRST_CALL) THEN
+	    #statStatus := #STATUS_SUBSEQUENT_CALL;
+	  END_IF;
+	  // Edge detection 'execute' input
+	  #statExecuteOld := #tempExecute;
+	END_REGION TRIGGERING
+	
+	IF (#statStatus = #STATUS_NO_CALL) THEN // Nothing to do -> End here to reduce "system load"
+	  RETURN;
+	END_IF;
+	
+	REGION STATE_MACHINE
+	  CASE #statFBState OF // State machine of FB
+	      
+	    #FB_STATE_NO_PROCESSING: // No processing active (Note: this state must always be present and left empty)
+	      
+	      REGION NO_PROCESSING
+	        ;
+	      END_REGION NO_PROCESSING
+	      
+	    #FB_STATE_TRACK_CONVEYOR:
+	      
+	      REGION TRACK_CONVEYOR
+	        IF (#axesGroup.StatusMotionQueue.NumberOfCommands < #axesGroup.MotionQueue.MaxNumberOfCommands) THEN
+	          //Track conveyor Belt
+	          #instTrackConveyorBelt.Execute := TRUE;
+	          #instTrackConveyorBelt.CoordSystem := #statCoordSystem;
+	          #instTrackConveyorBelt.ConveyorBeltOrigin := #statConveyorTracking.conveyorBeltOrigin;
+	          #instTrackConveyorBelt.InitialObjectPosition := #statConveyorTracking.initialObjectPosition;
+	          //Call track conv belt also here for saving one cycle
+	          "LKinCtrl_CallMC_TrackConv"(axis := #statConveyorTracking.conveyorBeltAxis,
+	                                      axesGroup := #axesGroup,
+	                                      instTrackConveyorBelt := #instTrackConveyorBelt);
+	        END_IF;
+	        
+	        //evaluation
+	        IF (#instTrackConveyorBelt.Busy = TRUE) OR (#instTrackConveyorBelt.Done = TRUE) THEN
+	          //Next step
+	          IF (#statBufferMode = "BM_BUFFERED") THEN
+	            //Buffer all commands at once (wait for standstill first, no blending)
+	            IF (#axesGroup.MotionQueue.MaxNumberOfCommands < #REQ_MOTION_QUEUE_LENGTH) THEN
+	              //Error - motion queue length is too short
+	              #statStatus := #ERR_MOTIONQUEUE_LENGTH;
+	            ELSE
+	              #statFBState := #FB_STATE_WAIT_UNTIL_PREVIOUS_MOTION_DONE;
+	              #statStatus := #STATUS_WAIT_UNTIL_PREVIOUS_MOTION_DONE;
+	            END_IF;
+	          ELSE
+	            //Blending from previous command
+	            //Create values for each command without wating for standstill
+	            #tempWord := "LKinCtrl_CreateLinCmdSequence"(startParameter := #statStartParameter,
+	                                                         targetParameter := #statTargetParameter,
+	                                                         position := #statPosition,
+	                                                         directionA := #statDirectionA,
+	                                                         coordSystem := #statCoordSystem,
+	                                                         bufferModeBegin := #statBufferMode,
+	                                                         transitionParameter := #statTransitionParameter,
+	                                                         dynamics := #statDynamics,
+	                                                         bufferModeTransition := #BM_TRANSITION,
+	                                                         scaleMode := #DYN_SCALE_MODE,
+	                                                         cmdPar => #statCmdPar,
+	                                                         additionalValue => #tempAdditionalValue,
+	                                                         axesGroup := #axesGroup);
+	            //Error command creation?
+	            IF (#tempWord.%X15 = TRUE) THEN
+	              #statStatus := #ERR_CREATE_CMD;
+	              #statSubfunctionStatus := #tempWord;
+	              #statAdditionalValue := #tempAdditionalValue;
+	            ELSE
+	              //Buffer commands sequentially (blending possible)
+	              #statFBState := #FB_STATE_BUFFER_FIRST_CMD;
+	              #statStatus := #STATUS_BUFFER_CMDS;
+	            END_IF;
+	          END_IF;
+	        END_IF;
+	        
+	      END_REGION TRACK_CONVEYOR
+	      
+	    #FB_STATE_WAIT_UNTIL_PREVIOUS_MOTION_DONE: // Wait until no command on axes group is active anymore
+	      
+	      REGION WAIT_UNTIL_PREVIOUS_MOTION_DONE
+	        //previous motion finished?
+	        IF (#axesGroup.StatusMotionQueue.NumberOfCommands = 0) //nothing in queue
+	          AND (#axesGroup.StatusWord.%X8 = FALSE) //no linear command
+	          AND (#axesGroup.StatusWord.%X9 = FALSE) //no circ command
+	          AND (#axesGroup.StatusWord.%X11 = FALSE) //no direct command
+	        THEN
+	          //Create values for each command
+	          #tempWord := "LKinCtrl_CreateLinCmdSequence"(startParameter := #statStartParameter,
+	                                                       targetParameter := #statTargetParameter,
+	                                                       position := #statPosition,
+	                                                       directionA := #statDirectionA,
+	                                                       coordSystem := #statCoordSystem,
+	                                                       bufferModeBegin := #statBufferMode,
+	                                                       transitionParameter := #statTransitionParameter,
+	                                                       dynamics := #statDynamics,
+	                                                       bufferModeTransition := #BM_TRANSITION,
+	                                                       scaleMode := #DYN_SCALE_MODE,
+	                                                       cmdPar => #statCmdPar,
+	                                                       additionalValue => #tempAdditionalValue,
+	                                                       axesGroup := #axesGroup);
+	          //Error command creation?
+	          IF (#tempWord.%X15 = TRUE) THEN
+	            #statStatus := #ERR_CREATE_CMD;
+	            #statSubfunctionStatus := #tempWord;
+	            #statAdditionalValue := #tempAdditionalValue;
+	          ELSE
+	            IF (#BUFFER_SEQUENTIALLY = TRUE) THEN
+	              //Buffer sequentially
+	              #statFBState := #FB_STATE_BUFFER_ALL_CMDS;
+	              #statStatus := #STATUS_BUFFER_CMDS;
+	            ELSE
+	              //set interrupt and calculate all at once
+	              #statFBState := #FB_STATE_INTERRUPT;
+	              #statStatus := #STATUS_BUFFER_CMDS;
+	            END_IF;
+	          END_IF;
+	        END_IF;
+	      END_REGION WAIT_UNTIL_PREVIOUS_MOTION_DONE
+	      
+	    #FB_STATE_INTERRUPT: // Wait for interrupt
+	      
+	      REGION INTERRUPT
+	        // Group Interrupt
+	        #instGroupInterrupt(AxesGroup := #axesGroup,
+	                            Execute := TRUE);
+	        //Wait for interrupt
+	        IF (#instGroupInterrupt.Done = TRUE) THEN
+	          #statFBState := #FB_STATE_BUFFER_ALL_CMDS;
+	        ELSIF (#instGroupInterrupt.Error = TRUE) THEN
+	          #statStatus := #ERR_INTERRUPT;
+	          #statSubfunctionStatus := #instGroupInterrupt.ErrorId;
+	        ELSIF (#instGroupInterrupt.CommandAborted = TRUE) THEN
+	          #statStatus := #STATUS_COMMAND_ABORTED;
+	          #statSubfunctionStatus := #instGroupInterrupt.ErrorId;
+	        END_IF;
+	      END_REGION INTERRUPT
+	      
+	    #FB_STATE_BUFFER_ALL_CMDS: // Buffer all necessary commands
+	      
+	      REGION BUFFER_ALL_CMDS
+	        //Buffer all commands at once
+	        //(correct sequence is ensured by call sequence below)
+	        
+	        //Set factor blending length to maximum value before
+	        #axesGroup.Transition.FactorBlendingLength := #MAX_TRANSITION_AREA_FACTOR;
+	        
+	        //Check if motion queue is ready for all commands
+	        IF ((#axesGroup.MotionQueue.MaxNumberOfCommands - #axesGroup.StatusMotionQueue.NumberOfCommands) >= #statCmdPar.numberOfUsedCmd) THEN
+	          IF (#statCmdPar.postStart.usePoint = TRUE) AND (#instMoveLinearAbsPostStart.Execute = FALSE) THEN
+	            "LKinCtrl_ParametrizeLinAbsInstance"(cmdPar := #statCmdPar.postStart,
+	                                                 cmdInstance := #instMoveLinearAbsPostStart);
+	            #instMoveLinearAbsPostStart.Execute := TRUE;
+	          END_IF;
+	          IF (#statCmdPar.intermediate.usePoint = TRUE) AND (#instMoveLinearAbsIntermediate.Execute = FALSE) THEN
+	            "LKinCtrl_ParametrizeLinAbsInstance"(cmdPar := #statCmdPar.intermediate,
+	                                                 cmdInstance := #instMoveLinearAbsIntermediate);
+	            #instMoveLinearAbsIntermediate.Execute := TRUE;
+	          END_IF;
+	          IF (#statCmdPar.preTarget.usePoint = TRUE) AND (#instMoveLinearAbsPreTarget.Execute = FALSE) THEN
+	            "LKinCtrl_ParametrizeLinAbsInstance"(cmdPar := #statCmdPar.preTarget,
+	                                                 cmdInstance := #instMoveLinearAbsPreTarget);
+	            #instMoveLinearAbsPreTarget.Execute := TRUE;
+	          END_IF;
+	          IF (#statCmdPar.target.usePoint = TRUE) AND (#instMoveLinearAbsTarget.Execute = FALSE) THEN
+	            "LKinCtrl_ParametrizeLinAbsInstance"(cmdPar := #statCmdPar.target,
+	                                                 cmdInstance := #instMoveLinearAbsTarget);
+	            #instMoveLinearAbsTarget.Execute := TRUE;
+	          END_IF;
+	        END_IF;
+	        
+	        //Next step
+	        IF ((#instMoveLinearAbsPostStart.Busy = TRUE) OR (#statCmdPar.postStart.usePoint = FALSE))
+	          AND ((#instMoveLinearAbsIntermediate.Busy = TRUE) OR (#statCmdPar.intermediate.usePoint = FALSE))
+	          AND ((#instMoveLinearAbsPreTarget.Busy = TRUE) OR (#statCmdPar.preTarget.usePoint = FALSE))
+	          AND ((#instMoveLinearAbsTarget.Busy = TRUE) OR (#statCmdPar.target.usePoint = FALSE))
+	        THEN
+	          #statFBState := #FB_STATE_WAIT_FOR_PREPARATION;
+	          #statStatus := #STATUS_WAIT_FOR_PREPARATION;
+	        END_IF;
+	      END_REGION BUFFER_ALL_CMDS
+	      
+	    #FB_STATE_BUFFER_FIRST_CMD: // Buffer first command with blending into cmd
+	      
+	      REGION BUFFER_FIRST_CMD
+	        //leave factor blending length to inital value for first cmd, change with second cmd
+	        
+	        //Check if motion queue is ready for first commands
+	        IF (#axesGroup.StatusMotionQueue.NumberOfCommands < #axesGroup.MotionQueue.MaxNumberOfCommands) THEN
+	          IF (#statCmdPar.preTarget.usePoint = TRUE) THEN
+	            "LKinCtrl_ParametrizeLinAbsInstance"(cmdPar := #statCmdPar.preTarget,
+	                                                 cmdInstance := #instMoveLinearAbsPreTarget);
+	            #instMoveLinearAbsPreTarget.DynamicAdaption := #statDynamics.dynamicAdaption;
+	            #instMoveLinearAbsPreTarget.Execute := TRUE;
+	          ELSIF (#statCmdPar.target.usePoint = TRUE) THEN
+	            "LKinCtrl_ParametrizeLinAbsInstance"(cmdPar := #statCmdPar.target,
+	                                                 cmdInstance := #instMoveLinearAbsTarget);
+	            #instMoveLinearAbsTarget.DynamicAdaption := #statDynamics.dynamicAdaption;
+	            #instMoveLinearAbsTarget.Execute := TRUE;
+	          END_IF;
+	        END_IF;
+	        
+	        //Next step
+	        IF (#instMoveLinearAbsPreTarget.Busy = TRUE) AND (#statCmdPar.preTarget.usePoint = TRUE) THEN
+	          #statFBState := #FB_STATE_WAIT_FIRST_CMD_PREPARED;
+	        ELSIF (#instMoveLinearAbsTarget.Busy = TRUE) OR (#statCmdPar.target.usePoint = FALSE) THEN
+	          #statFBState := #FB_STATE_WAIT_FOR_PREPARATION;
+	          #statStatus := #STATUS_WAIT_FOR_PREPARATION;
+	        END_IF;
+	      END_REGION BUFFER_FIRST_CMD
+	      
+	    #FB_STATE_WAIT_FIRST_CMD_PREPARED:
+	      
+	      REGION WAIT_FIRST_CMD_PREPARED
+	        //command prepared?
+	        //necessary due to setting of factor blending length in next step (will be activated in upcoming servo call)
+	        IF (#axesGroup.StatusMotionQueue.NumberOfCommands = #axesGroup.StatusMotionQueue.NumberOfPreparedCommands) THEN
+	          #statFBState := #FB_STATE_BUFFER_SUBSEQ_CMDS;
+	        END_IF;
+	      END_REGION WAIT_FIRST_CMD_PREPARED
+	      
+	    #FB_STATE_BUFFER_SUBSEQ_CMDS:
+	      
+	      REGION BUFFER_SUBSEQ_CMDS
+	        //Set factor blending length to maximum value before
+	        #axesGroup.Transition.FactorBlendingLength := #MAX_TRANSITION_AREA_FACTOR;
+	        
+	        //Check if motion queue is ready for all commands
+	        IF ((#axesGroup.MotionQueue.MaxNumberOfCommands - #axesGroup.StatusMotionQueue.NumberOfCommands) >= #statCmdPar.numberOfUsedCmd - 1) THEN
+	          //...
+	          //Buffer final cmd
+	          IF (#statCmdPar.target.usePoint = TRUE) THEN
+	            "LKinCtrl_ParametrizeLinAbsInstance"(cmdPar := #statCmdPar.target,
+	                                                 cmdInstance := #instMoveLinearAbsTarget);
+	            #instMoveLinearAbsTarget.DynamicAdaption := #statDynamics.dynamicAdaption;
+	            #instMoveLinearAbsTarget.Execute := TRUE;
+	          END_IF;
+	        END_IF;
+	        
+	        //Next step
+	        IF ((#instMoveLinearAbsTarget.Busy = TRUE) OR (#statCmdPar.target.usePoint = FALSE))
+	        THEN
+	          #statFBState := #FB_STATE_WAIT_FOR_PREPARATION;
+	          #statStatus := #STATUS_WAIT_FOR_PREPARATION;
+	        END_IF;
+	      END_REGION
+	      
+	    #FB_STATE_WAIT_FOR_PREPARATION: // Wait until commands are processed
+	      
+	      REGION WAIT_FOR_START_PREPARATION
+	        //Wait until preparation is finished
+	        IF (#axesGroup.StatusMotionQueue.NumberOfCommands = #axesGroup.StatusMotionQueue.NumberOfPreparedCommands) THEN
+	          //all commands buffered
+	          #statReadyForNextCommand := TRUE;
+	          #statTotalPathLengthStorage := #axesGroup.StatusPath.TotalPathLength;
+	          //Restore TO data
+	          "LKinCtrl_InitTODataRestore"(initTOData := #statInitTOData,
+	                                       axesGroup := #axesGroup);
+	          //Next step
+	          IF (#statBufferMode = "BM_BUFFERED") THEN
+	            #statFBState := #FB_STATE_CONTINUE;
+	          ELSE
+	            #statFBState := #FB_STATE_WAIT_FOR_FINISH;
+	          END_IF;
+	        END_IF;
+	      END_REGION WAIT_FOR_START_PREPARATION
+	      
+	    #FB_STATE_CONTINUE: // Continue motion
+	      
+	      REGION CONTINUE
+	        // Group Continue
+	        #instGroupContinue(AxesGroup := #axesGroup,
+	                           Execute := TRUE);
+	        //Wait until continue is finished
+	        IF (#instGroupContinue.Done = TRUE) THEN
+	          #statFBState := #FB_STATE_WAIT_FOR_FINISH;
+	          // Set #statCommandStep in cyclic step
+	        ELSIF (#instGroupContinue.Error = TRUE) THEN
+	          #statStatus := #ERR_CONTINUE;
+	          #statSubfunctionStatus := #instGroupContinue.ErrorId;
+	        END_IF;
+	      END_REGION CONTINUE
+	      
+	    #FB_STATE_WAIT_FOR_FINISH: //Wait for finishing motion
+	      
+	      REGION WAIT_FOR_FINISH
+	        IF ((#instMoveLinearAbsPostStart.Done = TRUE) OR (#statCmdPar.postStart.usePoint = FALSE))
+	          AND ((#instMoveLinearAbsIntermediate.Done = TRUE) OR (#statCmdPar.intermediate.usePoint = FALSE))
+	          AND ((#instMoveLinearAbsPreTarget.Done = TRUE) OR (#statCmdPar.preTarget.usePoint = FALSE))
+	          AND ((#instMoveLinearAbsTarget.Done = TRUE) OR (#statCmdPar.target.usePoint = FALSE))
+	        THEN
+	          //everything finished!
+	          #statStatus := #STATUS_EXECUTION_FINISHED;
+	        END_IF;
+	      END_REGION WAIT_FOR_FINISH
+	      
+	    ELSE // Undefined state in state machine reached
+	      #statStatus := #ERR_UNDEFINED_STATE;
+	  END_CASE;
+	  
+	END_REGION STATE_MACHINE
+	
+	REGION CYCLIC_CALL
+	  // Call command instances
+	  //----------------------
+	  // only if not finished - lower runtime in idle mode (STATUS_NO_CALL does not come until here)
+	  IF (#statStatus > #STATUS_EXECUTION_FINISHED) THEN
+	    REGION CMD_INSTANCES
+	      IF (#statStatus.%X15 = FALSE)
+	        AND (#statConveyorTracking.enable = TRUE)
+	      THEN
+	        //Conveyor tracking
+	        //Cyclic call necessary for error evaluation
+	        //Call wrapper function for prober DB Any reference
+	        "LKinCtrl_CallMC_TrackConv"(axis := #statConveyorTracking.conveyorBeltAxis,
+	                                    axesGroup := #axesGroup,
+	                                    instTrackConveyorBelt := #instTrackConveyorBelt);
+	        // Error evaluation
+	        IF (#instTrackConveyorBelt.Error = TRUE) THEN
+	          #statStatus := #ERR_TRACK_CONVEYOR;
+	          #statSubfunctionStatus := #instTrackConveyorBelt.ErrorId;
+	        ELSIF (#instTrackConveyorBelt.CommandAborted = TRUE) THEN
+	          #statStatus := #STATUS_COMMAND_ABORTED;
+	          #statSubfunctionStatus := #instTrackConveyorBelt.ErrorId;
+	        END_IF;
+	      END_IF;
+	      IF (#statStatus.%X15 = FALSE) THEN
+	        // Motion to post start
+	        #instMoveLinearAbsPostStart(AxesGroup := #axesGroup);
+	        // Error evaluation
+	        IF (#instMoveLinearAbsPostStart.Error = TRUE) THEN
+	          #statStatus := #ERR_MOVE_POST_START;
+	          #statSubfunctionStatus := #instMoveLinearAbsPostStart.ErrorId;
+	        ELSIF (#instMoveLinearAbsPostStart.CommandAborted = TRUE) THEN
+	          #statStatus := #STATUS_COMMAND_ABORTED;
+	          #statSubfunctionStatus := #instMoveLinearAbsPostStart.ErrorId;
+	        END_IF;
+	      END_IF;
+	      IF (#statStatus.%X15 = FALSE) THEN
+	        // Motion to intermediate
+	        #instMoveLinearAbsIntermediate(AxesGroup := #axesGroup);
+	        // Error evaluation
+	        IF (#instMoveLinearAbsIntermediate.Error = TRUE) THEN
+	          #statStatus := #ERR_MOVE_INTERMEDIATE;
+	          #statSubfunctionStatus := #instMoveLinearAbsIntermediate.ErrorId;
+	        ELSIF (#instMoveLinearAbsIntermediate.CommandAborted = TRUE) THEN
+	          #statStatus := #STATUS_COMMAND_ABORTED;
+	          #statSubfunctionStatus := #instMoveLinearAbsIntermediate.ErrorId;
+	        END_IF;
+	      END_IF;
+	      IF (#statStatus.%X15 = FALSE) THEN
+	        // Motion to pre target
+	        #instMoveLinearAbsPreTarget(AxesGroup := #axesGroup);
+	        // Error evaluation
+	        IF (#instMoveLinearAbsPreTarget.Error = TRUE) THEN
+	          #statStatus := #ERR_MOVE_PRE_TARGET;
+	          #statSubfunctionStatus := #instMoveLinearAbsPreTarget.ErrorId;
+	        ELSIF (#instMoveLinearAbsPreTarget.CommandAborted = TRUE) THEN
+	          #statStatus := #STATUS_COMMAND_ABORTED;
+	          #statSubfunctionStatus := #instMoveLinearAbsPreTarget.ErrorId;
+	        END_IF;
+	      END_IF;
+	      IF (#statStatus.%X15 = FALSE) THEN
+	        // Motion to target
+	        #instMoveLinearAbsTarget(AxesGroup := #axesGroup);
+	        // Error evaluation
+	        IF (#instMoveLinearAbsTarget.Error = TRUE) THEN
+	          #statStatus := #ERR_MOVE_TARGET;
+	          #statSubfunctionStatus := #instMoveLinearAbsTarget.ErrorId;
+	        ELSIF (#instMoveLinearAbsTarget.CommandAborted = TRUE) THEN
+	          #statStatus := #STATUS_COMMAND_ABORTED;
+	          #statSubfunctionStatus := #instMoveLinearAbsTarget.ErrorId;
+	        END_IF;
+	      END_IF;
+	    END_REGION CMD_INSTANCES
+	    
+	    //Set command step and active output
+	    //----------------------
+	    REGION CMD_STEP_ACTIVE
+	      IF (#instMoveLinearAbsPostStart.Active = TRUE) THEN
+	        #statCommandStep := #CMD_STEP_LINEAR_START; //in linear motion along start direction
+	        #statActive := TRUE;
+	        #statActiveCmdRemainingDistance := #instMoveLinearAbsPostStart.RemainingDistance;
+	        #statActiveCmd := #CMD_ACTIVE_POSTSTART;
+	      ELSIF (#instMoveLinearAbsIntermediate.Active = TRUE) THEN
+	        IF (#axesGroup.StatusWord.%X18 = TRUE) THEN
+	          #statCommandStep := #CMD_STEP_BLENDING_START; //in blending area above start
+	        ELSE
+	          #statCommandStep := #CMD_STEP_LINEAR_TRANSITION; //in linear motion to target
+	        END_IF;
+	        #statActive := TRUE;
+	        #statActiveCmdRemainingDistance := #instMoveLinearAbsIntermediate.RemainingDistance;
+	        #statActiveCmd := #CMD_ACTIVE_INTERMEDIATE;
+	      ELSIF (#instMoveLinearAbsPreTarget.Active = TRUE) THEN
+	        IF (#axesGroup.StatusWord.%X18 = TRUE)
+	          AND (#statCmdPar.intermediate.usePoint = FALSE)
+	        THEN
+	          #statCommandStep := #CMD_STEP_BLENDING_START; //in blending area above start
+	        ELSE
+	          #statCommandStep := #CMD_STEP_LINEAR_TRANSITION; //in linear motion to target
+	        END_IF;
+	        #statActive := TRUE;
+	        #statActiveCmdRemainingDistance := #instMoveLinearAbsPreTarget.RemainingDistance;
+	        #statActiveCmd := #CMD_ACTIVE_PRETARGET;
+	      ELSIF (#instMoveLinearAbsTarget.Active = TRUE) THEN
+	        IF (#statUseTargetDirection = FALSE) THEN
+	          //No preTarget
+	          IF (#axesGroup.StatusWord.%X18 = TRUE) THEN
+	            #statCommandStep := #CMD_STEP_BLENDING_START; //in blending area above start
+	          ELSE
+	            #statCommandStep := #CMD_STEP_LINEAR_TRANSITION; //in linear motion to target
+	          END_IF;
+	        ELSIF (#axesGroup.StatusWord.%X18 = TRUE) THEN //Blending active?  
+	          
+	          //Still in transition
+	          #statCommandStep := #CMD_STEP_BLENDING_TARGET; //in blending area above target
+	        ELSE
+	          //In specified linear motion to target
+	          #statCommandStep := #CMD_STEP_LINEAR_TARGET; //in linear motion along target direction
+	        END_IF;
+	        #statActive := TRUE;
+	        #statActiveCmdRemainingDistance := #instMoveLinearAbsTarget.RemainingDistance;
+	        #statActiveCmd := #CMD_ACTIVE_TARGET;
+	      ELSE
+	        //no cmd active
+	        #statCommandStep := #CMD_STEP_IDLE;
+	        #statActive := FALSE;
+	        #statActiveCmdRemainingDistance := 0.0;
+	        #statActiveCmd := #CMD_ACTIVE_NONE;
+	      END_IF;
+	      
+	      //Active interrupt?
+	      IF (#statActive = TRUE) THEN
+	        IF (#axesGroup.StatusWord.%X17 = TRUE) THEN
+	          #statStatus := #STATUS_PATHMOTION_INTERRUPTED;
+	        ELSE
+	          //Active motion
+	          #statStatus := #STATUS_PATHMOTION_RUNNING;
+	        END_IF;
+	      END_IF;
+	      
+	    END_REGION CMD_STEP
+	    
+	    // Output remaining distance
+	    //----------------------
+	    REGION CMD_REMAINING_DISTANCE
+	      //Update path length if there was a subsequent shortening done by TO Kinematics
+	      IF (#axesGroup.StatusPath.TotalPathLength < #statTotalPathLengthStorage) THEN
+	        #statTotalPathLengthStorage := #axesGroup.StatusPath.TotalPathLength;
+	      END_IF;
+	      //Output path length
+	      IF (#statReadyForNextCommand = TRUE) AND (#statActive = TRUE) THEN
+	        #statRemainingPathLength := #statTotalPathLengthStorage - #axesGroup.StatusPath.AccumulatedPathLength;
+	      END_IF;
+	    END_REGION CMD_REMAINING_DISTANCE    
+	    
+	    // Check for abort due to stop during preparation
+	    //-----------------------
+	    IF ((#axesGroup.StatusWord.%X16 = TRUE)
+	      OR #axesGroup.StatusWord.%X1 = TRUE)
+	      AND (#statStatus > #STATUS_NO_CALL)
+	      AND (#statStatus <> #STATUS_PATHMOTION_RUNNING)
+	      AND (#statStatus <> #STATUS_PATHMOTION_INTERRUPTED)
+	      AND (#statStatus.%X15 = FALSE) //no error
+	    THEN //stop active
+	      #statStatus := #STATUS_COMMAND_ABORTED;
+	    END_IF;
+	  END_IF;
+	  
+	END_REGION CYCLIC_CALL
+	
+	REGION OUTPUTS
+	  // Write outputs
+	  IF (#statStatus = #STATUS_EXECUTION_FINISHED) AND (#statDone = FALSE) THEN // Execution finished without errors
+	    #statDone := TRUE;
+	    #statBusy := FALSE;
+	    #statActive := FALSE;
+	    #statCommandAborted := FALSE;
+	    #statError := FALSE;
+	    #statFBState := #FB_STATE_NO_PROCESSING; // Switch state machine to "no processing"
+	    // Reset application specific outputs
+	    #statCommandStep := #CMD_STEP_IDLE;
+	    #statRemainingPathLength := 0.0;
+	    
+	  ELSIF (#statStatus.%X15 = TRUE) AND (#statError = FALSE) THEN // Error occurred (#statStatus is 16#8000 to 16#FFFF)
+	    #statDone := FALSE;
+	    #statBusy := FALSE;
+	    #statActive := FALSE;
+	    #statCommandAborted := FALSE;
+	    #statError := TRUE;
+	    // Write diagnostics
+	    #diagnostics.stateNumber := #statFBState;
+	    #diagnostics.status := #statStatus;
+	    #diagnostics.subFunctionStatus := #statSubfunctionStatus;
+	    #diagnostics.additionalValue1 := #statAdditionalValue[1];
+	    #diagnostics.additionalValue2 := #statAdditionalValue[2];
+	    #statFBState := #FB_STATE_NO_PROCESSING; // Switch state machine to "no processing"
+	    //Restore TO data
+	    IF (#statReadyForNextCommand = FALSE) THEN
+	      //only do if not done yet
+	      "LKinCtrl_InitTODataRestore"(initTOData := #statInitTOData,
+	                                   axesGroup := #axesGroup);
+	    END_IF;
+	    // Reset application specific outputs
+	    #statReadyForNextCommand := FALSE;
+	    #statCommandStep := #CMD_STEP_IDLE;
+	    #statRemainingPathLength := -1.0;
+	    
+	  ELSIF (#statStatus = #STATUS_COMMAND_ABORTED) AND (#statCommandAborted = FALSE) THEN // Commanded functionality has been aborted by another command
+	    #statDone := FALSE;
+	    #statBusy := FALSE;
+	    #statActive := FALSE;
+	    #statCommandAborted := TRUE;
+	    #statError := FALSE;
+	    #diagnostics.stateNumber := #statFBState;
+	    #diagnostics.status := #statStatus;
+	    #diagnostics.subFunctionStatus := #statSubfunctionStatus;
+	    #diagnostics.additionalValue1 := #statAdditionalValue[1];
+	    #diagnostics.additionalValue2 := #statAdditionalValue[2];
+	    #statFBState := #FB_STATE_NO_PROCESSING; // Switch state machine to "no processing"
+	    //Restore TO data
+	    IF (#statReadyForNextCommand = FALSE) THEN
+	      //only do if not done yet
+	      "LKinCtrl_InitTODataRestore"(initTOData := #statInitTOData,
+	                                   axesGroup := #axesGroup);
+	    END_IF;
+	    // Reset application specific outputs
+	    #statReadyForNextCommand := FALSE;
+	    #statCommandStep := #CMD_STEP_IDLE;
+	    #statRemainingPathLength := -1.0;
+	    
+	  ELSIF (#tempExecute = FALSE) AND ((#statDone = TRUE) OR (#statError = TRUE) OR (#statCommandAborted = TRUE)) THEN // Reset outputs
+	    #statDone := FALSE;
+	    #statBusy := FALSE;
+	    #statActive := FALSE;
+	    #statCommandAborted := FALSE;
+	    #statError := FALSE;
+	    #statStatus := #STATUS_NO_CALL;
+	    // Reset application specific outputs
+	    #statReadyForNextCommand := FALSE;
+	    #statCommandStep := #CMD_STEP_IDLE;
+	    #statRemainingPathLength := -1.0;
+	  END_IF;
+	  
+	  // Write static values to outputs
+	  #done := #statDone;
+	  #busy := #statBusy;
+	  #active := #statActive;
+	  #commandAborted := #statCommandAborted;
+	  #error := #statError;
+	  #status := #statStatus;
+	  // Write application specific static values to outputs
+	  #readyForNextCommand := #statReadyForNextCommand;
+	  #commandStep := #statCommandStep;
+	  #remainingPathLength := #statRemainingPathLength;
+	END_REGION OUTPUTS
+END_FUNCTION_BLOCK
+

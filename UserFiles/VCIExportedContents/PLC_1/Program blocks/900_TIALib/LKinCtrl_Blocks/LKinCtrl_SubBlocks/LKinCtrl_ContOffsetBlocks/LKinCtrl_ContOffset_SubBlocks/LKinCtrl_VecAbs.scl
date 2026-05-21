@@ -1,0 +1,32 @@
+﻿FUNCTION "LKinCtrl_VecAbs" : LReal
+TITLE = LKinCtrl_VecAbs
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculate length of vector of coordinates (X, Y, Z) of "LKinCtrl_typeCOff3DPoint"
+   VAR_INPUT 
+      vIn : "LKinCtrl_typeCOff3DPoint";   // Input vector
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2018 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library: - 
+	// Tested with: S7-1516T-3 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.5
+	// Functionality: Calculate length of vector of coordinates (X, Y, Z) of "LKinCtrl_typeCOff3DPoint"
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 2018-10-26 AW               created
+	//=============================================================================
+	
+	#LKinCtrl_VecAbs := SQRT(#vIn.x * #vIn.x + #vIn.y * #vIn.y + #vIn.z * #vIn.z);
+END_FUNCTION
+

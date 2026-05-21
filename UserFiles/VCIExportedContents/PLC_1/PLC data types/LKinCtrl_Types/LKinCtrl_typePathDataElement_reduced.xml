@@ -1,0 +1,88 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="cmdType" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">1: MoveLinAbs; 2: MoveLinRel; 100: WaitTime; 0: FlagOnlyCmd; -1: End of List</MultiLanguageText>
+      </Comment>
+      <StartValue>-1</StartValue>
+    </Member>
+    <Member Name="cmdActivated" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">(de)activation of command</MultiLanguageText>
+      </Comment>
+      <StartValue>TRUE</StartValue>
+    </Member>
+    <Member Name="cmdName" Datatype="String[&quot;LKINCTRL_LENGTH_OF_CMDPOINT_NAME&quot;]">
+      <Comment>
+        <MultiLanguageText Lang="en-US">name of command</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="point" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">reference to point table, used for cmdCoordinates</MultiLanguageText>
+      </Comment>
+      <StartValue>-1</StartValue>
+    </Member>
+    <Member Name="cmdCoordinates" Datatype="&quot;LKinCtrl_typePointCoordinates&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">target coordinate definition</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="cmdParameters" Datatype="&quot;LKinCtrl_typePointParameter_reduced&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">additional command parameters</MultiLanguageText>
+      </Comment>
+      <Sections>
+        <Section Name="None">
+          <Member Name="transitionParameters" Datatype="Array[1..5] of LReal">
+            <Subelement Path="1">
+              <StartValue>-1.0</StartValue>
+            </Subelement>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="setFlags" Datatype="Array[1..&quot;LKINCTRL_NO_OF_CMD_SETFLAGS&quot;] of &quot;LKinCtrl_typeSetFlagElement_Bool&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">flags to control actuators</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="valueFlags" Datatype="Array[1..&quot;LKINCTRL_NO_OF_CMD_VALUEFLAGS&quot;] of &quot;LKinCtrl_typeSetFlagElement_LReal&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">value flags to control actuators</MultiLanguageText>
+      </Comment>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>LKinCtrl_typePathDataElement_reduced</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

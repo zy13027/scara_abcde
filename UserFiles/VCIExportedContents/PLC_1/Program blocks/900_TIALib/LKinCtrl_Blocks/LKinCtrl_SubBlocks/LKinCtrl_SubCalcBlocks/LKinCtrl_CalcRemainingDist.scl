@@ -1,0 +1,240 @@
+﻿FUNCTION_BLOCK "LKinCtrl_CalcRemainingDist"
+TITLE = LKinCtrl_CalcRemainingDist
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Calculates the cartesian distance to a target point including blending. Outputs the remaining distance.
+   VAR_INPUT 
+      writeCmdLoggerElement : Int;   // pointer for writing logger element; incremented after writing ==> value -1 is last written element
+      activeCmdLoggerElement : Int;   // pointing on active cmd in command logger; showing active element during execution ==> after SUCCESSFUL completion of path incrementation ==> value -1 is last active element
+   END_VAR
+
+   VAR_OUTPUT 
+      remainingDistance { ExternalWritable := 'False'} : LReal;   // remaining distance output
+   END_VAR
+
+   VAR_IN_OUT 
+      loggerElements : Array[*] of "LKinCtrl_bufferElement";   // logger array storing executed commands and specific debug data
+      OCSFrames : Array[1..3] of "LKinCtrl_typeFrame";   // array of OCS frames
+      userFrames : Array["LKINCTRL_CS_NO_OF_FIRST_USER_FRAME".."LKINCTRL_CS_NO_OF_LAST_USER_FRAME"] of "LKinCtrl_typeFrame";   // array of user frames
+      toKinematics {InstructionName := 'TO_Kinematics'; LibVersion := '9.0'} : TO_Kinematics;   // technology object kinematics input
+   END_VAR
+
+   VAR 
+      statFirstCycle { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool := TRUE;   // static for first cycle
+      statBlendingRadius { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : LReal;   // static storing for blending radius
+      statRemainingDistance { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : LReal;   // static storing for remaining distance
+      statLowerLimitLogger { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // lower limit of command logger
+      statUpperLimitLogger { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // upper limit of command logger
+      statActiveLoggerElementOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // active command logger element
+   END_VAR
+
+   VAR_TEMP 
+      tempCS : DInt;   // temporary coordinate system
+      tempCalc : Array[1..6] of LReal;   // temporary calculation variable
+      tempPreviousTarget : Array[1..6] of LReal;   // temporary previous target
+      tempCurrentTarget : Array[1..6] of LReal;   // temporary current target
+      tempNextTarget : Array[1..6] of LReal;   // temporary next target
+      tempDistPrevious : Array[1..6] of LReal;   // temporary distance to previous target
+      tempDistNext : Array[1..6] of LReal;   // temporary distance to next target
+      tempBufferMode : DInt;   // temporary buffer mode
+      tempTransitionParameter : LReal;   // temporary transition paramter
+      tempLengthNextCmd : LReal;   // temporary length of next command
+      tempLengthPreviousCmd : LReal;   // temporary length of previous command
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2021
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN/DP
+	// Engineering: TIA Portal V16
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 2.8
+	// Functionality: LKinCtrl_CalcRemainingDist
+	// The FB calculates the cartesian distance to a target point and outputs the remaining distance to it
+	//
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   19.05.2021    FR                  First released version
+	//===========================================================================================
+	
+	// Init output
+	#remainingDistance := 0;
+	
+	IF #statFirstCycle THEN
+	    // Get logger limits
+	    #statLowerLimitLogger := LOWER_BOUND(ARR := #loggerElements, DIM := 1);
+	    #statUpperLimitLogger := UPPER_BOUND(ARR := #loggerElements, DIM := 1);
+	    
+	    // Check limits
+	    IF #statLowerLimitLogger = #statUpperLimitLogger THEN
+	        RETURN;
+	    END_IF;
+	    
+	    #statActiveLoggerElementOld := #statLowerLimitLogger - 1; // Make sure old var is different to actual
+	    #statFirstCycle := FALSE;
+	END_IF;
+	
+	
+	REGION CALCULATE_BLENDING_RADIUS
+	    // Check if new command is active
+	    IF #activeCmdLoggerElement <> #statActiveLoggerElementOld THEN
+	        // ------------------
+	        // Store old var
+	        // ------------------
+	        #statActiveLoggerElementOld := #activeCmdLoggerElement;
+	        
+	        // ------------------
+	        // Get current target position
+	        // ------------------
+	        #tempCurrentTarget[1] := #loggerElements[#activeCmdLoggerElement].position[1];  //x coordinate
+	        #tempCurrentTarget[2] := #loggerElements[#activeCmdLoggerElement].position[2];  //y coordinate
+	        #tempCurrentTarget[3] := #loggerElements[#activeCmdLoggerElement].position[3];  //z coordinate
+	        
+	        // ------------------
+	        // Get coord system
+	        // ------------------
+	        #tempCS := DINT_TO_INT(#loggerElements[#activeCmdLoggerElement].coordinateSystem);
+	        // Only calculate if not in MCS
+	        IF #tempCS = "CS_MCS" THEN
+	            RETURN;
+	        END_IF;
+	        
+	        // ------------------
+	        // Get next target position
+	        // ------------------
+	        IF #activeCmdLoggerElement <> #statUpperLimitLogger THEN
+	            IF #activeCmdLoggerElement + 1 <> #writeCmdLoggerElement THEN
+	                #tempBufferMode := #loggerElements[#activeCmdLoggerElement + 1].bufferMode;
+	                #tempTransitionParameter := #loggerElements[#activeCmdLoggerElement + 1].transitionParameter;
+	                #tempNextTarget[1] := #loggerElements[#activeCmdLoggerElement + 1].position[1];
+	                #tempNextTarget[2] := #loggerElements[#activeCmdLoggerElement + 1].position[2];
+	                #tempNextTarget[3] := #loggerElements[#activeCmdLoggerElement + 1].position[3];
+	                "LKinCtrl_FrameTrans"(coordSystem := #tempCS,
+	                                      coordSystemOld := #loggerElements[#activeCmdLoggerElement + 1].coordinateSystem,
+	                                      OCSFrames := #OCSFrames,
+	                                      userFrames := #userFrames,
+	                                      position := #tempNextTarget);
+	            END_IF;
+	        ELSE
+	            IF #writeCmdLoggerElement <> 1 THEN
+	                #tempBufferMode := #loggerElements[1].bufferMode;
+	                #tempTransitionParameter := #loggerElements[1].transitionParameter;
+	                #tempNextTarget[1] := #loggerElements[1].position[1];
+	                #tempNextTarget[2] := #loggerElements[1].position[2];
+	                #tempNextTarget[3] := #loggerElements[1].position[3];
+	                "LKinCtrl_FrameTrans"(coordSystem := #tempCS,
+	                                      coordSystemOld := #loggerElements[1].coordinateSystem,
+	                                      OCSFrames := #OCSFrames,
+	                                      userFrames := #userFrames,
+	                                      position := #tempNextTarget);
+	            END_IF;
+	        END_IF;
+	        
+	        // ------------------
+	        // Get previous target position
+	        // ------------------
+	        IF #activeCmdLoggerElement <> 1 THEN
+	            IF #activeCmdLoggerElement - 1 <> #writeCmdLoggerElement THEN
+	                #tempPreviousTarget[1] := #loggerElements[#activeCmdLoggerElement - 1].position[1];
+	                #tempPreviousTarget[2] := #loggerElements[#activeCmdLoggerElement - 1].position[2];
+	                #tempPreviousTarget[3] := #loggerElements[#activeCmdLoggerElement - 1].position[3];
+	                "LKinCtrl_FrameTrans"(coordSystem := #tempCS,
+	                                      coordSystemOld := #loggerElements[#activeCmdLoggerElement - 1].coordinateSystem,
+	                                      OCSFrames := #OCSFrames,
+	                                      userFrames := #userFrames,
+	                                      position := #tempPreviousTarget);
+	            END_IF;
+	        ELSE
+	            IF #statUpperLimitLogger <> #writeCmdLoggerElement THEN
+	                #tempPreviousTarget[1] := #loggerElements[#statUpperLimitLogger].position[1];
+	                #tempPreviousTarget[2] := #loggerElements[#statUpperLimitLogger].position[2];
+	                #tempPreviousTarget[3] := #loggerElements[#statUpperLimitLogger].position[3];
+	                "LKinCtrl_FrameTrans"(coordSystem := #tempCS,
+	                                      coordSystemOld := #loggerElements[1].coordinateSystem,
+	                                      OCSFrames := #OCSFrames,
+	                                      userFrames := #userFrames,
+	                                      position := #tempPreviousTarget);
+	            END_IF;
+	        END_IF;
+	        
+	        // ------------------
+	        // Calc length of first command 
+	        // ------------------
+	        #tempDistPrevious[1] := #tempCurrentTarget[1] - #tempPreviousTarget[1];
+	        #tempDistPrevious[2] := #tempCurrentTarget[2] - #tempPreviousTarget[2];
+	        #tempDistPrevious[3] := #tempCurrentTarget[3] - #tempPreviousTarget[3];
+	        
+	        // Calculate length of vector (last to actual)
+	        #tempLengthPreviousCmd := SQRT(#tempDistPrevious[1] * #tempDistPrevious[1] + #tempDistPrevious[2] * #tempDistPrevious[2] + #tempDistPrevious[3] * #tempDistPrevious[3]);
+	        
+	        
+	        // ------------------
+	        // Calc length of second command
+	        // ------------------
+	        #tempDistNext[1] := #tempNextTarget[1] - #tempCurrentTarget[1];
+	        #tempDistNext[2] := #tempNextTarget[2] - #tempCurrentTarget[2];
+	        #tempDistNext[3] := #tempNextTarget[3] - #tempCurrentTarget[3];
+	        
+	        // Calculate length of vector (actual to next)
+	        #tempLengthNextCmd := SQRT(#tempDistNext[1] * #tempDistNext[1] + #tempDistNext[2] * #tempDistNext[2] + #tempDistNext[3] * #tempDistNext[3]);
+	        
+	        // ------------------
+	        // Check blending settings
+	        // ------------------
+	        IF (#tempBufferMode = "BM_BLENDING_LOW" OR #tempBufferMode = "BM_BLENDING_HIGH") AND #tempTransitionParameter <> 0.0 THEN
+	            // Check which command is shorter distance
+	            IF #tempTransitionParameter < 0.0 THEN // Transition parameter 
+	                // Check which command is shorter     //Last target to current              //Current target to next
+	                #statBlendingRadius := MIN_LREAL(IN1 := #tempLengthPreviousCmd / 2.0, IN2 := #tempLengthNextCmd / 2.0);
+	            ELSE
+	                // Check which setting is the shortest
+	                #statBlendingRadius := MIN_LREAL(IN1 := #tempLengthPreviousCmd / 2.0, IN2 := #tempLengthNextCmd / 2.0, IN3 := #tempTransitionParameter);
+	            END_IF;
+	        ELSE
+	            #statBlendingRadius := 0; // Blending is deactivated at command
+	        END_IF;
+	    ELSE
+	        ; // Blending radius is already calculated -> Nothing to do
+	    END_IF;
+	END_REGION
+	
+	REGION CALC_REMAINING_DISTANCE
+	    // Substract kinematics position
+	    IF #tempCS = "CS_WCS" THEN
+	        #tempCalc[1] := #tempCurrentTarget[1] - #toKinematics.TcpInWcs.x.Position;
+	        #tempCalc[2] := #tempCurrentTarget[2] - #toKinematics.TcpInWcs.y.Position;
+	        #tempCalc[3] := #tempCurrentTarget[3] - #toKinematics.TcpInWcs.z.Position;
+	    ELSE
+	        #tempCalc[1] := #tempCurrentTarget[1] - #toKinematics.TcpInOcs[#tempCS].x.Position;
+	        #tempCalc[2] := #tempCurrentTarget[2] - #toKinematics.TcpInOcs[#tempCS].y.Position;
+	        #tempCalc[3] := #tempCurrentTarget[3] - #toKinematics.TcpInOcs[#tempCS].z.Position;
+	    END_IF;
+	    
+	    // Remaining distance of current command
+	    #statRemainingDistance := SQRT(#tempCalc[1] * #tempCalc[1] + #tempCalc[2] * #tempCalc[2] + #tempCalc[3] * #tempCalc[3]);
+	END_REGION CALC_REMAINING_DISTANCE
+	
+	REGION SUBSTARCT_BLENDING
+	    // Calculate remaining distance
+	    #statRemainingDistance := #statRemainingDistance - #statBlendingRadius;
+	    IF #statRemainingDistance < 0.0 THEN // Avoid negative values
+	        #statRemainingDistance := 0.0;
+	    END_IF;
+	    
+	    // Assign output
+	    #remainingDistance := #statRemainingDistance;
+	END_REGION SUBSTARCT_BLENDING
+	
+	
+	
+END_FUNCTION_BLOCK
+

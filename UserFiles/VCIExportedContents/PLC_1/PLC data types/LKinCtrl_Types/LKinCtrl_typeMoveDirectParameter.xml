@@ -1,0 +1,53 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="linkConstellation" Datatype="DWord">
+      <Comment>
+        <MultiLanguageText Lang="en-US">linkConstellation (effective for MoveDirect commands only)</MultiLanguageText>
+      </Comment>
+      <StartValue>16#FFFF_FFFF</StartValue>
+    </Member>
+    <Member Name="positionMode" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">1: absolute cartesian position and absolute orientation; 2: absolute cartesian position and relative orientation (effective for MoveDirect commands only)</MultiLanguageText>
+      </Comment>
+      <StartValue>1</StartValue>
+    </Member>
+    <Member Name="turnJoint" Datatype="Array[1..6] of DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">turn joint setting (effective for MoveDirect commands only)</MultiLanguageText>
+      </Comment>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>LKinCtrl_typeMoveDirectParameter</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

@@ -1,0 +1,119 @@
+﻿FUNCTION "LKinCtrl_CheckInnerOuterCorner" : Word
+TITLE = LKinCtrl_CheckInnerOuterCorner
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Check for inner or outer corner
+   VAR_INPUT 
+      vInFirst : "LKinCtrl_typeCOff3DPoint";   // Input vector first
+      vInSecond : "LKinCtrl_typeCOff3DPoint";   // Input vector second
+      pathPlane : Int;   // Path plane: XZ= 0, YZ=1, XY= 2
+      direction : Int;   // Tool radius compensation direction: left=1, right = 0
+   END_VAR
+
+   VAR_OUTPUT 
+      cornerType : Int;   // Corner type - 0: outer corner, 1: inner corner
+   END_VAR
+
+   VAR_TEMP 
+      tempCrossVec : "LKinCtrl_typeCOff3DPoint";
+   END_VAR
+
+   VAR CONSTANT 
+      ERR_COFF_INVALID_PATH_PLANE : Word := 16#8303;   // Invalid path plane
+      ERR_COFF_INVALID_COMPENSATION_DIRECTION : Word := 16#8304;   // Invalid compensation direction
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library: - 
+	// Tested with: S7-1516T-3 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.5
+	// Functionality: Check for inner or outer corner
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 2019-01-24 AW               created
+	// 01.00.01 2020-10-13 AW               bugfix - path plane CP_XZ - different orientation, not against third axis!
+	//=============================================================================
+	REGION PLAUSIBILITY_CHECK
+	  // Check path plane
+	  IF ((#pathPlane >= "CP_XZ") AND (#pathPlane <= "CP_XY"))
+	  THEN
+	    // Check compensation direction
+	    IF ((#direction >= "LKINCTRL_COMP_LEFT") AND (#direction <= "LKINCTRL_COMP_RIGHT"))
+	    THEN
+	      ;
+	    ELSE
+	      #LKinCtrl_CheckInnerOuterCorner := #ERR_COFF_INVALID_COMPENSATION_DIRECTION; // Invalid compensation direction
+	      RETURN;
+	    END_IF;
+	  ELSE
+	    #LKinCtrl_CheckInnerOuterCorner := #ERR_COFF_INVALID_PATH_PLANE; // Invalid path plane
+	    RETURN;
+	  END_IF;
+	END_REGION PLAUSIBILITY_CHECK
+	
+	REGION CALCULATION
+	  #tempCrossVec := "LKinCtrl_VecCrossProd"(vIn1 := #vInFirst,
+	                                           vIn2 := #vInSecond);
+	  
+	// Check path plane
+	IF (#pathPlane = "CP_XY") THEN
+	  IF (#direction = "LKINCTRL_COMP_RIGHT") THEN
+	    IF (#tempCrossVec.z > 0.0) THEN
+	      #cornerType := "LKINCTRL_OUTER_CORNER";
+	    ELSE
+	      #cornerType := "LKINCTRL_INNER_CORNER";
+	    END_IF;
+	  ELSE
+	    IF (#tempCrossVec.z < 0.0) THEN
+	      #cornerType := "LKINCTRL_OUTER_CORNER";
+	    ELSE
+	      #cornerType := "LKINCTRL_INNER_CORNER";
+	    END_IF;
+	  END_IF;
+	  
+	// 2020-10-13 AW path plane CP_XZ - different orientation, not against third axis!
+	// direction changed
+	ELSIF (#pathPlane = "CP_XZ") THEN
+	    IF (#direction = "LKINCTRL_COMP_RIGHT") THEN
+	      IF (#tempCrossVec.y > 0.0) THEN
+	        #cornerType := "LKINCTRL_INNER_CORNER";
+	      ELSE
+	        #cornerType := "LKINCTRL_OUTER_CORNER";
+	      END_IF;
+	    ELSE
+	      IF (#tempCrossVec.y < 0.0) THEN
+	        #cornerType := "LKINCTRL_INNER_CORNER";
+	      ELSE
+	        #cornerType := "LKINCTRL_OUTER_CORNER";
+	      END_IF;
+	    END_IF;
+	  ELSIF (#pathPlane = "CP_YZ") THEN
+	  IF (#direction = "LKINCTRL_COMP_RIGHT") THEN
+	    IF (#tempCrossVec.x > 0.0) THEN
+	      #cornerType := "LKINCTRL_OUTER_CORNER";
+	    ELSE
+	      #cornerType := "LKINCTRL_INNER_CORNER";
+	    END_IF;
+	  ELSE
+	    IF (#tempCrossVec.x < 0.0) THEN
+	      #cornerType := "LKINCTRL_OUTER_CORNER";
+	    ELSE
+	      #cornerType := "LKINCTRL_INNER_CORNER";
+	    END_IF;
+	  END_IF;
+	END_IF;
+	
+	#LKinCtrl_CheckInnerOuterCorner := 0;
+	END_REGION CALCULATION
+END_FUNCTION
+

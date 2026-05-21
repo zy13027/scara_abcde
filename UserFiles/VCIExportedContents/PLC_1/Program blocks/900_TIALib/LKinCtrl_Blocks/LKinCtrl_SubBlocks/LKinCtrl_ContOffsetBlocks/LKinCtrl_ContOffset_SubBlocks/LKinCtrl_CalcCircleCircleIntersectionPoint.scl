@@ -1,0 +1,279 @@
+﻿FUNCTION "LKinCtrl_CalcCircleCircleIntersectionPoint" : Word
+TITLE = LKinCtrl_CalcCircleCircleIntersectionPoint
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Determine the points where 2 circles in a common plane intersect
+   VAR_INPUT 
+      circleCenterPoint1 : "LKinCtrl_typeCOff3DPoint";   // Center point of first circle
+      circleCenterPoint2 : "LKinCtrl_typeCOff3DPoint";   // Center point of second circle
+      circleRadius1 : LReal;   // Radius of first circle
+      circleRadius2 : LReal;   // Radius of second circle
+      pathPlane : Int;   // Path plane: XZ= 0, YZ=1, XY= 2
+   END_VAR
+
+   VAR_OUTPUT 
+      intersectionPointA : "LKinCtrl_typeCOff3DPoint";   // Intersection point a
+      intersectionPointB : "LKinCtrl_typeCOff3DPoint";   // Intersection point b
+   END_VAR
+
+   VAR_TEMP 
+      tempP02 : LReal;
+      tempvDiff : "LKinCtrl_typeCOff3DPoint";
+      tempCenterDistance : LReal;
+      tempH : LReal;
+      tempInterPointOffset : "LKinCtrl_typeCOff3DPoint";
+      tempP2 : "LKinCtrl_typeCOff3DPoint";
+   END_VAR
+
+   VAR CONSTANT 
+      COFF_EPS : LReal := 0.001;   // Internal constant
+      ERR_COFF_INVALID_PATH_PLANE : Word := 16#8303;   // Error - invalid path plane
+      ERR_COFF_CIRCLES_DO_NOT_INTERSECT : Word := 16#8318;   // Error - no solution - circles don't intersect
+      ERR_COFF_ONE_CIRC_CONTAINED_IN_THE_OTHER : Word := 16#8319;   // Error - one circle is contained in the other
+      ERR_COFF_CIRCLE_CENTERS_EQUAL : Word := 16#8350;   // Error - circle centers are equal infinite intersections (only internal)
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//-----------------------------------------------------------------------------
+	// Library: - 
+	// Tested with: S7-1516T-3 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: -
+	// Requirements: S7-1500/S7-1500T FW 2.5
+	// Functionality: Determine the points where 2 circles in a common plane intersect
+	// center and radius of 1st circle
+	// center and radius of 2nd circle
+	// 1st intersection point - pa
+	// 2nd intersection point - pb
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 2019-02-05 AW               created
+	// 01.01.00 2020-08-14 AW               bugfix equal circle centers
+	// 01.01.01 2020-08-25 AW               bugfix tiny floating point deviations due to calculation - circles intersect in one point
+	// 01.01.02 2021-05-21 AW               center distance now checked with #COFF_EPS - floating point deviation
+	//=============================================================================
+	
+	REGION PLAUSIBILITY_CHECK
+	  // Check path plane
+	  IF ((#pathPlane >= "CP_XZ") AND (#pathPlane <= "CP_XY"))
+	  THEN
+	    ;
+	  ELSE
+	    #LKinCtrl_CalcCircleCircleIntersectionPoint := #ERR_COFF_INVALID_PATH_PLANE; // Invalid path plane
+	    RETURN;
+	  END_IF;
+	END_REGION PLAUSIBILITY_CHECK
+	
+	REGION CALCULATION   
+	  // Distinguish between different path planes
+	  CASE #pathPlane OF
+	    "CP_XY":
+	      // dx and dy are the vertical and horizontal distances between the circle centers
+	      #tempvDiff.x := #circleCenterPoint2.x - #circleCenterPoint1.x;
+	      #tempvDiff.y := #circleCenterPoint2.y - #circleCenterPoint1.y;
+	      
+	      // Determine the straight-line distance between the centers.
+	      #tempCenterDistance := SQRT((#tempvDiff.y * #tempvDiff.y) + (#tempvDiff.x * #tempvDiff.x));
+	      
+	      // No solution possible - circles do not intersect
+	      IF (#tempCenterDistance > (#circleRadius1 + #circleRadius2)) THEN
+	        // V01.01.01
+	        IF (#tempCenterDistance < (#circleRadius1 + #circleRadius2 + #COFF_EPS)) THEN
+	          #tempCenterDistance := #circleRadius1 + #circleRadius2;
+	        ELSE
+	          #LKinCtrl_CalcCircleCircleIntersectionPoint := #ERR_COFF_CIRCLES_DO_NOT_INTERSECT;
+	          RETURN;
+	        END_IF;
+	      END_IF;
+	      
+	      // No solution - one circle is contained in the other
+	      IF (#tempCenterDistance < ABS(#circleRadius1 - #circleRadius2)) THEN
+	        // V01.01.01
+	        IF (#tempCenterDistance > (ABS(#circleRadius1 - #circleRadius2) - #COFF_EPS)) THEN
+	          #tempCenterDistance := ABS(#circleRadius1 - #circleRadius2);
+	        ELSE
+	          #LKinCtrl_CalcCircleCircleIntersectionPoint := #ERR_COFF_ONE_CIRC_CONTAINED_IN_THE_OTHER;
+	          RETURN;
+	        END_IF;
+	      END_IF;
+	      
+	      // Both circle centers are equal
+	      // V01.01.02
+	      // Center distance now checked with #COFF_EPS - floating point deviation
+	      IF (#tempCenterDistance <= #COFF_EPS) THEN
+	        #LKinCtrl_CalcCircleCircleIntersectionPoint := #ERR_COFF_CIRCLE_CENTERS_EQUAL;
+	        RETURN;
+	      END_IF;
+	      
+	      // 'point 2' is the point where the line through the circle
+	      // intersection points crosses the line between the circle centers.  
+	      
+	      // Determine the distance from point 0 to point 2
+	      #tempP02 := ((#circleRadius1 * #circleRadius1) - (#circleRadius2 * #circleRadius2) + (#tempCenterDistance * #tempCenterDistance)) / (2.0 * #tempCenterDistance);
+	      
+	      // Determine the coordinates of point 2
+	      #tempP2.x := #circleCenterPoint1.x + (#tempvDiff.x * #tempP02 / #tempCenterDistance);
+	      #tempP2.y := #circleCenterPoint1.y + (#tempvDiff.y * #tempP02 / #tempCenterDistance);
+	      
+	      // Determine the distance from point 2 to either of the intersection points
+	      #tempH := SQRT((#circleRadius1 * #circleRadius1) - (#tempP02 * #tempP02));
+	      
+	      // Determine the offsets of the intersection points from point 2
+	      #tempInterPointOffset.x := - #tempvDiff.y * (#tempH / #tempCenterDistance);
+	      #tempInterPointOffset.y := #tempvDiff.x * (#tempH / #tempCenterDistance);
+	      
+	      // Determine the absolute intersection points
+	      #intersectionPointA.x := #tempP2.x + #tempInterPointOffset.x;
+	      #intersectionPointB.x := #tempP2.x - #tempInterPointOffset.x;
+	      #intersectionPointA.y := #tempP2.y + #tempInterPointOffset.y;
+	      #intersectionPointB.y := #tempP2.y - #tempInterPointOffset.y;
+	      
+	      // Get third coordinate
+	      #intersectionPointA.z := #circleCenterPoint1.z;
+	      #intersectionPointB.z := #circleCenterPoint1.z;
+	      
+	    "CP_XZ":
+	      // dz AND dx are the vertical and horizontal distances between the circle centers
+	      #tempvDiff.z := #circleCenterPoint2.z - #circleCenterPoint1.z;
+	      #tempvDiff.x := #circleCenterPoint2.x - #circleCenterPoint1.x;
+	      
+	      // Determine the straight-line distance between the centers.
+	      #tempCenterDistance := SQRT((#tempvDiff.x * #tempvDiff.x) + (#tempvDiff.z * #tempvDiff.z));
+	      
+	      // No solution possible - circles do not intersect
+	      IF (#tempCenterDistance > (#circleRadius1 + #circleRadius2)) THEN
+	        // V01.01.01
+	        IF (#tempCenterDistance < (#circleRadius1 + #circleRadius2 + #COFF_EPS)) THEN
+	          #tempCenterDistance := #circleRadius1 + #circleRadius2;
+	        ELSE
+	          #LKinCtrl_CalcCircleCircleIntersectionPoint := #ERR_COFF_CIRCLES_DO_NOT_INTERSECT;
+	          RETURN;
+	        END_IF;
+	      END_IF;
+	      
+	      // No solution - one circle is contained in the other
+	      IF (#tempCenterDistance < ABS(#circleRadius1 - #circleRadius2)) THEN
+	        // V01.01.01
+	        IF (#tempCenterDistance > (ABS(#circleRadius1 - #circleRadius2) - #COFF_EPS)) THEN
+	          #tempCenterDistance := ABS(#circleRadius1 - #circleRadius2);
+	        ELSE
+	          #LKinCtrl_CalcCircleCircleIntersectionPoint := #ERR_COFF_ONE_CIRC_CONTAINED_IN_THE_OTHER;
+	          RETURN;
+	        END_IF;
+	      END_IF;
+	      
+	      // Both circle centers are equal
+	      // V01.01.02
+	      // Center distance now checked with #COFF_EPS - floating point deviation
+	      IF (#tempCenterDistance <= #COFF_EPS) THEN
+	        #LKinCtrl_CalcCircleCircleIntersectionPoint := #ERR_COFF_CIRCLE_CENTERS_EQUAL;
+	        RETURN;
+	      END_IF;
+	      
+	      // 'point 2' is the point where the line through the circle
+	      // intersection points crosses the line between the circle centers.  
+	      
+	      // Determine the distance from point 0 to point 2
+	      #tempP02 := ((#circleRadius1 * #circleRadius1) - (#circleRadius2 * #circleRadius2) + (#tempCenterDistance * #tempCenterDistance)) / (2.0 * #tempCenterDistance);
+	      
+	      // Determine the coordinates of point 2
+	      #tempP2.z := #circleCenterPoint1.z + (#tempvDiff.z * #tempP02 / #tempCenterDistance);
+	      #tempP2.x := #circleCenterPoint1.x + (#tempvDiff.x * #tempP02 / #tempCenterDistance);
+	      
+	      // Determine the distance from point 2 to either of the intersection points
+	      #tempH := SQRT((#circleRadius1 * #circleRadius1) - (#tempP02 * #tempP02));
+	      
+	      // Determine the offsets of the intersection points from point 2
+	      // Before
+	      #tempInterPointOffset.z := - #tempvDiff.x * (#tempH / #tempCenterDistance);
+	      #tempInterPointOffset.x := #tempvDiff.z * (#tempH / #tempCenterDistance);
+	      
+	      // Determine the absolute intersection points
+	      #intersectionPointA.z := #tempP2.z + #tempInterPointOffset.z;
+	      #intersectionPointB.z := #tempP2.z - #tempInterPointOffset.z;
+	      #intersectionPointA.x := #tempP2.x + #tempInterPointOffset.x;
+	      #intersectionPointB.x := #tempP2.x - #tempInterPointOffset.x;
+	      
+	      // Get third coordinate
+	      #intersectionPointA.y := #circleCenterPoint1.y;
+	      #intersectionPointB.y := #circleCenterPoint1.y;
+	      
+	    "CP_YZ":
+	      // dx AND dy are the vertical and horizontal distances between the circle centers
+	      #tempvDiff.y := #circleCenterPoint2.y - #circleCenterPoint1.y;
+	      #tempvDiff.z := #circleCenterPoint2.z - #circleCenterPoint1.z;
+	      
+	      // Determine the straight-line distance between the centers.
+	      #tempCenterDistance := SQRT((#tempvDiff.z * #tempvDiff.z) + (#tempvDiff.y * #tempvDiff.y));
+	      
+	      // No solution possible - circles do not intersect
+	      IF (#tempCenterDistance > (#circleRadius1 + #circleRadius2)) THEN
+	        // V01.01.01
+	        IF (#tempCenterDistance < (#circleRadius1 + #circleRadius2 + #COFF_EPS)) THEN
+	          #tempCenterDistance := #circleRadius1 + #circleRadius2;
+	        ELSE
+	          #LKinCtrl_CalcCircleCircleIntersectionPoint := #ERR_COFF_CIRCLES_DO_NOT_INTERSECT;
+	          RETURN;
+	        END_IF;
+	      END_IF;
+	      
+	      // No solution - one circle is contained in the other
+	      IF (#tempCenterDistance < ABS(#circleRadius1 - #circleRadius2)) THEN
+	        // V01.01.01
+	        IF (#tempCenterDistance > (ABS(#circleRadius1 - #circleRadius2) - #COFF_EPS)) THEN
+	          #tempCenterDistance := ABS(#circleRadius1 - #circleRadius2);
+	        ELSE
+	          #LKinCtrl_CalcCircleCircleIntersectionPoint := #ERR_COFF_ONE_CIRC_CONTAINED_IN_THE_OTHER;
+	          RETURN;
+	        END_IF;
+	      END_IF;
+	      
+	      // Both circle centers are equal
+	      // V01.01.02
+	      // Center distance now checked with #COFF_EPS - floating point deviation
+	      IF (#tempCenterDistance <= #COFF_EPS) THEN
+	        #LKinCtrl_CalcCircleCircleIntersectionPoint := #ERR_COFF_CIRCLE_CENTERS_EQUAL;
+	        RETURN;
+	      END_IF;
+	      
+	      // 'point 2' is the point where the line through the circle
+	      // intersection points crosses the line between the circle centers.  
+	      
+	      // Determine the distance from point 0 to point 2
+	      #tempP02 := ((#circleRadius1 * #circleRadius1) - (#circleRadius2 * #circleRadius2) + (#tempCenterDistance * #tempCenterDistance)) / (2.0 * #tempCenterDistance);
+	      
+	      // Determine the coordinates of point 2
+	      #tempP2.y := #circleCenterPoint1.y + (#tempvDiff.y * #tempP02 / #tempCenterDistance);
+	      #tempP2.z := #circleCenterPoint1.z + (#tempvDiff.z * #tempP02 / #tempCenterDistance);
+	      
+	      // Determine the distance from point 2 to either of the intersection points
+	      #tempH := SQRT((#circleRadius1 * #circleRadius1) - (#tempP02 * #tempP02));
+	      
+	      // Determine the offsets of the intersection points from point 2
+	      #tempInterPointOffset.y := - #tempvDiff.z * (#tempH / #tempCenterDistance);
+	      #tempInterPointOffset.z := #tempvDiff.y * (#tempH / #tempCenterDistance);
+	      
+	      // Determine the absolute intersection points
+	      #intersectionPointA.y := #tempP2.y + #tempInterPointOffset.y;
+	      #intersectionPointB.y := #tempP2.y - #tempInterPointOffset.y;
+	      #intersectionPointA.z := #tempP2.z + #tempInterPointOffset.z;
+	      #intersectionPointB.z := #tempP2.z - #tempInterPointOffset.z;
+	      
+	      // Get third coordinate
+	      #intersectionPointA.x := #circleCenterPoint1.x;
+	      #intersectionPointB.x := #circleCenterPoint1.x;
+	  END_CASE;
+	END_REGION
+	
+	#LKinCtrl_CalcCircleCircleIntersectionPoint := 16#0;
+	
+	
+END_FUNCTION
+

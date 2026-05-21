@@ -1,0 +1,869 @@
+﻿FUNCTION_BLOCK "LKinCtrl_ValueFlagCtrl"
+TITLE = LKinCtrl_ValueFlagCtrl
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Handle valueFlags in FB MovePath
+   VAR_INPUT 
+      enable { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // TRUE: Enable functionality of FB
+      activeCmdNo { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // Number of actual PathData set number (interconnect LKinCtrl_MC_ExecuteKinMotionCmd)
+      activePathDataIdentifier { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : USInt;   // Identifier number of actual PathData (interconnect LKinCtrl_MC_ExecuteKinMotionCmd)
+      activePathDataName { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : String["LKINCTRL_LENGTH_OF_PATHDATA_NAME"];   // Name of actual PathData (interconnect LKinCtrl_MC_ExecuteKinMotionCmd)
+      remainingDistanceActCmd { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : LReal;   // RemainingDistance of active motionCommand (interconnect LKinCtrl_MC_ExecuteKinMotionCmd)
+      kinematicsStatusWord { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DWord;   // Interconnect axesGroup.StatusWord
+      movePathStatus { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Word := 16#0000;   // Interconnect value for MovePath output 'status'
+      flagsBuffer { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Struct   // Buffer to store flag information for past and actual commands
+         writeBufferElement { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int := 1;   // pointer on entry to be written
+         bufferElement { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1.."LKINCTRL_NO_OF_SETFLAGS_BUFFER_ELEMENTS"] of Struct   // flag information for one specific command (see cmdId)
+            pathDataName { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : String["LKINCTRL_LENGTH_OF_PATHDATA_NAME"] := '';   // PathData name of specific command
+            pathDataIdentifier { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // PathData identifier counter of specific command
+            cmdId { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt := 0;   // cmdId of command in PathData
+            isIntermediateCmd { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // TRUE: command is intermediate command
+            setFlags { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1.."LKINCTRL_NO_OF_CMD_SETFLAGS"] of "LKinCtrl_typeSetFlagElement_Bool";   // setFlags structure equal to PathData command entry
+            valueFlags { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1.."LKINCTRL_NO_OF_CMD_VALUEFLAGS"] of "LKinCtrl_typeSetFlagElement_LReal";   // setFlags structure equal to PathData command entry
+         END_STRUCT;
+      END_STRUCT;
+   END_VAR
+
+   VAR_OUTPUT 
+      valid { ExternalWritable := 'False'} : Bool;   // TRUE: Valid set of output values available at the FB
+      busy { ExternalWritable := 'False'} : Bool;   // TRUE: FB is not finished and new output values can be expected
+      error { ExternalWritable := 'False'} : Bool;   // TRUE: An error occurred during the execution of the FB
+      status { ExternalWritable := 'False'} : Word := #STATUS_NO_CALL;   // 16#0000 - 16#7FFF: Status of the FB, 16#8000 - 16#FFFF: Error identification
+      waitMain { ExternalWritable := 'False'} : Bool;   // Static bit to wait for execution due to wait flags & valueFlags
+   END_VAR
+
+   VAR_IN_OUT 
+      valueFlags : Array[*] of LReal;   // Interconnect MovePath outputs for flag signals
+      waitFlags : Struct   // Static struct to store wait flag information
+         waitCtr : Int;   // counter for number of wait flags in one command
+         waitFlag : Array[1.."LKINCTRL_NO_OF_CMD_VALUEFLAGS"] of Int;   // flag number as identifier for flag active as wait flag
+      END_STRUCT;
+   END_VAR
+
+   VAR 
+      statEnableOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // Old value of 'enable' input for edge detection
+      statValid { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // Static value for output 'valid'
+      statBusy { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // Static value for output 'busy'
+      statError { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // Static value for output 'error'
+      statErrorUserCleared { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // Error occurred that can only be solved by user; rising edge at enable input necessary
+      statErrorAutoCleared { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // Error occurred that can be acknowledged by FB
+      statStatus { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Word := #STATUS_NO_CALL;   // Static value for output 'status'
+      statMovePathStatusOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Word;   // Static value for last status of MovePath
+      statFBState { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt := #FB_STATE_NO_PROCESSING;   // State in the state machine of the FB
+      statDisablingCompleted { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // TRUE: Disabling has been completed
+      statWaitMain { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // Static value for output 'waitMain'
+      statSkippedCmdCounter { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Int;   // Static counter for skipped activeCmdNo
+      statActivePathDataIdentifierOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : USInt;   // Static to store old activePathDataIdentifier from LKinCtrl_ExecuteKinMotionCmd
+      statActiveCmdNoOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;   // Static variable storing old 'activeCmdNo'
+      statActivePathDataNameOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : String["LKINCTRL_LENGTH_OF_PATHDATA_NAME"];   // Static to store last active PathData name
+      statFlagSetAfterCmd { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1.."LKINCTRL_NO_OF_CMD_VALUEFLAGS"] of Int;   // Static array storing flags to be set after command
+      statWaitFlagSetAfterCmd { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1.."LKINCTRL_NO_OF_CMD_VALUEFLAGS"] of Int;   // Static array storing wait flags to be set after command
+      statFlagResetAfterOneCmd { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1.."LKINCTRL_NO_OF_CMD_VALUEFLAGS"] of Int;   // Static array storing flags to be reset after one command
+      statFlagResetFM3 { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1.."LKINCTRL_NO_OF_CMD_VALUEFLAGS"] of Int;   // Static array storing flags to be reset after one cycle
+      statFlagSetFM10 { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1.."LKINCTRL_NO_OF_CMD_VALUEFLAGS"] of Int;   // Static array storing flags to be set at remaining distance
+      statFlagResetFM10 { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1.."LKINCTRL_NO_OF_CMD_VALUEFLAGS"] of Int;   // Static array storing flags to be reset at remaining distance
+      statRemDistanceFM10 { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1.."LKINCTRL_NO_OF_CMD_VALUEFLAGS"] of LReal;   // Static array storing remaining distance for flags
+      statFlagSetFM13 { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1.."LKINCTRL_NO_OF_CMD_VALUEFLAGS"] of Int;   // Static array storing flags to be set after command for one cycle
+      statFlagResetFM13 { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1.."LKINCTRL_NO_OF_CMD_VALUEFLAGS"] of Int;   // Static array storing flags to be set after command and reset after one cycle
+      statValueStorage { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1.."LKINCTRL_NO_OF_CMD_VALUEFLAGS"] of LReal;   // Static to store the flag value for flags to be set after a command
+      statWaitFlagValueOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1.."LKINCTRL_NO_OF_CMD_VALUEFLAGS"] of LReal;   // Static array storing last wait flag values for reset detection
+      statWaitFlagActiveCmdId { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1.."LKINCTRL_NO_OF_CMD_VALUEFLAGS"] of DInt;   // Static array storing active command number for watiFlag
+      statWaitFlagActivePathData { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1.."LKINCTRL_NO_OF_CMD_VALUEFLAGS"] of DInt;   // Static array storing active PathData number for watiFlag
+      statFlagResetSkipped { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1..#MAX_NUMBER_OF_SKIPPED_CMDS, 1.."LKINCTRL_NO_OF_CMD_VALUEFLAGS"] of Int;   // Static array storing flags to be reset after one cycle
+      statACKMode { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Array[1.."LKINCTRL_NO_OF_CMD_VALUEFLAGS"] of USInt;   // Static array storing acknowledge mode information
+      statLowerBoundFlags { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;
+      statUpperBoundFlags { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DInt;
+   END_VAR
+
+   VAR_TEMP 
+      tempEnable : Bool;   // Temporary value for input 'enable'
+      tempFlagCmdCounter : Int;   // Temporary flag cmd counter for setFlag UDT
+      tempFlagsBufferElementCtr : Int;   // Temporary flag buffer counter
+      tempFlagCounter : Int;   // Temporary flag counter for flag array
+      tempFlagWasSet : Bool;   // Temporary bool to signalize flag was set after end of PRG
+      tempSkippedCounterInc : Bool;   // Temporary bool to signalize skipped counter was increased
+   END_VAR
+
+   VAR CONSTANT 
+      FB_STATE_NO_PROCESSING : DInt := 0;   // FB state: No processing
+      FB_STATE_CHECK_ACTIVE_CMD : DInt := 50;   // FB state: Check change of active command
+      FB_STATE_SET_RESET_AFTER_COMMAND : DInt := 51;   // FB state: Handle flag actions after commands
+      FB_STATE_EVALUATE_FLAGBUFFER : DInt := 52;   // FB state: Handle flagBuffer and flag actions before command
+      FB_STATE_RESET_AFTER_ONE_CYCLE : DInt := 53;   // FB state: Handle flag reset after one cycle
+      FB_STATE_CHECK_REMAINING_DISTANCE : DInt := 54;   // FB state: Check flag with remaining distance
+      FB_STATE_WAIT_FLAG_HANDLING : DInt := 55;   // FB state: Check wait flags
+      FB_STATE_DISABLING : DInt := 90;   // FB state: Disabling
+      STATUS_NO_CALL : Word := 16#7000;   // No job being currently processed
+      STATUS_FIRST_CALL : Word := 16#7001;   // First call after incoming new job (rising edge 'execute')
+      STATUS_SUBSEQUENT_CALL : Word := 16#7002;   // Subsequent call during active processing without further details
+      ERR_UNDEFINED_STATE : Word := 16#8600;   // Error due to an undefined state in state machine
+      ERR_OVERFLOW_SKIPPED_CMDS : Word := 16#8601;   // Error due to overflow of skipped commands counter
+      STATUS_EXECUTION_WAITING : Word := 16#7307;   // Status path execution waiting due to wait flag, wait time or single step mode
+      DEFAULT_LREAL_FLAG : LReal := -1.0;   // Default value of LReal flag
+      MAX_NUMBER_OF_SKIPPED_CMDS : Int := 3;   // Maximum number of activeCmdNo to be skipped
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2020 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN/DP
+	// Engineering: TIA Portal V15
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 2.5
+	// Functionality: LKinCtrl_SetFlagCtrl
+	// The FC evaluates the flag informaton given by the PathData structure and controls the flag
+	// variables depending on the active command information given
+	//
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   19.08.2019    JR                  First release version v1.0
+	// 01.00.01   18.09.2019    JR                  Updates for LREAL flags
+	// 01.00.02   19.09.2019    JR                  Implementation wait value flags - flagMode 5
+	// 01.00.03   19.09.2019    JR                  Implementation value flags - flagMode 11 - 15
+	// 01.00.04   27.11.2019    JR                  Additional condition for deactivating flags
+	// 01.01.00   28.11.2019    JR                  Separate block for setFlags from LKinCtrl_FlagCtrl
+	// 01.01.01   27.01.2020    FR                  Changed FM 10 from > to >=
+	// 01.01.02   30.01.2020    FR                  Changed flag array constant
+	// 02.00.00   12.03.2020    FR                  Reworked complete FB to fit enable template with state machine
+	// 02.00.01   17.03.2020    FR                  Check remDistance <= 0.0 instead of =
+	// 02.00.02   03.08.2020    FR                  Change interface actualCmdIsCircularCmd to KinematicsStatusWord (DWord)
+	// 02.00.03   19.10.2020    FR                  Handle multiple commands per cycle; Changed case to use constants instead of numbers
+	// 02.00.04   15.12.2020    FR                  Added option for SPTP commands to have calculated remainingDistance
+	// 02.00.05   01.06.2021    FR                  Fix for FM5 / FM15, Fix for statActiveCmdNoOld not being reset correctly
+	// 02.00.06   29.10.2021    FR                  Added option to disable flag reset, added new FM25 & FM26
+	//===========================================================================================
+	
+	#tempEnable := #enable; // Work with temporary value / create process image
+	
+	REGION ENABLING/DISABLING
+	    IF (#tempEnable = TRUE) AND (#statStatus = #STATUS_NO_CALL) THEN // Enable FB
+	        // First call; initialize FB
+	        #statValid := TRUE;
+	        #statBusy := TRUE;
+	        #statError := FALSE;
+	        #statErrorUserCleared := FALSE;
+	        #statErrorAutoCleared := FALSE;
+	        #statStatus := #STATUS_FIRST_CALL;
+	        
+	        #statLowerBoundFlags := LOWER_BOUND(ARR := #valueFlags, DIM := 1);
+	        #statUpperBoundFlags := UPPER_BOUND(ARR := #valueFlags, DIM := 1);
+	        
+	        #statFBState := #FB_STATE_CHECK_ACTIVE_CMD; // State machine - start functionality
+	        //------------------------------------------------------------------------------------------
+	        // Initialize functionality: reset of variables, diagnostics, etc.
+	        #statDisablingCompleted := FALSE;
+	        
+	        IF "LKINCTRL_DISABLE_FLAG_RESET" THEN
+	            ;// no reset
+	        ELSE
+	            // Initialize all valueFlags (flag array) when enabling
+	            //------------------------------------------------------------------------------------------
+	          FOR #tempFlagCounter := #statLowerBoundFlags TO #statUpperBoundFlags DO
+	                #valueFlags[#tempFlagCounter] := #DEFAULT_LREAL_FLAG;
+	            END_FOR;
+	        END_IF;
+	        
+	        // Initialize flag handling variables
+	        //------------------------------------------------------------------------------------------
+	        // reset wait output
+	        #statWaitMain := FALSE;
+	        #statSkippedCmdCounter := 0;
+	        #statActiveCmdNoOld := 0;
+	        #statActivePathDataNameOld := '';
+	        #statActivePathDataIdentifierOld := 0;
+	        #statMovePathStatusOld := 16#0;
+	        
+	        FOR #tempFlagCmdCounter := 1 TO "LKINCTRL_NO_OF_CMD_VALUEFLAGS" DO
+	            // reset auxiliary flag storage variables
+	            #statFlagResetAfterOneCmd[#tempFlagCmdCounter] := -1;
+	            #statFlagSetAfterCmd[#tempFlagCmdCounter] := -1;
+	            #statWaitFlagSetAfterCmd[#tempFlagCmdCounter] := -1;
+	            #statFlagResetFM3[#tempFlagCmdCounter] := -1;
+	            #statFlagResetFM10[#tempFlagCmdCounter] := -1;
+	            #statFlagResetFM13[#tempFlagCmdCounter] := -1;
+	            #statFlagSetFM13[#tempFlagCmdCounter] := -1;
+	            #statFlagSetFM10[#tempFlagCmdCounter] := -1;
+	            #statRemDistanceFM10[#tempFlagCmdCounter] := 0.0;
+	            #statValueStorage[#tempFlagCmdCounter] := #DEFAULT_LREAL_FLAG;
+	            #statWaitFlagValueOld[#tempFlagCmdCounter] := #DEFAULT_LREAL_FLAG;
+	            #statWaitFlagActiveCmdId[#tempFlagCmdCounter] := 0;
+	            #statWaitFlagActivePathData[#tempFlagCmdCounter] := 0;
+	            
+	            #statACKMode[#tempFlagCmdCounter] := 0;
+	            
+	            // Reset storage for skipped commands
+	            FOR #tempFlagCounter := 1 TO #MAX_NUMBER_OF_SKIPPED_CMDS DO
+	                #statFlagResetSkipped[#tempFlagCounter, #tempFlagCmdCounter] := -1;
+	            END_FOR;
+	        END_FOR;
+	        //------------------------------------------------------------------------------------------
+	        
+	    ELSIF (#tempEnable = FALSE) AND (#statEnableOld = TRUE) THEN // Disable FB 
+	        #statFBState := #FB_STATE_DISABLING;
+	        
+	    ELSIF (#statStatus = #STATUS_FIRST_CALL) THEN // Set status identifier of subsequent call
+	        #statStatus := #STATUS_SUBSEQUENT_CALL;
+	    END_IF;
+	    
+	    // Edge detection 'enable' input
+	    #statEnableOld := #tempEnable;
+	END_REGION ENABLING/DISABLING
+	
+	IF (#statStatus = #STATUS_NO_CALL) THEN // Nothing to do -> End here to reduce "system load"
+	    RETURN;
+	END_IF;
+	
+	REGION STATE_MACHINE
+	    // Use if sate machine for more states in one cycle
+	    
+	    // No processing active (Note: this state must always be present and left empty)
+	    IF #statFBState = #FB_STATE_NO_PROCESSING THEN
+	        ;
+	    END_IF;
+	    
+	    // Reset after one cycle 
+	    REGION STATE_RESET_AFTER_ONE_CYCLE
+	        IF #statFBState = #FB_STATE_RESET_AFTER_ONE_CYCLE THEN
+	            // for loop checking all available flags
+	            FOR #tempFlagCmdCounter := 1 TO "LKINCTRL_NO_OF_CMD_VALUEFLAGS" DO
+	                // reset flags active for one cycle only (flagMode: 3)
+	                IF #statFlagResetFM3[#tempFlagCmdCounter] <> -1 THEN
+	                    // reset flags when active command is ended / next command starts
+	                    #valueFlags[#statFlagResetFM3[#tempFlagCmdCounter]] := #DEFAULT_LREAL_FLAG;
+	                    // reset stored flag to be reset (to not reset it after each single future command)
+	                    #statFlagResetFM3[#tempFlagCmdCounter] := -1;
+	                END_IF;
+	                
+	                // reset flags active for one cycle only (flagMode: 13)
+	                IF #statFlagResetFM13[#tempFlagCmdCounter] <> -1 THEN
+	                    // reset flags when active command is ended / next command starts
+	                    #valueFlags[#statFlagResetFM13[#tempFlagCmdCounter]] := #DEFAULT_LREAL_FLAG;
+	                    // reset stored flag to be reset (to not reset it after each single future command)
+	                    #statFlagResetFM13[#tempFlagCmdCounter] := -1;
+	                END_IF;
+	                
+	                // Check if commands were skipped and reset flags
+	                FOR #tempFlagCounter := 1 TO #statSkippedCmdCounter DO // If no cmd was skipped the upper limit should be 0 --> No execution of the loop
+	                    // If activeCmdNo was skipped reset flags active for one cycle only (flagMode: 2/3/13)
+	                    IF #statFlagResetSkipped[#tempFlagCounter, #tempFlagCmdCounter] <> -1 THEN
+	                        // reset flags when active command is ended / next command starts
+	                        #valueFlags[#statFlagResetSkipped[#tempFlagCounter, #tempFlagCmdCounter]] := #DEFAULT_LREAL_FLAG;
+	                        // reset stored flag to be reset (to not reset it after each single future command)
+	                        #statFlagResetSkipped[#tempFlagCounter, #tempFlagCmdCounter] := -1;
+	                    END_IF;
+	                END_FOR;
+	            END_FOR;
+	            
+	            // go to next state
+	            #statFBState := #FB_STATE_CHECK_ACTIVE_CMD;
+	        END_IF;
+	    END_REGION STATE_RESET_AFTER_ONE_CYCLE
+	    
+	    
+	    // Cyclic state
+	    // This state shall be the idle state where conditions are checked 
+	    // --> Change in active command number
+	    // --> End of cmd
+	    // --> End of prg
+	    // --> ...
+	    REGION STATE_CHECK_ACTIVE_CMD
+	        IF #statFBState = #FB_STATE_CHECK_ACTIVE_CMD THEN // Processing active
+	            // Check if activeCmdNo has changed or MovePath is waiting and remainingDistance = 0
+	            // --> Go to state: #FB_STATE_SET_RESET_AFTER_COMMAND
+	            // Else
+	            // --> Go to state: #FB_STATE_CHECK_REMAINING_DISTANCE
+	            //
+	            // Check if active cmd no has changed // changed JR 2019/04/11 < to <>
+	            IF (#statActiveCmdNoOld <> #activeCmdNo OR #statActivePathDataIdentifierOld <> #activePathDataIdentifier)
+	                OR (#movePathStatus = #STATUS_EXECUTION_WAITING AND #remainingDistanceActCmd <= 0.0) // check for command to be finished
+	                OR (#movePathStatus <> 16#730A AND #statMovePathStatusOld = 16#730A) // end of configuration command
+	            THEN
+	                #statFBState := #FB_STATE_SET_RESET_AFTER_COMMAND;
+	            ELSE
+	                #statFBState := #FB_STATE_CHECK_REMAINING_DISTANCE;
+	            END_IF;
+	            
+	        END_IF;
+	    END_REGION STATE_CHECK_ACTIVE_CMD
+	    
+	    
+	    // Set / Reset flags after command has finished (FM2 / FM11 / FM13 / FM15)
+	    REGION STATE_SET_RESET_AFTER_COMMAND
+	        IF #statFBState = #FB_STATE_SET_RESET_AFTER_COMMAND THEN
+	            // for loop checking all available flags
+	            FOR #tempFlagCmdCounter := 1 TO "LKINCTRL_NO_OF_CMD_VALUEFLAGS" DO
+	                // reset flags active for one command only (flagMode: 2 (LKINCTRL_FM_SET_BEFORE_AND_RESET_AFTER))
+	                IF #statFlagResetAfterOneCmd[#tempFlagCmdCounter] <> -1 THEN
+	                    // reset flags when active command is ended / next command starts
+	                    #valueFlags[#statFlagResetAfterOneCmd[#tempFlagCmdCounter]] := #DEFAULT_LREAL_FLAG;
+	                    // reset stored flag to be reset (to not reset it after each single future command)
+	                    #statFlagResetAfterOneCmd[#tempFlagCmdCounter] := -1;
+	                END_IF;
+	                
+	                // set flags to be activated at end of command
+	                // flagMode: 11 (LKINCTRL_FM_SET_AFTER_AND_NO_RESET)
+	                IF #statFlagSetAfterCmd[#tempFlagCmdCounter] <> -1 THEN
+	                    // set flags when active command is ended / next command starts
+	                    #valueFlags[#statFlagSetAfterCmd[#tempFlagCmdCounter]] := #statValueStorage[#tempFlagCmdCounter];
+	                    // reset stored flag to be set (to not set it after each single future command)
+	                    #statFlagSetAfterCmd[#tempFlagCmdCounter] := -1;
+	                END_IF;
+	                
+	                // flagMode: 15 (LKINCTRL_FM_SET_AFTER_AND_NO_RESET_AND_WAIT_FOR_ACKNOWLEDGE)
+	                IF #statWaitFlagSetAfterCmd[#tempFlagCmdCounter] <> -1 THEN
+	                    // set flags when active command is ended / next command starts
+	                    #valueFlags[#statWaitFlagSetAfterCmd[#tempFlagCmdCounter]] := #statValueStorage[#tempFlagCmdCounter];
+	                    #statWaitFlagValueOld[#tempFlagCmdCounter] := #statValueStorage[#tempFlagCmdCounter];
+	                    // reset stored flag to be set (to not set it after each single future command)
+	                    #statWaitFlagSetAfterCmd[#tempFlagCmdCounter] := -1;
+	                END_IF;
+	                
+	                // set flags to be activated at end of command
+	                // flagMode: 13 (LKINCTRL_FM_SET_AFTER_AND_RESET_AFTER_ONE_CYCLE)
+	                IF #statFlagSetFM13[#tempFlagCmdCounter] <> -1 THEN
+	                    // set flags when active command is ended / next command starts
+	                    #valueFlags[#statFlagSetFM13[#tempFlagCmdCounter]] := #statValueStorage[#tempFlagCmdCounter];
+	                    
+	                    // Save flag numbers to be reset after one cycle
+	                    #statFlagResetFM13[#tempFlagCmdCounter] := #statFlagSetFM13[#tempFlagCmdCounter];
+	                    
+	                    // reset stored flag to be set (to not set it after each single future command)
+	                    #statFlagSetFM13[#tempFlagCmdCounter] := -1;
+	                END_IF;
+	                
+	                // Check if FM10 was not executed and set if next command is reached
+	                IF (#statFlagSetFM10[#tempFlagCmdCounter] <> -1) THEN
+	                    // Set flag if remaining distance is reached
+	                    #valueFlags[#statFlagSetFM10[#tempFlagCmdCounter]] := #statValueStorage[#tempFlagCmdCounter];
+	                    // reset stored flag to be reset (to not reset it after each single future command)
+	                    #statFlagSetFM10[#tempFlagCmdCounter] := -1;
+	                    #statRemDistanceFM10[#tempFlagCmdCounter] := 0.0;
+	                END_IF;
+	                
+	            END_FOR;
+	            
+	            // go to next state ; skip new flag if waiting
+	            IF #movePathStatus = #STATUS_EXECUTION_WAITING
+	                AND NOT (#statActiveCmdNoOld <> #activeCmdNo OR #statActivePathDataIdentifierOld <> #activePathDataIdentifier)
+	            THEN
+	                #statFBState := #FB_STATE_CHECK_REMAINING_DISTANCE;
+	            ELSE
+	                #statFBState := #FB_STATE_EVALUATE_FLAGBUFFER;
+	            END_IF;
+	        END_IF;
+	    END_REGION STATE_SET_RESET_AFTER_COMMAND
+	    
+	    // Set flags before command and save variables to set after command (STATE_SET_RESET_AFTER)
+	    // This state shall be used to copy flag buffer into variables 
+	    // This state is reached after the state to set/reset flags after a command 
+	    // --> Set flags before command instantly 
+	    // --> Set flags after command in next call because of the state machine order
+	    REGION STATE_EVALUATE_FLAGBUFFER
+	        IF #statFBState = #FB_STATE_EVALUATE_FLAGBUFFER THEN
+	            // Reset counter
+	            #statSkippedCmdCounter := 0;
+	            
+	            // Reset activeCmdNoOld when PathData changes
+	            IF #activeCmdNo = 1 THEN
+	                #statActiveCmdNoOld := 0;
+	            END_IF;
+	            
+	            // only run flag controls when a set is active
+	            IF #activeCmdNo > 0 THEN
+	                // selection of active flags and evaluation of flagMode
+	                FOR #tempFlagsBufferElementCtr := 1 TO "LKINCTRL_NO_OF_SETFLAGS_BUFFER_ELEMENTS" DO
+	                    IF #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].pathDataIdentifier = #activePathDataIdentifier // choose correct valueFlags stored according to corresponding PathData
+	                        AND #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].cmdId <= #activeCmdNo // choose only flags to be controlled when corresponding command is active
+	                        AND #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].cmdId > #statActiveCmdNoOld // Also check flags on previous commands
+	                    THEN
+	                        // Reset temp to allow skippedCmdCounter to be increased
+	                        #tempSkippedCounterInc := FALSE;
+	                        
+	                        // set flags according to PathData configuration stored in #statStoreSetFlagsBuffer
+	                        FOR #tempFlagCmdCounter := 1 TO "LKINCTRL_NO_OF_CMD_VALUEFLAGS" DO
+	                            
+	                            // check for flag not to be deactivated
+	                            IF #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag > -1 THEN
+	                                
+	                                CASE #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flagMode OF
+	                                        
+	                                        //------------------------------------------------------------------------------------------
+	                                    "LKINCTRL_FM_SET_BEFORE_AND_NO_RESET": // FM 1
+	                                        // (activate flag at beginning of command)
+	                                        // set selected flag to TRUE at beginning of command
+	                                        #valueFlags[#flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag]
+	                                        := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].value;
+	                                        //------------------------------------------------------------------------------------------
+	                                        
+	                                        //------------------------------------------------------------------------------------------
+	                                    "LKINCTRL_FM_SET_BEFORE_AND_RESET_AFTER": // FM 2
+	                                        // (activate flag at beginning of command)
+	                                        // set selected flag to TRUE at beginning of command
+	                                        #valueFlags[#flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag]
+	                                        := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].value;
+	                                        
+	                                        IF #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].cmdId = #activeCmdNo THEN
+	                                            // store flags to be set for one command only to reset at the end of command
+	                                            #statFlagResetAfterOneCmd[#tempFlagCmdCounter] := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag;
+	                                        ELSE
+	                                            // Check if skippedCmdCounter must be increased
+	                                            IF NOT #tempSkippedCounterInc THEN
+	                                                #statSkippedCmdCounter += 1;
+	                                                #tempSkippedCounterInc := TRUE; // Store bit to avoid counting several times per command
+	                                                IF #statSkippedCmdCounter > #MAX_NUMBER_OF_SKIPPED_CMDS THEN
+	                                                    // Throw error
+	                                                    #statStatus := #ERR_OVERFLOW_SKIPPED_CMDS;
+	                                                    #statErrorUserCleared := TRUE;
+	                                                    EXIT;
+	                                                END_IF;
+	                                            END_IF;
+	                                            // ActiveCmdNo was skipped --> Store flag number to be reset after one cycle
+	                                            #statFlagResetSkipped[#statSkippedCmdCounter, #tempFlagCmdCounter] := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag;
+	                                        END_IF;
+	                                        //------------------------------------------------------------------------------------------
+	                                        
+	                                        //------------------------------------------------------------------------------------------
+	                                    "LKINCTRL_FM_SET_BEFORE_AND_RESET_AFTER_ONE_CYCLE": // FM 3
+	                                        // (activate flag at beginning of command for one cycle only)
+	                                        // set selected flag to TRUE at beginning of command
+	                                        #valueFlags[#flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag]
+	                                        := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].value;
+	                                        
+	                                        IF #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].cmdId = #activeCmdNo THEN
+	                                            #statFlagResetFM3[#tempFlagCmdCounter] := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag;
+	                                        ELSE
+	                                            // Check if skippedCmdCounter must be increased
+	                                            IF NOT #tempSkippedCounterInc THEN
+	                                                #statSkippedCmdCounter += 1;
+	                                                #tempSkippedCounterInc := TRUE; // Store bit to avoid counting several times per command
+	                                                IF #statSkippedCmdCounter > #MAX_NUMBER_OF_SKIPPED_CMDS THEN
+	                                                    // Throw error
+	                                                    #statStatus := #ERR_OVERFLOW_SKIPPED_CMDS;
+	                                                    #statErrorUserCleared := TRUE;
+	                                                    EXIT;
+	                                                END_IF;
+	                                            END_IF;
+	                                            // ActiveCmdNo was skipped --> Store flag number to be reset after one cycle
+	                                            #statFlagResetSkipped[#statSkippedCmdCounter, #tempFlagCmdCounter] := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag;
+	                                        END_IF;
+	                                        //------------------------------------------------------------------------------------------
+	                                        
+	                                        //------------------------------------------------------------------------------------------ 
+	                                    "LKINCTRL_FM_SET_BEFORE_AND_NO_RESET_AND_WAIT_FOR_ACKNOWLEDGE": // FM 5
+	                                        // (activate flag at beginning of command and continue path motion only after acknowledge (reset) of set flag)
+	                                        #valueFlags[#flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag]
+	                                        := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].value;
+	                                        
+	                                        // Save old value
+	                                        #statWaitFlagValueOld[#tempFlagCmdCounter] := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].value;
+	                                        
+	                                        // Store active command information for edge detection
+	                                        // --> Avoid edge detection in wrong command
+	                                        #statWaitFlagActiveCmdId[#tempFlagCmdCounter] := #activeCmdNo;
+	                                        #statWaitFlagActivePathData[#tempFlagCmdCounter] := #activePathDataIdentifier;
+	                                        //------------------------------------------------------------------------------------------ 
+	                                        
+	                                        //------------------------------------------------------------------------------------------ 
+	                                    "LKINCTRL_FM_SET_AT_REMAINING_DISTANCE": // FM 10
+	                                        // FM 10 is checked cyclic
+	                                        IF #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].cmdId = #activeCmdNo THEN
+	                                            #statFlagSetFM10[#tempFlagCmdCounter] := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag;
+	                                            #statRemDistanceFM10[#tempFlagCmdCounter] := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].remainingDistance;
+	                                            #statValueStorage[#tempFlagCmdCounter] := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].value;
+	                                        ELSE
+	                                            // ActiveCmdNo was skipped --> Set flag instantly
+	                                            #valueFlags[#flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag]
+	                                            := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].value;
+	                                        END_IF;
+	                                        //------------------------------------------------------------------------------------------
+	                                        
+	                                        //------------------------------------------------------------------------------------------ 
+	                                    "LKINCTRL_FM_SET_AFTER_AND_NO_RESET": // FM 11
+	                                        // activate flag at end of command
+	                                        IF #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].cmdId = #activeCmdNo THEN
+	                                            // store flags to be set at the end of command and not being reset
+	                                            #statFlagSetAfterCmd[#tempFlagCmdCounter] := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag;
+	                                            #statValueStorage[#tempFlagCmdCounter] := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].value;
+	                                        ELSE
+	                                            // ActiveCmdNo was skipped --> Set flag instantly
+	                                            #valueFlags[#flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag]
+	                                            := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].value;
+	                                        END_IF;
+	                                        //------------------------------------------------------------------------------------------
+	                                        
+	                                        //------------------------------------------------------------------------------------------
+	                                    "LKINCTRL_FM_SET_AFTER_AND_RESET_AFTER_ONE_CYCLE": // FM 13
+	                                        // activate flag at end of command
+	                                        IF #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].cmdId = #activeCmdNo THEN
+	                                            // store flags to be set at the end of command and to be reset after one cycle
+	                                            #statFlagSetFM13[#tempFlagCmdCounter] := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag;
+	                                            #statValueStorage[#tempFlagCmdCounter] := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].value;
+	                                        ELSE
+	                                            // ActiveCmdNo was skipped --> Set flag instantly and reset after one cycle
+	                                            #valueFlags[#flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag]
+	                                            := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].value;
+	                                            // Check if skippedCmdCounter must be increased
+	                                            IF NOT #tempSkippedCounterInc THEN
+	                                                #statSkippedCmdCounter += 1;
+	                                                #tempSkippedCounterInc := TRUE; // Store bit to avoid counting several times per command
+	                                                IF #statSkippedCmdCounter > #MAX_NUMBER_OF_SKIPPED_CMDS THEN
+	                                                    // Throw error
+	                                                    #statStatus := #ERR_OVERFLOW_SKIPPED_CMDS;
+	                                                    #statErrorUserCleared := TRUE;
+	                                                    EXIT;
+	                                                END_IF;
+	                                            END_IF;
+	                                            // ActiveCmdNo was skipped --> Store flag number to be reset after one cycle
+	                                            #statFlagResetSkipped[#statSkippedCmdCounter, #tempFlagCmdCounter] := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag;
+	                                        END_IF;
+	                                        //------------------------------------------------------------------------------------------
+	                                        
+	                                        //------------------------------------------------------------------------------------------
+	                                    "LKINCTRL_FM_SET_AFTER_AND_NO_RESET_AND_WAIT_FOR_ACKNOWLEDGE": // FM 15
+	                                        // activate flag at end of command and continue path motion only after acknowledge (reset) of set flag
+	                                        // store flags to be set at the end of command and not being reset
+	                                        #statWaitFlagSetAfterCmd[#tempFlagCmdCounter] := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag;
+	                                        #statValueStorage[#tempFlagCmdCounter] := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].value;
+	                                        // Store active command information for edge detection
+	                                        // --> Avoid edge detection in wrong command
+	                                        #statWaitFlagActiveCmdId[#tempFlagCmdCounter] := #activeCmdNo;
+	                                        #statWaitFlagActivePathData[#tempFlagCmdCounter] := #activePathDataIdentifier;
+	                                        //------------------------------------------------------------------------------------------
+	                                        
+	                                        //------------------------------------------------------------------------------------------
+	                                    "LKINCTRL_FM_RESET_BEFORE": // FM 20
+	                                        // reset selected flag at beginning of command
+	                                        #valueFlags[#flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag] := #DEFAULT_LREAL_FLAG;
+	                                        //------------------------------------------------------------------------------------------
+	                                        
+	                                        //------------------------------------------------------------------------------------------
+	                                    "LKINCTRL_FM_RESET_AFTER": // FM 21
+	                                        IF #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].cmdId = #activeCmdNo THEN
+	                                            // store flags to be set for one command only to reset at the end of command
+	                                            #statFlagResetAfterOneCmd[#tempFlagCmdCounter] := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag;
+	                                        ELSE
+	                                            // ActiveCmdNo was skipped --> Reset flag instantly
+	                                            #valueFlags[#flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag] := #DEFAULT_LREAL_FLAG;
+	                                        END_IF;
+	                                        //------------------------------------------------------------------------------------------
+	                                        
+	                                        //------------------------------------------------------------------------------------------ 
+	                                    "LKINCTRL_FM_RESET_AT_REMAINING_DISTANCE": // FM 22
+	                                        // FM 10 is checked cyclic
+	                                        IF #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].cmdId = #activeCmdNo THEN
+	                                            #statFlagResetFM10[#tempFlagCmdCounter] := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag;
+	                                            #statRemDistanceFM10[#tempFlagCmdCounter] := #flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].remainingDistance;
+	                                        ELSE
+	                                            // ActiveCmdNo was skipped --> Reset flag instantly
+	                                            #valueFlags[#flagsBuffer.bufferElement[#tempFlagsBufferElementCtr].valueFlags[#tempFlagCmdCounter].flag] := #DEFAULT_LREAL_FLAG;
+	                                        END_IF;
+	                                        //------------------------------------------------------------------------------------------
+	                                        
+	                                        //------------------------------------------------------------------------------------------
+	                                    "LKINCTRL_FM_NO_SET_AND_WAIT_FOR_FALSE_ONCE": // FM 25
+	                                        // Store active command information for edge detection
+	                                        // --> Avoid edge detection in wrong command
+	                                        #statWaitFlagActiveCmdId[#tempFlagCmdCounter] := #activeCmdNo;
+	                                        #statWaitFlagActivePathData[#tempFlagCmdCounter] := #activePathDataIdentifier;
+	                                        #statACKMode[#tempFlagCmdCounter] := "LKINCTRL_FM_NO_SET_AND_WAIT_FOR_FALSE_ONCE";
+	                                        //------------------------------------------------------------------------------------------
+	                                        
+	                                        //------------------------------------------------------------------------------------------
+	                                    "LKINCTRL_FM_NO_SET_AND_WAIT_FOR_TRUE_ONCE": // FM 26
+	                                        // Store active command information for edge detection
+	                                        // --> Avoid edge detection in wrong command
+	                                        #statWaitFlagActiveCmdId[#tempFlagCmdCounter] := #activeCmdNo;
+	                                        #statWaitFlagActivePathData[#tempFlagCmdCounter] := #activePathDataIdentifier;
+	                                        #statACKMode[#tempFlagCmdCounter] := "LKINCTRL_FM_NO_SET_AND_WAIT_FOR_TRUE_ONCE";
+	                                        //------------------------------------------------------------------------------------------
+	                                        
+	                                    ELSE
+	                                        ;
+	                                END_CASE;
+	                            END_IF;
+	                        END_FOR;
+	                    END_IF;
+	                    
+	                    // In case of error also exit outer loop
+	                    IF #statErrorUserCleared THEN
+	                        EXIT;
+	                    END_IF;
+	                    
+	                END_FOR;
+	            END_IF;
+	            
+	            // go to next state 
+	            #statFBState := #FB_STATE_CHECK_REMAINING_DISTANCE;
+	        END_IF;
+	    END_REGION STATE_EVALUATE_FLAGBUFFER
+	    
+	    // Check remaining distance of actual command for FM10 (LKINCTRL_FM_SET_AT_REMAINING_DISTANCE)
+	    REGION STATE_CHECK_REMAINING_DISTANCE
+	        IF #statFBState = #FB_STATE_CHECK_REMAINING_DISTANCE THEN
+	            FOR #tempFlagCmdCounter := 1 TO "LKINCTRL_NO_OF_CMD_VALUEFLAGS" DO
+	                // Set flags in remaining distance FM10
+	                IF (#statFlagSetFM10[#tempFlagCmdCounter] <> -1) OR (#statFlagResetFM10[#tempFlagCmdCounter] <> -1) THEN
+	                    IF (#kinematicsStatusWord.%X11 = TRUE) AND ("LKINCTRL_SPTP_EXECUTION_STATUS_OUTPUT" = 0) THEN
+	                        // Condition for regular sPTP execution status
+	                        #tempFlagWasSet := (#remainingDistanceActCmd >= #statRemDistanceFM10[#tempFlagCmdCounter]);
+	                    ELSE
+	                        // Condition for regular commands or sPTP with different mode
+	                        #tempFlagWasSet := (#remainingDistanceActCmd <= #statRemDistanceFM10[#tempFlagCmdCounter]);
+	                    END_IF;
+	                    
+	                    IF #tempFlagWasSet THEN
+	                        IF (#statFlagSetFM10[#tempFlagCmdCounter] <> -1) THEN
+	                            // Set flag if remaining distance is reached
+	                            #valueFlags[#statFlagSetFM10[#tempFlagCmdCounter]] := #statValueStorage[#tempFlagCmdCounter];
+	                            // reset stored flag to be reset (to not reset it after each single future command)
+	                            #statFlagSetFM10[#tempFlagCmdCounter] := -1;
+	                        ELSE
+	                            // Set flag if remaining distance is reached
+	                            #valueFlags[#statFlagResetFM10[#tempFlagCmdCounter]] := #DEFAULT_LREAL_FLAG;
+	                            // reset stored flag to be reset (to not reset it after each single future command)
+	                            #statFlagResetFM10[#tempFlagCmdCounter] := -1;
+	                        END_IF;
+	                        #statRemDistanceFM10[#tempFlagCmdCounter] := 0.0;
+	                    END_IF;
+	                    #tempFlagWasSet := FALSE;
+	                END_IF;
+	            END_FOR;
+	            
+	            // Go to next state
+	            #statFBState := #FB_STATE_WAIT_FLAG_HANDLING;
+	        END_IF;
+	    END_REGION STATE_CHECK_REMAINING_DISTANCE
+	    
+	    // Check wait flag counter
+	    REGION STATE_WAIT_FLAG_HANDLING
+	        IF #statFBState = #FB_STATE_WAIT_FLAG_HANDLING THEN
+	            // check for any wait flags to be still active (counter > 0)
+	            IF #waitFlags.waitCtr > 0 THEN
+	                // detect falling edge of wait flag on all valueFlags in command
+	                FOR #tempFlagCmdCounter := 1 TO "LKINCTRL_NO_OF_CMD_VALUEFLAGS" DO
+	                    // only run negative edge detection if wait flags are activated (stored in EX_TRIGGERING_CMD)
+	                    IF #waitFlags.waitFlag[#tempFlagCmdCounter] <> -1
+	                        AND #statWaitFlagActiveCmdId[#tempFlagCmdCounter] = #activeCmdNo
+	                        AND #statWaitFlagActivePathData[#tempFlagCmdCounter] = #activePathDataIdentifier
+	                    THEN
+	                        
+	                        IF #statACKMode[#tempFlagCmdCounter] = 0 THEN
+	                            
+	                            // detect falling edge of flag ==> acknowledged
+	                            IF (#statWaitFlagValueOld[#tempFlagCmdCounter] <> #DEFAULT_LREAL_FLAG)
+	                                AND (#valueFlags[#waitFlags.waitFlag[#tempFlagCmdCounter]] = #DEFAULT_LREAL_FLAG) THEN
+	                                // decrease wait flag counter after acknowledge of one set wait flag
+	                                #waitFlags.waitCtr -= 1;
+	                                
+	                                // Reset wait flag variables
+	                                #statWaitFlagActiveCmdId[#tempFlagCmdCounter] := 0;
+	                                #statWaitFlagActivePathData[#tempFlagCmdCounter] := 0;
+	                            END_IF;
+	                            
+	                        ELSIF #statACKMode[#tempFlagCmdCounter] = "LKINCTRL_FM_NO_SET_AND_WAIT_FOR_TRUE_ONCE" THEN // Flagmode 26
+	                            
+	                            IF #valueFlags[#waitFlags.waitFlag[#tempFlagCmdCounter]] <> #DEFAULT_LREAL_FLAG THEN
+	                                // decrease wait flag counter after acknowledge of one set wait flag
+	                                #waitFlags.waitCtr -= 1;
+	                                
+	                                // Reset wait flag variables
+	                                #statWaitFlagActiveCmdId[#tempFlagCmdCounter] := 0;
+	                                #statWaitFlagActivePathData[#tempFlagCmdCounter] := 0;
+	                                #statACKMode[#tempFlagCmdCounter] := 0;
+	                            END_IF;
+	                            
+	                        ELSIF #statACKMode[#tempFlagCmdCounter] = "LKINCTRL_FM_NO_SET_AND_WAIT_FOR_FALSE_ONCE" THEN // Flagmode 25
+	                            
+	                            IF #valueFlags[#waitFlags.waitFlag[#tempFlagCmdCounter]] = #DEFAULT_LREAL_FLAG THEN
+	                                // decrease wait flag counter after acknowledge of one set wait flag
+	                                #waitFlags.waitCtr -= 1;
+	                                
+	                                // Reset wait flag variables
+	                                #statWaitFlagActiveCmdId[#tempFlagCmdCounter] := 0;
+	                                #statWaitFlagActivePathData[#tempFlagCmdCounter] := 0;
+	                                #statACKMode[#tempFlagCmdCounter] := 0;
+	                            END_IF;
+	                            
+	                        ELSE
+	                            ; // Invalid mode?  
+	                            
+	                        END_IF;
+	                        
+	                        // Save old value
+	                        #statWaitFlagValueOld[#tempFlagCmdCounter] := #valueFlags[#waitFlags.waitFlag[#tempFlagCmdCounter]];
+	                    END_IF;
+	                END_FOR;
+	            END_IF;
+	            
+	            // Check if waitCtr if wait flags are not acknowledged 
+	            // --> Set bit to signalize waiting ==> waiting in EX_TRIGGERING_CMD (MovePath execution state)
+	            // --> Reset bit if all wait flags have been acknowledged ==> end waiting in EX_TRIGGERING_CMD (MovePath execution state)
+	            #statWaitMain := (#waitFlags.waitCtr > 0);
+	            
+	            // Go to next state
+	            #statFBState := #FB_STATE_RESET_AFTER_ONE_CYCLE;
+	        END_IF;
+	    END_REGION STATE_WAIT_FLAG_HANDLING
+	    
+	    REGION STATE_DISABLING
+	        IF #statFBState = #FB_STATE_DISABLING THEN // Disabling active
+	            
+	            IF "LKINCTRL_DISABLE_FLAG_RESET" THEN
+	                ;// no reset
+	            ELSE
+	                // Reset all valueFlags when done
+	              FOR #tempFlagCounter := #statLowerBoundFlags TO #statUpperBoundFlags DO
+	                    #valueFlags[#tempFlagCounter] := #DEFAULT_LREAL_FLAG;
+	                END_FOR;
+	            END_IF;
+	            
+	            IF #movePathStatus = 16#0 THEN // Check movePath execution finished --> Status 16#0000
+	                // Check if flags need to be set after last command
+	                // for loop checking all available flags
+	                FOR #tempFlagCmdCounter := 1 TO "LKINCTRL_NO_OF_CMD_VALUEFLAGS" DO
+	                  // reset flags active for one command only (flagMode: 2 (LKINCTRL_FM_SET_BEFORE_AND_RESET_AFTER))
+	                  IF #statFlagResetAfterOneCmd[#tempFlagCmdCounter] <> -1 THEN
+	                    // reset flags when active command is ended / next command starts
+	                    #valueFlags[#statFlagResetAfterOneCmd[#tempFlagCmdCounter]] := #DEFAULT_LREAL_FLAG;
+	                    // reset stored flag to be reset (to not reset it after each single future command)
+	                    #statFlagResetAfterOneCmd[#tempFlagCmdCounter] := -1;
+	                    // Set temp for condition after loop
+	                    #tempFlagWasSet := TRUE;
+	                  END_IF;
+	                  
+	                  // set flags to be activated at end of command
+	                  // flagMode: 11 (LKINCTRL_FM_SET_AFTER_AND_NO_RESET)
+	                  IF #statFlagSetAfterCmd[#tempFlagCmdCounter] <> -1 THEN
+	                    // set flags when active command is ended / next command starts
+	                    #valueFlags[#statFlagSetAfterCmd[#tempFlagCmdCounter]] := #statValueStorage[#tempFlagCmdCounter];
+	                    // reset stored flag to be set (to not set it after each single future command)
+	                    #statFlagSetAfterCmd[#tempFlagCmdCounter] := -1;
+	                    // Set temp for condition after loop
+	                    #tempFlagWasSet := TRUE;
+	                  END_IF;
+	                  
+	                  // flagMode: 15 (LKINCTRL_FM_SET_AFTER_AND_NO_RESET_AND_WAIT_FOR_ACKNOWLEDGE)
+	                  IF #statWaitFlagSetAfterCmd[#tempFlagCmdCounter] <> -1 THEN
+	                    // set flags when active command is ended / next command starts
+	                    #valueFlags[#statWaitFlagSetAfterCmd[#tempFlagCmdCounter]] := #statValueStorage[#tempFlagCmdCounter];
+	                    #statWaitFlagValueOld[#tempFlagCmdCounter] := #statValueStorage[#tempFlagCmdCounter];
+	                    // reset stored flag to be set (to not set it after each single future command)
+	                    #statWaitFlagSetAfterCmd[#tempFlagCmdCounter] := -1;
+	                    // Set temp for condition after loop
+	                    #tempFlagWasSet := TRUE;
+	                  END_IF;
+	                  
+	                  // reset flags active for one cycle only (flagMode: 13)
+	                  IF #statFlagResetFM13[#tempFlagCmdCounter] <> -1 THEN
+	                    // reset flags when active command is ended / next command starts
+	                    #valueFlags[#statFlagResetFM13[#tempFlagCmdCounter]] := #DEFAULT_LREAL_FLAG;
+	                    // reset stored flag to be reset (to not reset it after each single future command)
+	                    #statFlagResetFM13[#tempFlagCmdCounter] := -1;
+	                  END_IF;
+	                  
+	                  // set flags to be activated at end of command
+	                  // flagMode: 13 (LKINCTRL_FM_SET_AFTER_AND_RESET_AFTER_ONE_CYCLE)
+	                  IF #statFlagSetFM13[#tempFlagCmdCounter] <> -1 THEN
+	                    // set flags when active command is ended / next command starts
+	                    #valueFlags[#statFlagSetFM13[#tempFlagCmdCounter]] := #statValueStorage[#tempFlagCmdCounter];
+	                    
+	                    // Save flag numbers to be reset after one cycle
+	                    #statFlagResetFM13[#tempFlagCmdCounter] := #statFlagSetFM13[#tempFlagCmdCounter];
+	                    
+	                    // reset stored flag to be set (to not set it after each single future command)
+	                    #statFlagSetFM13[#tempFlagCmdCounter] := -1;
+	                    // Set temp for condition after loop
+	                    #tempFlagWasSet := TRUE;
+	                  END_IF;
+	                  
+	                  // Check if FM10 was not executed and set if next command is reached
+	                  IF (#statFlagSetFM10[#tempFlagCmdCounter] <> -1) THEN
+	                    // Set flag if remaining distance is reached
+	                    #valueFlags[#statFlagSetFM10[#tempFlagCmdCounter]] := #statValueStorage[#tempFlagCmdCounter];
+	                    // reset stored flag to be reset (to not reset it after each single future command)
+	                    #statFlagSetFM10[#tempFlagCmdCounter] := -1;
+	                    #statRemDistanceFM10[#tempFlagCmdCounter] := 0.0;
+	                    // Set temp for condition after loop
+	                    #tempFlagWasSet := TRUE;
+	                  END_IF;
+	                END_FOR;
+	            ELSE
+	                // FlagCtrl FB disabled because of Stop / Error
+	                // --> Do not set flags --> Reset all flags
+	                #tempFlagWasSet := FALSE;
+	            END_IF;
+	            
+	            // Check if flags were set in last cycle --> Wait one cycle (same cycle as statDone bit is set)
+	            // --> Flag has same timing as "done" when execute is not set
+	            IF #tempFlagWasSet THEN
+	                // Do nothing --> Wait one cycle then reset all flags
+	                ;
+	            ELSE
+	                // When disabling is complete the bit #statDisablingCompleted must be set
+	                #statDisablingCompleted := TRUE;
+	            END_IF;
+	            
+	        END_IF;
+	    END_REGION STATE_DISABLING
+	END_REGION STATE_MACHINE
+	
+	// Save "old" variables
+	#statActiveCmdNoOld := #activeCmdNo;
+	#statActivePathDataNameOld := #activePathDataName;
+	#statActivePathDataIdentifierOld := #activePathDataIdentifier;
+	#statMovePathStatusOld := #movePathStatus;
+	
+	REGION OUTPUTS
+	    // Write outputs
+	    IF (#statDisablingCompleted = TRUE) THEN
+	        // Reset outputs if disabling completed
+	        #statValid := FALSE;
+	        #statBusy := FALSE;
+	        #statError := FALSE;
+	        #statErrorUserCleared := FALSE;
+	        #statErrorAutoCleared := FALSE;
+	        #statStatus := #STATUS_NO_CALL;
+	        // Reset application specific outputs
+	        #statWaitMain := FALSE;
+	        
+	    ELSIF (#statErrorUserCleared = TRUE) AND (#statError = FALSE) THEN
+	        // Error can only be cleared by user; rising edge at enable input is needed to continue 
+	        #statValid := FALSE;
+	        #statBusy := FALSE;
+	        #statError := TRUE;
+	        #statFBState := #FB_STATE_NO_PROCESSING; // Switch state machine to "no processing"
+	        
+	    ELSIF (#statErrorAutoCleared = TRUE) AND (#statError = FALSE) THEN
+	        // Error can be reset by FB automatically  
+	        #statValid := FALSE;
+	        #statBusy := TRUE;
+	        #statError := TRUE;
+	        // Handling of autocleared error
+	        
+	    ELSIF (#statErrorAutoCleared = FALSE) AND (#statErrorUserCleared = FALSE) AND (#statError = TRUE) THEN
+	        // If autocleared error is acknowledged
+	        #statValid := TRUE;
+	        #statBusy := TRUE;
+	        #statError := FALSE;
+	        #statStatus := #STATUS_SUBSEQUENT_CALL;
+	    END_IF;
+	    
+	    // Write static values to outputs
+	    #valid := #statValid;
+	    #busy := #statBusy;
+	    #error := #statError;
+	    #status := #statStatus;
+	    // Write application specific static values to outputs
+	    #waitMain := #statWaitMain;
+	END_REGION OUTPUTS
+END_FUNCTION_BLOCK
+

@@ -1,0 +1,65 @@
+﻿FUNCTION "LKinCtrl_RotXYZ" : Void
+TITLE = LKinCtrl_RotXYZ
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+   VAR_INPUT 
+      angleA : LReal;
+      angleB : LReal;
+      angleC : LReal;
+   END_VAR
+
+   VAR_IN_OUT 
+      resultMatrix : Array[1..3, 1..3] of LReal;
+   END_VAR
+
+   VAR_TEMP 
+      tempARad : LReal;
+      tempBRad : LReal;
+      tempCRad : LReal;
+      tempDegRad : LReal;
+   END_VAR
+
+   VAR CONSTANT 
+      PI : LReal := 3.14159265358979;
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// (company)
+	// (c)Copyright (year)
+	//-----------------------------------------------------------------------------
+	// Library:       (that the source is dedicated to)
+	// Tested with:   (test system with FW version)
+	// Engineering:   TIA Portal (SW version)
+	// Restrictions:  (OB types, etc.)
+	// Requirements:  (hardware, technological package, memory needed, etc.)
+	// Functionality: Calculate the rotation matrix for a fixed XYZ or current ZY'X'' rotation
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 19.01.2022 JH               First released version
+	//=============================================================================
+	#tempDegRad := #PI / 180.0;
+	#tempARad := #angleA * #tempDegRad;
+	#tempBRad := #angleB * #tempDegRad;
+	#tempCRad := #angleC * #tempDegRad;
+	
+	// first column
+	#resultMatrix[1, 1] := COS_LREAL(IN := #tempARad) * COS_LREAL(IN := #tempBRad);
+	#resultMatrix[2, 1] := SIN_LREAL(IN := #tempARad) * COS_LREAL(IN := #tempBRad);
+	#resultMatrix[3, 1] := - SIN_LREAL(IN := #tempBRad);
+	
+	// second column
+	#resultMatrix[1, 2] := COS_LREAL(IN := #tempARad) * SIN_LREAL(IN := #tempBRad) * SIN_LREAL(IN := #tempCRad) - SIN_LREAL(IN := #tempARad) * COS_LREAL(IN := #tempCRad);
+	#resultMatrix[2, 2] := SIN_LREAL(IN := #tempARad) * SIN_LREAL(IN := #tempBRad) * SIN_LREAL(IN := #tempCRad) + COS_LREAL(IN := #tempARad) * COS_LREAL(IN := #tempCRad);
+	#resultMatrix[3, 2] := COS_LREAL(IN := #tempBRad) * SIN_LREAL(IN := #tempCRad);
+	
+	// third column
+	#resultMatrix[1, 3] := COS_LREAL(IN := #tempARad) * SIN_LREAL(IN := #tempBRad) * COS_LREAL(IN := #tempCRad) + SIN_LREAL(IN := #tempARad) * SIN_LREAL(IN := #tempCRad);
+	#resultMatrix[2, 3] := SIN_LREAL(IN := #tempARad) * SIN_LREAL(IN := #tempBRad) * COS_LREAL(IN := #tempCRad) - COS_LREAL(IN := #tempARad) * SIN_LREAL(IN := #tempCRad);
+	#resultMatrix[3, 3] := COS_LREAL(IN := #tempBRad) * COS_LREAL(IN := #tempCRad);
+END_FUNCTION
+

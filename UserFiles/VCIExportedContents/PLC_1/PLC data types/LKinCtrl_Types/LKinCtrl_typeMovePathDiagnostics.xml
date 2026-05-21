@@ -1,0 +1,81 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="errorID" Datatype="Word">
+      <Comment>
+        <MultiLanguageText Lang="en-US">errorID of the FB</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="pathDataName" Datatype="String[&quot;LKINCTRL_LENGTH_OF_PATHDATA_NAME&quot;]">
+      <Comment>
+        <MultiLanguageText Lang="en-US">name of PathData an error occurred in</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="cmdNumber" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">command number (in PathData) an error occurred in</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="stateMovePath" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">state machine status FB</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="statusSubFunction" Datatype="Word">
+      <Comment>
+        <MultiLanguageText Lang="en-US">status of LKinCtrl_MC_ExecuteKinMotionCmd</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="motionFBNumber" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">motion FB number (internal) an error occurred in</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="motionFBStatus" Datatype="DWord">
+      <Comment>
+        <MultiLanguageText Lang="en-US">status of motion FB (internal) an error occurred in</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="kinematicsStatusWord" Datatype="DWord">
+      <Comment>
+        <MultiLanguageText Lang="en-US">statusWord TO kinematics</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="kinematicsErrorWord" Datatype="DWord">
+      <Comment>
+        <MultiLanguageText Lang="en-US">errorWord TO kinematics</MultiLanguageText>
+      </Comment>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>LKinCtrl_typeMovePathDiagnostics</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

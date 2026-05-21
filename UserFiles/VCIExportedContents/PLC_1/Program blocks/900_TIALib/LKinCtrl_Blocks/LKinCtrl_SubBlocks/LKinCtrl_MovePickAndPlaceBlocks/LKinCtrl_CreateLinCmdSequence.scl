@@ -1,0 +1,642 @@
+﻿FUNCTION "LKinCtrl_CreateLinCmdSequence" : Word
+TITLE = LKinCtrl_CreateLinCmdSequence
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Creation of the parameter for a linear command sequence
+   VAR_INPUT 
+      startParameter : "LKinCtrl_typePnPParameter";   // Depart vector parameter
+      targetParameter : "LKinCtrl_typePnPParameter";   // Approach vector parameter
+      position : Array[1..6] of LReal;   // Target position
+      coordSystem : DInt;   // Target coordinate system, = 0: WCS, = 1: OCS[1], = 2: OCS[2], = 3: OCS[3]
+      directionA : DInt;   // 1 - positive, 2 - negative, 3 - shortest way (Only necessary up to 4D Kinematics)
+      bufferModeBegin : DInt;   // bufferMode for start of path motion
+      transitionParameter : Array[1..5] of LReal;   // transitionParameter for start of path motion
+      dynamics : "LKinCtrl_typePnPDynamics";   // Dynamics specification
+      bufferModeTransition : DInt;   // bufferMode for blending post pick / pre target
+      scaleMode : DInt;   // Scaling mode for start and target dynamics (0: disable, 1: velo, 2: velo and accel, 3: velo, accel and jerk)
+   END_VAR
+
+   VAR_OUTPUT 
+      cmdPar : "LKinCtrl_typePnPLinCmdSeqParameter";   // Command parameters
+      additionalValue : Array[1..5] of Word;   // Stati of subfunctions for diagnostics
+   END_VAR
+
+   VAR_IN_OUT 
+      axesGroup {InstructionName := 'TO_Kinematics'; LibVersion := '9.0'} : TO_Kinematics;   // Reference to axes group
+   END_VAR
+
+   VAR_TEMP 
+      tempUseStartDirection : Bool;
+      tempUseTargetDirection : Bool;
+      tempInt : Int;
+      tempLreal : LReal;
+      tempWord : Word;
+      tempCase : Int;
+      tempIntermStartPoint : Array[1..6] of LReal;
+      tempIntermStartCoordSystem : DInt;
+      tempIntermTargetPoint : Array[1..6] of LReal;
+      tempIntermTargetCoordSystem : DInt;
+      tempOrientationDimension : Int;
+      tempStartPointFrame : "LKinCtrl_typeFrame";
+      tempTargetPointFrame : "LKinCtrl_typeFrame";
+      tempIntermPointFrame : "LKinCtrl_typeFrame";
+      tempStartDirection : "LKinCtrl_typeCOff3DPoint";
+      tempNormStartDirection : "LKinCtrl_typeCOff3DPoint";
+      tempTargetDirection : "LKinCtrl_typeCOff3DPoint";
+      tempNormTargetDirection : "LKinCtrl_typeCOff3DPoint";
+      tempCmdPar : "LKinCtrl_typePnPLinCmdSeqParameter" := (((), [()], (), (), [-1.0], ((), (), ((), (), (), (), (), ()), ((), (), (), (), (), ())), (), ((), (), (), ()), (), ()), ((), [()], (), (), [-1.0], ((), (), ((), (), (), (), (), ()), ((), (), (), (), (), ())), (), ((), (), (), ()), (), ()), ((), [()], (), (), [-1.0], ((), (), ((), (), (), (), (), ()), ((), (), (), (), (), ())), (), ((), (), (), ()), (), ()), ((), [()], (), (), [-1.0], ((), (), ((), (), (), (), (), ()), ((), (), (), (), (), ())), (), ((), (), (), ()), (), ()), ((), [()], (), (), [-1.0], ((), (), ((), (), (), (), (), ()), ((), (), (), (), (), ())), (), ((), (), (), ()), (), ()), ());
+      tempFactorBlendingLength : LReal;
+      tempBlendingFromPreviousCmd : Bool;
+      tempTransition1 : LReal;
+      tempTransition2 : LReal;
+      tempPossibleIntermTransition1 : LReal;
+      tempPossibleIntermTransition2 : LReal;
+      tempIntermTransition : LReal;
+      tempAdditionalValue : Word;
+      tempTimeOffset : LReal;
+      tempEstimatedStartTransitionArea : LReal;
+   END_VAR
+
+   VAR CONSTANT 
+      CASE_NO_VEC : Int := 1;   // Case: no start and target direction specified
+      CASE_ONLY_TARGET_VEC : Int := 2;   // Case: only target direction specified
+      CASE_ONLY_START_VEC : Int := 3;   // Case: only start direction specified
+      CASE_ALL_VEC : Int := 4;   // Case: all directions specified
+      INTERM_POINT_RATIO : LReal := 0.5;   // Intermediate point ratio
+      STATUS_NO_ERR : Word := 16#0000;   // No error
+      ERR_GET_TRACKING_INFO : Word := 16#9000;   // Error - Get tracking info
+      ERR_BLENDING_NOT_ALLOWED : Word := 16#9001;   // Error - Blending is not allowed
+      ERR_GET_ORI_DIMENSION : Word := 16#9002;   // Error - Get orientation dimension
+      ERR_GET_LIN_POINT_DIST : Word := 16#9003;   // Error - Get linear point distance
+      ERR_CALC_INTERM_POINT : Word := 16#9004;   // Error - Calculate intermediate point
+      INTERM_POINT_MIN_BLENDING_FAC : LReal := 0.2;   // Minimum blending factor for intermediate point
+      INTERM_POINT_MAX_BLENDING_FAC : LReal := 0.4;   // Maximum blending factor for intermediate point
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2023
+	//-----------------------------------------------------------------------------
+	// Library:       LKinCtrl
+	// Tested with:   S7-1518TF-4 PN/DP, FW V3.1
+	// Engineering:   TIA Portal V19
+	// Restrictions:  ---
+	// Requirements:  S7-1500T, FW V3.0
+	// Functionality: This block is creating the parameter for a linear command sequence
+	//                (Usage for LKinCtrl_MC_MovePickAndPlace...)
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 21.09.2023 SF               First released version
+	//=============================================================================
+	
+	//Preset additional values
+	FOR #tempInt := 1 TO 5 DO
+	  #additionalValue[#tempInt] := #STATUS_NO_ERR;
+	END_FOR;
+	
+	//Blending from previous command?
+	#tempBlendingFromPreviousCmd := #bufferModeBegin <> "BM_BUFFERED";
+	
+	REGION GET_DIRECTION_INFO
+	  //Save variable to vector data type
+	  #tempStartDirection.x := #startParameter.direction[1];
+	  #tempStartDirection.y := #startParameter.direction[2];
+	  #tempStartDirection.z := #startParameter.direction[3];
+	  //Get info about start vector
+	  #tempUseStartDirection := NOT (#tempStartDirection.x = 0.0 AND #tempStartDirection.y = 0.0 AND #tempStartDirection.z = 0.0) AND #startParameter.workingHeight <> 0;
+	  //Save variable to vector data type
+	  #tempTargetDirection.x := #targetParameter.direction[1];
+	  #tempTargetDirection.y := #targetParameter.direction[2];
+	  #tempTargetDirection.z := #targetParameter.direction[3];
+	  //Get info about target vector    
+	  #tempUseTargetDirection := NOT (#tempTargetDirection.x = 0.0 AND #tempTargetDirection.y = 0.0 AND #tempTargetDirection.z = 0.0) AND #targetParameter.workingHeight <> 0;
+	  
+	  //Check if allowed
+	  IF (#tempUseStartDirection = TRUE) AND (#tempBlendingFromPreviousCmd = TRUE) THEN
+	    //not allowed
+	    #LKinCtrl_CreateLinCmdSequence := #ERR_BLENDING_NOT_ALLOWED;
+	    RETURN;
+	  END_IF;
+	  
+	  //use target point in every case
+	  #tempCmdPar.target.usePoint := TRUE;
+	  
+	  //Get info which points are used
+	  IF (#tempUseStartDirection = FALSE) AND (#tempUseTargetDirection = FALSE) THEN
+	    //No start and target direction specified
+	    #tempCase := #CASE_NO_VEC;
+	    //Set if points are used or not
+	    #tempCmdPar.postStart.usePoint := FALSE;
+	    #tempCmdPar.preTarget.usePoint := FALSE;
+	    
+	  ELSIF (#tempUseStartDirection = FALSE) THEN
+	    //No start direction specified
+	    #tempCase := #CASE_ONLY_TARGET_VEC;
+	    //Set if points are used or not
+	    #tempCmdPar.postStart.usePoint := FALSE;
+	    #tempCmdPar.preTarget.usePoint := TRUE;
+	    
+	  ELSIF (#tempUseTargetDirection = FALSE) THEN
+	    //No target direction specified
+	    #tempCase := #CASE_ONLY_START_VEC;
+	    //Set if points are used or not
+	    #tempCmdPar.postStart.usePoint := TRUE;
+	    #tempCmdPar.preTarget.usePoint := FALSE;
+	    
+	  ELSE
+	    //All directions specified
+	    #tempCase := #CASE_ALL_VEC;
+	    //Set if points are used or not
+	    #tempCmdPar.postStart.usePoint := TRUE;
+	    #tempCmdPar.preTarget.usePoint := TRUE;
+	    
+	  END_IF;
+	END_REGION REGION GET_DIRECTION_INFO
+	
+	REGION GET_START_INFO
+	  //Get all start parameter depending on blending from previous cmd
+	  //--> if blending would be active, kinematics would be still in motion
+	  //--> start position and therefore the post start position cannot be determinded
+	  IF (#tempBlendingFromPreviousCmd = FALSE) THEN
+	    //Start point
+	    //set parameter
+	    #tempCmdPar.start.usePoint := TRUE; //Inidicates that parameter are valid
+	    #tempCmdPar.start.directionA := #directionA;
+	    #tempCmdPar.start.pathDynamics := #dynamics.path;
+	    #tempCmdPar.start.dynamicAdaption := #dynamics.dynamicAdaption;
+	    //get Start CS and tracking info 
+	    #tempCmdPar.start.coordSystem := #axesGroup.StatusPath.CoordSystem;
+	    #tempWord := "LKinCtrl_GetTrackingInfo"(coordSystem := #tempCmdPar.start.coordSystem,
+	                                            axesGroup := #axesGroup,
+	                                            trackingPar => #tempCmdPar.start.tracking);
+	    IF (#tempWord.%X15 = TRUE) THEN
+	      #LKinCtrl_CreateLinCmdSequence := #ERR_GET_TRACKING_INFO;
+	      #additionalValue[1] := #tempWord;
+	      RETURN;
+	    END_IF;
+	    //Start position
+	    IF (#tempCmdPar.start.coordSystem = "CS_WCS") THEN
+	      #tempCmdPar.start.position[1] := #axesGroup.TcpInWcs.x.Position;
+	      #tempCmdPar.start.position[2] := #axesGroup.TcpInWcs.y.Position;
+	      #tempCmdPar.start.position[3] := #axesGroup.TcpInWcs.z.Position;
+	      #tempCmdPar.start.position[4] := #axesGroup.TcpInWcs.a.Position;
+	      #tempCmdPar.start.position[5] := #axesGroup.TcpInWcs.b.Position;
+	      #tempCmdPar.start.position[6] := #axesGroup.TcpInWcs.c.Position;
+	    ELSIF (#tempCmdPar.start.coordSystem >= "CS_OCS1") AND (#tempCmdPar.start.coordSystem <= "CS_OCS3") THEN
+	      #tempCmdPar.start.position[1] := #axesGroup.TcpInOcs[#tempCmdPar.start.coordSystem].x.Position;
+	      #tempCmdPar.start.position[2] := #axesGroup.TcpInOcs[#tempCmdPar.start.coordSystem].y.Position;
+	      #tempCmdPar.start.position[3] := #axesGroup.TcpInOcs[#tempCmdPar.start.coordSystem].z.Position;
+	      #tempCmdPar.start.position[4] := #axesGroup.TcpInOcs[#tempCmdPar.start.coordSystem].a.Position;
+	      #tempCmdPar.start.position[5] := #axesGroup.TcpInOcs[#tempCmdPar.start.coordSystem].b.Position;
+	      #tempCmdPar.start.position[6] := #axesGroup.TcpInOcs[#tempCmdPar.start.coordSystem].c.Position;
+	    END_IF;
+	    
+	    //PostStart point
+	    IF (#tempCmdPar.postStart.usePoint = TRUE) THEN
+	      //set parameter
+	      #tempCmdPar.postStart.coordSystem := #tempCmdPar.start.coordSystem;
+	      #tempCmdPar.postStart.directionA := #directionA;
+	      #tempCmdPar.postStart.pathDynamics := "LKinCtrl_ScaleDynamics"(dynamicsIn := #dynamics.path,
+	                                                                     scaleFactor := #startParameter.dynamicsFactor,
+	                                                                     mode := #scaleMode);
+	      #tempCmdPar.postStart.dynamicAdaption := #dynamics.dynamicAdaption;
+	      #tempWord := "LKinCtrl_GetTrackingInfo"(coordSystem := #tempCmdPar.postStart.coordSystem,
+	                                              axesGroup := #axesGroup,
+	                                              trackingPar => #tempCmdPar.postStart.tracking);
+	      IF (#tempWord.%X15 = TRUE) THEN
+	        #LKinCtrl_CreateLinCmdSequence := #ERR_GET_TRACKING_INFO;
+	        #additionalValue[1] := #tempWord;
+	        RETURN;
+	      END_IF;
+	      //Norm start vector
+	      IF (#tempUseStartDirection = TRUE) THEN
+	        #tempNormStartDirection := "LKinCtrl_VecUnit"(#tempStartDirection);
+	      ELSE
+	        #tempNormStartDirection.x := 0.0;
+	        #tempNormStartDirection.y := 0.0;
+	        #tempNormStartDirection.z := 0.0;
+	      END_IF;
+	      //Calc point position
+	      #tempCmdPar.postStart.position[1] := #tempCmdPar.start.position[1] + #tempNormStartDirection.x * (#startParameter.workingHeight); // + #start.transitionArea
+	      #tempCmdPar.postStart.position[2] := #tempCmdPar.start.position[2] + #tempNormStartDirection.y * (#startParameter.workingHeight);
+	      #tempCmdPar.postStart.position[3] := #tempCmdPar.start.position[3] + #tempNormStartDirection.z * (#startParameter.workingHeight);
+	      #tempCmdPar.postStart.position[4] := #tempCmdPar.start.position[4];
+	      #tempCmdPar.postStart.position[5] := #tempCmdPar.start.position[5];
+	      #tempCmdPar.postStart.position[6] := #tempCmdPar.start.position[6];
+	    END_IF;
+	  ELSE
+	    //Start parameter not valid
+	    #tempCmdPar.start.usePoint := FALSE;
+	  END_IF;
+	END_REGION GET_START_INFO
+	
+	REGION GET_PRETARGET_INFO
+	  //PreTarget point 
+	  IF (#tempCmdPar.preTarget.usePoint = TRUE) THEN
+	    //set parameter
+	    //set buffer mode and transitionParameter below...
+	    #tempCmdPar.preTarget.coordSystem := #coordSystem;
+	    #tempCmdPar.preTarget.directionA := #directionA;
+	    #tempCmdPar.preTarget.pathDynamics := #dynamics.path;
+	    #tempCmdPar.preTarget.dynamicAdaption := #dynamics.dynamicAdaption;
+	    #tempWord := "LKinCtrl_GetTrackingInfo"(coordSystem := #tempCmdPar.preTarget.coordSystem,
+	                                            axesGroup := #axesGroup,
+	                                            trackingPar => #tempCmdPar.preTarget.tracking);
+	    IF (#tempWord.%X15 = TRUE) THEN
+	      #LKinCtrl_CreateLinCmdSequence := #ERR_GET_TRACKING_INFO;
+	      #additionalValue[1] := #tempWord;
+	      RETURN;
+	    END_IF;
+	    //Norm start vector
+	    IF (#tempUseTargetDirection = TRUE) THEN
+	      #tempNormTargetDirection := "LKinCtrl_VecUnit"(#tempTargetDirection);
+	    ELSE
+	      #tempNormTargetDirection.x := 0.0;
+	      #tempNormTargetDirection.y := 0.0;
+	      #tempNormTargetDirection.z := 0.0;
+	    END_IF;
+	    //Calc point position
+	    #tempCmdPar.preTarget.position[1] := #position[1] + #tempNormTargetDirection.x * (#targetParameter.workingHeight);
+	    #tempCmdPar.preTarget.position[2] := #position[2] + #tempNormTargetDirection.y * (#targetParameter.workingHeight);
+	    #tempCmdPar.preTarget.position[3] := #position[3] + #tempNormTargetDirection.z * (#targetParameter.workingHeight);
+	    #tempCmdPar.preTarget.position[4] := #position[4];
+	    #tempCmdPar.preTarget.position[5] := #position[5];
+	    #tempCmdPar.preTarget.position[6] := #position[6];
+	  END_IF;
+	END_REGION GET_PRETARGET_INFO
+	
+	REGION GET_TARGET_INFO
+	  //Target point
+	  IF (#tempCmdPar.target.usePoint = TRUE) THEN
+	    //set parameter
+	    //set path dynamics, buffer mode and transitionParameter below...
+	    #tempCmdPar.target.coordSystem := #coordSystem;
+	    #tempCmdPar.target.directionA := #directionA;
+	    #tempCmdPar.target.dynamicAdaption := #dynamics.dynamicAdaption;
+	    #tempWord := "LKinCtrl_GetTrackingInfo"(coordSystem := #tempCmdPar.target.coordSystem,
+	                                            axesGroup := #axesGroup,
+	                                            trackingPar => #tempCmdPar.target.tracking);
+	    IF (#tempWord.%X15 = TRUE) THEN
+	      #LKinCtrl_CreateLinCmdSequence := #ERR_GET_TRACKING_INFO;
+	      #additionalValue[1] := #tempWord;
+	      RETURN;
+	    END_IF;
+	    #tempCmdPar.target.position := #position;
+	  END_IF;
+	END_REGION GET_TARGET_INFO
+	
+	REGION GET_INTERMEDIATE_INFO
+	  //Check if intermediate point is necessary (motion between two tracked OCS)??
+	  IF (#tempCmdPar.start.tracking.active = TRUE)
+	    AND (#tempCmdPar.target.tracking.active = TRUE)
+	    AND (#tempCmdPar.start.coordSystem <> #tempCmdPar.target.coordSystem)
+	    AND (#tempCmdPar.start.coordSystem >= "CS_OCS1") AND (#tempCmdPar.start.coordSystem <= "CS_OCS3")
+	    AND (#tempCmdPar.target.coordSystem >= "CS_OCS1") AND (#tempCmdPar.target.coordSystem <= "CS_OCS3")
+	  THEN
+	    IF (#tempBlendingFromPreviousCmd = TRUE) THEN
+	      //not allowed
+	      #LKinCtrl_CreateLinCmdSequence := #ERR_BLENDING_NOT_ALLOWED;
+	      RETURN;
+	    END_IF;
+	    
+	    //set parameter
+	    //set buffer mode and transitionParameter below...
+	    #tempCmdPar.intermediate.usePoint := TRUE;
+	    #tempCmdPar.intermediate.coordSystem := "CS_WCS";
+	    #tempCmdPar.intermediate.directionA := #tempCmdPar.target.directionA;
+	    #tempCmdPar.intermediate.pathDynamics := #dynamics.path;
+	    #tempCmdPar.intermediate.dynamicAdaption := #dynamics.dynamicAdaption;
+	    
+	    //set values for point calculation
+	    IF (#tempCmdPar.postStart.usePoint = TRUE) THEN
+	      #tempIntermStartPoint := #tempCmdPar.postStart.position;
+	      #tempIntermStartCoordSystem := #tempCmdPar.postStart.coordSystem;
+	    ELSE
+	      #tempIntermStartPoint := #tempCmdPar.start.position;
+	      #tempIntermStartCoordSystem := #tempCmdPar.start.coordSystem;
+	    END_IF;
+	    
+	    IF (#tempCmdPar.preTarget.usePoint = TRUE) THEN
+	      #tempIntermTargetPoint := #tempCmdPar.preTarget.position;
+	      #tempIntermTargetCoordSystem := #tempCmdPar.preTarget.coordSystem;
+	    ELSE
+	      #tempIntermTargetPoint := #tempCmdPar.target.position;
+	      #tempIntermTargetCoordSystem := #tempCmdPar.target.coordSystem;
+	    END_IF;
+	    
+	    //get ori dimension according to kinematics
+	    #tempWord := "LKinCtrl_GetOrientationDimension"(orientationDimension => #tempOrientationDimension,
+	                                                    axesGroup := #axesGroup);
+	    IF (#tempWord.%X15 = TRUE) THEN
+	      #LKinCtrl_CreateLinCmdSequence := #ERR_GET_ORI_DIMENSION;
+	      #additionalValue[1] := #tempWord;
+	      RETURN;
+	    END_IF;
+	    
+	    //Set additional time duration for reaching start point (= post start)
+	    IF (#tempCmdPar.postStart.usePoint = TRUE) THEN
+	      // Estimated transition area around post start
+	      #tempEstimatedStartTransitionArea := LIMIT(MN := 0.0, IN := #startParameter.transitionArea, MX := #startParameter.workingHeight);
+	      // Calc time for motion between start and post start
+	      #tempWord := "LKinCtrl_PositioningTime"(distance := #startParameter.workingHeight, //Use complete length 
+	                                              velocity := #tempCmdPar.postStart.pathDynamics.velocity * #axesGroup.Override.Velocity / 100.0,
+	                                              acceleration := #tempCmdPar.postStart.pathDynamics.acceleration,
+	                                              deceleration := #tempCmdPar.postStart.pathDynamics.deceleration,
+	                                              jerk := #tempCmdPar.postStart.pathDynamics.jerk,
+	                                              "time" => #tempTimeOffset);
+	      //Fracture time - better estimation than calculate time with standstill at start of blending 
+	      #tempTimeOffset := #tempTimeOffset * (1.0 - #tempEstimatedStartTransitionArea / #startParameter.workingHeight);
+	      //Reset time if error occured
+	      IF (#tempWord.%X15 = TRUE) THEN
+	        #tempTimeOffset := 0.0;
+	      END_IF;
+	    ELSE
+	      //No additional time
+	      #tempTimeOffset := 0.0;
+	      #tempEstimatedStartTransitionArea := 0.0;
+	    END_IF;
+	    
+	    //calculate point
+	    #tempWord := "LKinCtrl_CalcIntermediatePoint"(startPosition := #tempIntermStartPoint,
+	                                                  targetPosition := #tempIntermTargetPoint,
+	                                                  startCoordSystem := #tempIntermStartCoordSystem,
+	                                                  targetCoordSystem := #tempIntermTargetCoordSystem,
+	                                                  ratio := #INTERM_POINT_RATIO,
+	                                                  orientationDimension := #tempOrientationDimension,
+	                                                  directionA := #tempCmdPar.intermediate.directionA,
+	                                                  pathDynamics := #tempCmdPar.intermediate.pathDynamics,
+	                                                  timeOffset := #tempTimeOffset,
+	                                                  intermediatePosition => #tempCmdPar.intermediate.position,
+	                                                  additionalValue => #tempAdditionalValue,
+	                                                  axesGroup := #axesGroup);
+	    IF (#tempWord.%X15 = TRUE) THEN
+	      #LKinCtrl_CreateLinCmdSequence := #ERR_CALC_INTERM_POINT;
+	      #additionalValue[1] := #tempWord;
+	      #additionalValue[2] := #tempAdditionalValue;
+	      RETURN;
+	    END_IF;
+	  ELSE
+	    #tempCmdPar.intermediate.usePoint := FALSE;
+	  END_IF;
+	END_REGION GET_INTERMEDIATE_INFO
+	
+	REGION CALC_LIN_POINT_DISTANCE
+	  //Calc distance to previous point
+	  #tempWord := "LKinCtrl_GetDistanceToPrevious"(cmdPar := #tempCmdPar,
+	                                                axesGroup := #axesGroup);
+	  IF (#tempWord.%X15 = TRUE) THEN
+	    #LKinCtrl_CreateLinCmdSequence := #ERR_GET_LIN_POINT_DIST;
+	    #additionalValue[1] := #tempWord;
+	    RETURN;
+	  END_IF;
+	END_REGION CALC_LIN_POINT_DISTANCE
+	
+	REGION CALC_BLENDING_INFO
+	  //get blending info and calc radii for all point
+	  CASE #tempCase OF
+	      
+	    #CASE_NO_VEC:
+	      
+	      REGION BLENDING_NO_VEC
+	        //Set path dynamics for target
+	        #tempCmdPar.target.pathDynamics := #dynamics.path;
+	        //Intermediate point necessary?
+	        IF (#tempCmdPar.intermediate.usePoint = TRUE) THEN
+	          //info: 3
+	          //No blending from previous motion!
+	          //Start to intermediate
+	          #tempCmdPar.intermediate.bufferMode := "BM_BUFFERED";
+	          //Blend to target with max radius (100%!)
+	          #tempCmdPar.target.bufferMode := #bufferModeTransition;
+	          #tempCmdPar.target.transitionParameter[1] := #tempCmdPar.target.distanceToPrevious * #INTERM_POINT_MAX_BLENDING_FAC;
+	        ELSE
+	          //info: 1 & 9
+	          //Blend to target with start specification
+	          #tempCmdPar.target.bufferMode := #bufferModeBegin;
+	          #tempCmdPar.target.transitionParameter := #transitionParameter;
+	        END_IF;
+	      END_REGION BLENDING_NO_VEC
+	      
+	    #CASE_ONLY_TARGET_VEC:
+	      
+	      REGION BLENDING_ONLY_TARGET_VEC
+	        //Set path dynamics for target
+	        #tempCmdPar.target.pathDynamics := "LKinCtrl_ScaleDynamics"(dynamicsIn := #dynamics.path,
+	                                                                    scaleFactor := #targetParameter.dynamicsFactor,
+	                                                                    mode := #scaleMode);
+	        
+	        //Intermediate point necessary?
+	        IF (#tempCmdPar.intermediate.usePoint = TRUE) THEN
+	          //info: 4
+	          //No blending from previous motion!
+	          //Start to intermediate
+	          #tempCmdPar.intermediate.bufferMode := "BM_BUFFERED";
+	          //Blend to pretarget with max radius
+	          //Get radius
+	          #tempCmdPar.preTarget.bufferMode := #bufferModeTransition;
+	          //is target transition overlaping minimum intermediate radius?
+	          IF (#targetParameter.transitionArea > (1.0 - #INTERM_POINT_MIN_BLENDING_FAC) * #tempCmdPar.preTarget.distanceToPrevious) THEN
+	            //yes - shorten transition area
+	            #tempTransition1 := (1.0 - #INTERM_POINT_MIN_BLENDING_FAC) * #tempCmdPar.preTarget.distanceToPrevious;
+	          ELSE
+	            //no - use transition area from spec
+	            #tempTransition1 := #targetParameter.transitionArea;
+	          END_IF;
+	          #tempCmdPar.preTarget.transitionParameter[1] := MIN(IN1 := #tempCmdPar.preTarget.distanceToPrevious - #tempTransition1, IN2 := #tempCmdPar.preTarget.distanceToPrevious * #INTERM_POINT_MAX_BLENDING_FAC);
+	          //Blend to target with specified transition area
+	          IF (#targetParameter.transitionArea <> 0.0) THEN
+	            #tempCmdPar.target.bufferMode := #bufferModeTransition;
+	            #tempCmdPar.target.transitionParameter[1] := #tempTransition1; //use from calculation above
+	          ELSE
+	            #tempCmdPar.target.bufferMode := "BM_BUFFERED";
+	          END_IF;
+	        ELSE
+	          //info: 2 & 10
+	          //Blend to pretarget with start specification
+	          #tempCmdPar.preTarget.bufferMode := #bufferModeBegin;
+	          #tempCmdPar.preTarget.transitionParameter[1] := #transitionParameter[1];
+	          //Blend to target with specified transition area
+	          IF (#targetParameter.transitionArea <> 0.0) THEN
+	            #tempCmdPar.target.bufferMode := #bufferModeTransition;
+	            #tempCmdPar.target.transitionParameter[1] := #targetParameter.transitionArea;
+	          ELSE
+	            #tempCmdPar.target.bufferMode := "BM_BUFFERED";
+	          END_IF;
+	        END_IF;
+	      END_REGION BLENDING_ONLY_TARGET_VEC
+	      
+	    #CASE_ONLY_START_VEC:
+	      //Always start from standstill, no blending from previous motion
+	      
+	      REGION BLENDING_ONLY_START_VEC
+	        //Set path dynamics for target
+	        #tempCmdPar.target.pathDynamics := #dynamics.path;
+	        
+	        //Intermediate point necessary?
+	        IF (#tempCmdPar.intermediate.usePoint = TRUE) THEN
+	          //info: 7
+	          //no blending to post start
+	          #tempCmdPar.postStart.bufferMode := "BM_BUFFERED";
+	          //is start transition overlaping minimum intermediate radius?
+	          IF (#startParameter.transitionArea > (1.0 - #INTERM_POINT_MIN_BLENDING_FAC) * #tempCmdPar.target.distanceToPrevious) THEN
+	            //yes - shorten transition area
+	            #tempTransition1 := (1.0 - #INTERM_POINT_MIN_BLENDING_FAC) * #tempCmdPar.target.distanceToPrevious;
+	          ELSE
+	            //no - use transition area from spec
+	            #tempTransition1 := #startParameter.transitionArea;
+	          END_IF;
+	          IF (#startParameter.transitionArea <> 0.0) THEN
+	            #tempCmdPar.intermediate.bufferMode := #bufferModeTransition;
+	            #tempCmdPar.intermediate.transitionParameter[1] := #tempTransition1;
+	          ELSE
+	            #tempCmdPar.intermediate.bufferMode := "BM_BUFFERED";
+	          END_IF;
+	          //Blend to target with resulting radius
+	          #tempCmdPar.target.bufferMode := #bufferModeTransition;
+	          #tempCmdPar.target.transitionParameter[1] := MIN(IN1 := #tempCmdPar.target.distanceToPrevious - #tempTransition1, IN2 := #tempCmdPar.target.distanceToPrevious * #INTERM_POINT_MAX_BLENDING_FAC);
+	        ELSE
+	          //info: 5
+	          //no blending to post start
+	          #tempCmdPar.postStart.bufferMode := "BM_BUFFERED";
+	          //Blend to target with start transition area
+	          IF (#startParameter.transitionArea <> 0.0) THEN
+	            #tempCmdPar.target.bufferMode := #bufferModeTransition;
+	            #tempCmdPar.target.transitionParameter[1] := #startParameter.transitionArea;
+	          ELSE
+	            #tempCmdPar.target.bufferMode := "BM_BUFFERED";
+	          END_IF;
+	        END_IF;
+	      END_REGION REGION BLENDING_ONLY_START_VEC
+	      
+	    #CASE_ALL_VEC:
+	      //Always Start from standstill, no blending from previous motion
+	      
+	      REGION BLENDING_ALL_VEC
+	        //Set path dynamics for target
+	        #tempCmdPar.target.pathDynamics := "LKinCtrl_ScaleDynamics"(dynamicsIn := #dynamics.path,
+	                                                                    scaleFactor := #targetParameter.dynamicsFactor,
+	                                                                    mode := #scaleMode);
+	        
+	        //Intermediate point necessary?
+	        IF (#tempCmdPar.intermediate.usePoint = TRUE) THEN
+	          //info: 8
+	          //no blending to post start
+	          #tempCmdPar.postStart.bufferMode := "BM_BUFFERED";
+	          
+	          //is start transition overlaping minimum intermediate radius?
+	          IF (#startParameter.transitionArea > (1.0 - #INTERM_POINT_MIN_BLENDING_FAC) * #tempCmdPar.intermediate.distanceToPrevious) THEN
+	            //yes - shorten transition area
+	            #tempTransition1 := (1.0 - #INTERM_POINT_MIN_BLENDING_FAC) * #tempCmdPar.intermediate.distanceToPrevious;
+	          ELSE
+	            //no - use transition area from spec
+	            #tempTransition1 := #startParameter.transitionArea;
+	          END_IF;
+	          #tempPossibleIntermTransition1 := MIN(IN1 := #tempCmdPar.intermediate.distanceToPrevious - #tempTransition1, IN2 := #tempCmdPar.intermediate.distanceToPrevious * #INTERM_POINT_MAX_BLENDING_FAC);
+	          
+	          //is target transition overlaping minimum intermediate radius?
+	          IF (#targetParameter.transitionArea > (1.0 - #INTERM_POINT_MIN_BLENDING_FAC) * #tempCmdPar.preTarget.distanceToPrevious) THEN
+	            //yes - shorten transition area
+	            #tempTransition2 := (1.0 - #INTERM_POINT_MIN_BLENDING_FAC) * #tempCmdPar.preTarget.distanceToPrevious;
+	          ELSE
+	            //no - use transition area from spec
+	            #tempTransition2 := #targetParameter.transitionArea;
+	          END_IF;
+	          #tempPossibleIntermTransition2 := MIN(IN1 := #tempCmdPar.preTarget.distanceToPrevious - #tempTransition2, IN2 := #tempCmdPar.preTarget.distanceToPrevious * #INTERM_POINT_MAX_BLENDING_FAC);
+	          
+	          //Get minimum intermediate transition
+	          #tempIntermTransition := MIN(IN1 := #tempPossibleIntermTransition1, IN2 := #tempPossibleIntermTransition2);
+	          //adapt 1st if necessary
+	          #tempTransition1 := MIN(IN1 := #tempTransition1, IN2 := #tempCmdPar.intermediate.distanceToPrevious - #tempIntermTransition);
+	          //adapt 2nd if necessary
+	          #tempTransition2 := MIN(IN1 := #tempTransition2, IN2 := #tempCmdPar.preTarget.distanceToPrevious - #tempIntermTransition);
+	          
+	          //Blend to intermediate with start transition area
+	          IF (#startParameter.transitionArea <> 0.0) THEN
+	            #tempCmdPar.intermediate.bufferMode := #bufferModeTransition;
+	            #tempCmdPar.intermediate.transitionParameter[1] := #tempTransition1;
+	          ELSE
+	            #tempCmdPar.intermediate.bufferMode := "BM_BUFFERED";
+	          END_IF;
+	          
+	          //Blend to pretarget with intermediate radius
+	          #tempCmdPar.preTarget.bufferMode := #bufferModeTransition;
+	          #tempCmdPar.preTarget.transitionParameter[1] := #tempIntermTransition;
+	          //Blend to target with target transition area
+	          IF (#targetParameter.transitionArea <> 0.0) THEN
+	            #tempCmdPar.target.bufferMode := #bufferModeTransition;
+	            #tempCmdPar.target.transitionParameter[1] := #tempTransition2;
+	          ELSE
+	            #tempCmdPar.target.bufferMode := "BM_BUFFERED";
+	          END_IF;
+	        ELSE
+	          //info: 6
+	          //no blending to post start
+	          #tempCmdPar.postStart.bufferMode := "BM_BUFFERED";
+	          //Check if blending radii are overlapping
+	          IF ((#startParameter.transitionArea + #targetParameter.transitionArea) > #tempCmdPar.preTarget.distanceToPrevious)
+	            AND ((#startParameter.transitionArea + #targetParameter.transitionArea) <> 0.0)
+	          THEN
+	            //Yes - shorten both radi by overplapping factor
+	            #tempTransition1 := #startParameter.transitionArea * #tempCmdPar.preTarget.distanceToPrevious / (#startParameter.transitionArea + #targetParameter.transitionArea);
+	            #tempTransition2 := #targetParameter.transitionArea * #tempCmdPar.preTarget.distanceToPrevious / (#startParameter.transitionArea + #targetParameter.transitionArea);
+	          ELSE
+	            //No - set areas directly
+	            #tempTransition1 := #startParameter.transitionArea;
+	            #tempTransition2 := #targetParameter.transitionArea;
+	          END_IF;
+	          //Blend to pretarget with start transition area
+	          IF (#startParameter.transitionArea <> 0.0) THEN
+	            #tempCmdPar.preTarget.bufferMode := #bufferModeTransition;
+	            #tempCmdPar.preTarget.transitionParameter[1] := #tempTransition1;
+	          ELSE
+	            #tempCmdPar.preTarget.bufferMode := "BM_BUFFERED";
+	          END_IF;
+	          //Blend to target with target transition area
+	          IF (#targetParameter.transitionArea <> 0.0) THEN
+	            #tempCmdPar.target.bufferMode := #bufferModeTransition;
+	            #tempCmdPar.target.transitionParameter[1] := #tempTransition2;
+	          ELSE
+	            #tempCmdPar.target.bufferMode := "BM_BUFFERED";
+	          END_IF;
+	        END_IF;
+	      END_REGION BLENDING_ALL_VEC
+	      
+	    ELSE
+	      ;
+	  END_CASE;
+	  
+	END_REGION CALC_BLENDING_INFO
+	
+	REGION GET_NUMBER_OF_USED_CMD
+	  //init value
+	  #tempCmdPar.numberOfUsedCmd := 0;
+	  IF (#tempCmdPar.postStart.usePoint = TRUE) THEN
+	    #tempCmdPar.numberOfUsedCmd += 1;
+	  END_IF;
+	  IF (#tempCmdPar.intermediate.usePoint = TRUE) THEN
+	    #tempCmdPar.numberOfUsedCmd += 1;
+	  END_IF;
+	  IF (#tempCmdPar.preTarget.usePoint = TRUE) THEN
+	    #tempCmdPar.numberOfUsedCmd += 1;
+	  END_IF;
+	  IF (#tempCmdPar.target.usePoint = TRUE) THEN
+	    #tempCmdPar.numberOfUsedCmd += 1;
+	  END_IF;
+	END_REGION GET_NUMBER_OF_USED_CMD
+	
+	REGION OUTPUT
+	  //Everything done - copy to Out var
+	  #cmdPar := #tempCmdPar;
+	  #LKinCtrl_CreateLinCmdSequence := #STATUS_NO_ERR;
+	END_REGION OUTPUT
+	
+	
+END_FUNCTION
+

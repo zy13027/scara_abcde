@@ -1,0 +1,81 @@
+﻿FUNCTION_BLOCK "LKinCtrl_GetKinematicsWarningWord"
+TITLE = LKinCtrl_GetKinematicsWarningWord
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//FB provides functionalities to reveice status information on Kinematics WarningWord
+   VAR_INPUT 
+      axesGroup {InstructionName := 'TO_Kinematics'; LibVersion := '9.0'} : TO_Kinematics;   // reference to the axesGroup
+   END_VAR
+
+   VAR_OUTPUT 
+      systemFault { ExternalWritable := 'False'} : Bool;   // system-internal error has occured
+      configFault { ExternalWritable := 'False'} : Bool;   // one or more configuration parameters are inconsistent or invalid
+      userFault { ExternalWritable := 'False'} : Bool;   // error in the user program with a Motion Control instructioc or its use
+      commandNotAccepted { ExternalWritable := 'False'} : Bool;   // command cannot be accepted
+      dynamicWarning { ExternalWritable := 'False'} : Bool;   // specified dynamic values are limited to permissible values
+   END_VAR
+
+   VAR 
+      statFirstCycle { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool := TRUE;   // flag first cycle
+      statWarningWordOld { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : DWord;   // flag word for old warningWord
+   END_VAR
+
+   VAR_TEMP 
+      tempWarningWord : DWord;
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2019 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1515T-2 PN
+	// Engineering: TIA Portal V15
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 2.5
+	// Functionality: LinCtrl_GetKinematicsWarningWord
+	// The FB is splitting the warning word of a technoloy object kinematic into bits.
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   16.08.2017    RK                  First released version
+	//===========================================================================================
+	
+	//----------------------------------------------------------------------------------------------
+	// Read warningWord
+	//----------------------------------------------------------------------------------------------
+	#tempWarningWord := #axesGroup.WarningWord;
+	
+	//-----------------------------------------------
+	//
+	//
+	//-----------------------------------------------
+	// Write outputs
+	//----------------------------------------------------------------------------------------------
+	IF #tempWarningWord <> #statWarningWordOld
+	    OR #statFirstCycle
+	THEN
+	    #systemFault := #tempWarningWord.%X0;
+	    #configFault := #tempWarningWord.%X1;
+	    #userFault := #tempWarningWord.%X2;
+	    #commandNotAccepted := #tempWarningWord.%X3;
+	    #dynamicWarning := #tempWarningWord.%X6;
+	    
+	    
+	    // Set back flag
+	    #statFirstCycle := False;
+	ELSE
+	    ; // Do nothing
+	END_IF;
+	
+	// Copy current state of warning for edge detection
+	#statWarningWordOld := #tempWarningWord;
+	
+END_FUNCTION_BLOCK
+

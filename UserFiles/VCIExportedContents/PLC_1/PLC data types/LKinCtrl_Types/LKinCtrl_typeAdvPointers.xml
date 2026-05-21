@@ -1,0 +1,69 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="addPointer" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">pointer to add new comds to PathData after cmd has been executed by MovePath</MultiLanguageText>
+      </Comment>
+      <StartValue>0</StartValue>
+    </Member>
+    <Member Name="retrievePointer" Datatype="DInt">
+      <Comment>
+        <MultiLanguageText Lang="en-US">pointer to show which cmd is the next to be retrieved by MovePath</MultiLanguageText>
+      </Comment>
+      <StartValue>0</StartValue>
+    </Member>
+    <Member Name="addPointerRestarted" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">addPointer restarted after overflow</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="ignoreAddPointer" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">addPointer not taken into account for buffering, unless set by previous data source</MultiLanguageText>
+      </Comment>
+      <StartValue>TRUE</StartValue>
+    </Member>
+    <Member Name="bufferLocked" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">buffer locked to wait for previous data source - read data locked</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="preprocessingStop" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">parser reached a preprocessing stop</MultiLanguageText>
+      </Comment>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>LKinCtrl_typeAdvPointers</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

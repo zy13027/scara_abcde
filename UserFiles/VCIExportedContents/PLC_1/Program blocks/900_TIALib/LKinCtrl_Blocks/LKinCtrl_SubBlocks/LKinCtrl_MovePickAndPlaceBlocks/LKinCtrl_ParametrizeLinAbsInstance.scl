@@ -1,0 +1,51 @@
+﻿FUNCTION "LKinCtrl_ParametrizeLinAbsInstance" : Void
+TITLE = LKinCtrl_ParametrizeLinAbsInstance
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Parametrizie MC_MoveLinearAbsolute instance
+   VAR_INPUT 
+      cmdPar : "LKinCtrl_typePnPLinPointParameter";   // Command parameter
+   END_VAR
+
+   VAR_IN_OUT 
+      cmdInstance {InstructionName := 'MC_MOVELINEARABSOLUTE'; LibVersion := '9.0'} : MC_MOVELINEARABSOLUTE;   // MC_MoveLinearAbsolute Instance
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// SIEMENS AG
+	// (c)Copyright 2023
+	//-----------------------------------------------------------------------------
+	// Library:       LKinCtrl
+	// Tested with:   S7-1518TF-4 PN/DP, FW V3.1
+	// Engineering:   TIA Portal V19
+	// Restrictions:  ---
+	// Requirements:  S7-1500T, FW V3.0
+	// Functionality: Parametrize MC_MoveLinearAbsolute instance
+	//                (Usage for LKinCtrl_MC_MovePickAndPlace...)
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//-----------------------------------------------------------------------------
+	// Change log table:
+	// Version  Date       Expert in charge Changes applied
+	// 01.00.00 21.09.2023 SF               First released version
+	//=============================================================================
+	
+	//Set values
+	#cmdInstance.Position := #cmdPar.position;
+	#cmdInstance.CoordSystem := #cmdPar.coordSystem;
+	#cmdInstance.Velocity := #cmdPar.pathDynamics.velocity;
+	#cmdInstance.Acceleration := #cmdPar.pathDynamics.acceleration;
+	#cmdInstance.Deceleration := #cmdPar.pathDynamics.deceleration;
+	#cmdInstance.Jerk := #cmdPar.pathDynamics.jerk;
+	#cmdInstance.DynamicAdaption := #cmdPar.dynamicAdaption;
+	#cmdInstance.DirectionA := #cmdPar.directionA;
+	#cmdInstance.BufferMode := #cmdPar.bufferMode;
+	#cmdInstance.TransitionParameter := #cmdPar.transitionParameter;
+	
+	
+END_FUNCTION
+

@@ -1,0 +1,152 @@
+﻿FUNCTION "LKinCtrl_FrameTrans" : Void
+TITLE = LKinCtrl_FrameTrans
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : 'handling.team.automation@siemens.com'
+FAMILY : LKinCtrl
+VERSION : 5.0
+//Transform postion into different coordinate systems
+   VAR_INPUT 
+      coordSystem : DInt;   // target coordinate system
+      coordSystemOld : DInt;   // previous coordinate system
+      OCSFrames : Array[1..3] of "LKinCtrl_typeFrame";   // OCS frames
+      userFrames : Array["LKINCTRL_CS_NO_OF_FIRST_USER_FRAME".."LKINCTRL_CS_NO_OF_LAST_USER_FRAME"] of "LKinCtrl_typeFrame";   // User frames
+   END_VAR
+
+   VAR_IN_OUT 
+      position : Array[1..6] of LReal;   // position to be transformed
+   END_VAR
+
+
+BEGIN
+	//==========================================================================================
+	// SIEMENS AG
+	// (c)Copyright 2020 All Rights Reserved
+	//------------------------------------------------------------------------------------------
+	// Library: LKinCtrl
+	// Tested with: S7-1517T-3 PN/DP
+	// Engineering: TIA Portal V15
+	// Restrictions: ---
+	// Requirements: S7-1500T FW 2.5
+	// Functionality: LKinCtrl_FrameTrans
+	// The FC calculates a given position transformed into or from another coordinate system
+	// depending on the actual / previous coordinate system of the cmd
+	//
+	// Support: tech.team.motioncontrol@siemens.com
+	// Note: Parameter comments are only available in language 'English (United States)'
+	//------------------------------------------------------------------------------------------
+	// Change log table:
+	// Version    Date          Expert in charge    Changes applied
+	// 01.00.00   16.04.2019    JR                  First release version v1.0
+	// 02.00.00   14.04.2020    FR                  Use array of frames
+	// 03.00.00   18.01.2022    FR                  Update to 6 axis
+	//===========================================================================================
+	
+	// Check if last CS differs from actual CS
+	IF #coordSystem = #coordSystemOld THEN
+	  // No calculation needed --> Return
+	  RETURN;
+	END_IF;
+	
+	// Calc new position
+	// =================
+	// Check if last CS was a OCS
+	// YES: Transform position to WCS
+	// NO: Do nothing --> Position is already in WCS
+	CASE #coordSystemOld OF
+	  "CS_OCS1".."CS_OCS3": // OCS
+	    "LKinCtrl_OcsToWcs"(ocsX      := #OCSFrames[#coordSystemOld].x,
+	                        ocsY      := #OCSFrames[#coordSystemOld].y,
+	                        ocsZ      := #OCSFrames[#coordSystemOld].z,
+	                        ocsA      := #OCSFrames[#coordSystemOld].a,
+	                        ocsB      := #OCSFrames[#coordSystemOld].b,
+	                        ocsC      := #OCSFrames[#coordSystemOld].c,
+	                        pointXOcs := #position[1],
+	                        pointYOcs := #position[2],
+	                        pointZOcs := #position[3],
+	                        pointAOcs := #position[4],
+	                        pointBOcs := #position[5],
+	                        pointCOcs := #position[6],
+	                        pointXWcs => #position[1],
+	                        pointYWcs => #position[2],
+	                        pointZWcs => #position[3],
+	                        pointAWcs => #position[4],
+	                        pointBWcs => #position[5],
+	                        pointCWcs => #position[6]);
+	    
+	  "LKINCTRL_CS_NO_OF_FIRST_USER_FRAME".."LKINCTRL_CS_NO_OF_LAST_USER_FRAME":  // User frame
+	    "LKinCtrl_OcsToWcs"(ocsX      := #userFrames[#coordSystemOld].x,
+	                        ocsY      := #userFrames[#coordSystemOld].y,
+	                        ocsZ      := #userFrames[#coordSystemOld].z,
+	                        ocsA      := #userFrames[#coordSystemOld].a,
+	                        ocsB      := #userFrames[#coordSystemOld].b,
+	                        ocsC      := #userFrames[#coordSystemOld].c,
+	                        pointXOcs := #position[1],
+	                        pointYOcs := #position[2],
+	                        pointZOcs := #position[3],
+	                        pointAOcs := #position[4],
+	                        pointBOcs := #position[5],
+	                        pointCOcs := #position[6],
+	                        pointXWcs => #position[1],
+	                        pointYWcs => #position[2],
+	                        pointZWcs => #position[3],
+	                        pointAWcs => #position[4],
+	                        pointBWcs => #position[5],
+	                        pointCWcs => #position[6]);
+	    
+	  ELSE
+	    ;
+	END_CASE;
+	
+	
+	// Check if target CS is a OCS
+	// YES: Transform position to target OCS
+	// NO: Target CS is WCS --> Position is already in WCS from above
+	CASE #coordSystem OF
+	  "CS_OCS1".."CS_OCS3": // OCS
+	    "LKinCtrl_WcsToOcs"(ocsX      := #OCSFrames[#coordSystem].x,
+	                        ocsY      := #OCSFrames[#coordSystem].y,
+	                        ocsZ      := #OCSFrames[#coordSystem].z,
+	                        ocsA      := #OCSFrames[#coordSystem].a,
+	                        ocsB      := #OCSFrames[#coordSystem].b,
+	                        ocsC      := #OCSFrames[#coordSystem].c,
+	                        pointXWcs := #position[1],
+	                        pointYWcs := #position[2],
+	                        pointZWcs := #position[3],
+	                        pointAWcs := #position[4],
+	                        pointBWcs := #position[5],
+	                        pointCWcs := #position[6],
+	                        pointXOcs => #position[1],
+	                        pointYOcs => #position[2],
+	                        pointZOcs => #position[3],
+	                        pointAOcs => #position[4],
+	                        pointBOcs => #position[5],
+	                        pointCOcs => #position[6]);
+	    
+	  "LKINCTRL_CS_NO_OF_FIRST_USER_FRAME".."LKINCTRL_CS_NO_OF_LAST_USER_FRAME":  // User frame
+	    "LKinCtrl_WcsToOcs"(ocsX      := #userFrames[#coordSystem].x,
+	                        ocsY      := #userFrames[#coordSystem].y,
+	                        ocsZ      := #userFrames[#coordSystem].z,
+	                        ocsA      := #userFrames[#coordSystem].a,
+	                        ocsB      := #userFrames[#coordSystem].b,
+	                        ocsC      := #userFrames[#coordSystem].c,
+	                        pointXWcs := #position[1],
+	                        pointYWcs := #position[2],
+	                        pointZWcs := #position[3],
+	                        pointAWcs := #position[4],
+	                        pointBWcs := #position[5],
+	                        pointCWcs := #position[6],
+	                        pointXOcs => #position[1],
+	                        pointYOcs => #position[2],
+	                        pointZOcs => #position[3],
+	                        pointAOcs => #position[4],
+	                        pointBOcs => #position[5],
+	                        pointCOcs => #position[6]);
+	    
+	  ELSE
+	    ;
+	END_CASE;
+	
+	
+	
+END_FUNCTION
+
