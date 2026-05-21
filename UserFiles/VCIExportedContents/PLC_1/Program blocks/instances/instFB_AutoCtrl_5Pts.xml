@@ -1,38 +1,48 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Document>
   <Engineering version="V20" />
   <SW.Blocks.InstanceDB ID="0">
     <AttributeList>
       <HeaderVersion>1.1</HeaderVersion>
-      <InstanceOfName>FB_AxisCtrl</InstanceOfName>
+      <InstanceOfName>FB_AutoCtrl_5Pts</InstanceOfName>
       <InstanceOfType>FB</InstanceOfType>
       <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
   <Section Name="Input" />
   <Section Name="Output" />
   <Section Name="InOut" />
   <Section Name="Static">
-    <Member Name="instGroupPower" Datatype="&quot;LKinCtrl_MC_GroupPower&quot;">
+    <Member Name="pts" Datatype="Array[1..5] of &quot;UDT_typePoint5&quot;">
       <AttributeList>
         <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
       </AttributeList>
     </Member>
-    <Member Name="instGroupReset" Datatype="&quot;LKinCtrl_MC_GroupReset&quot;">
+    <Member Name="statTargetPos" Datatype="&quot;UDT_typePoint5&quot;" />
+    <Member Name="statPointIdx" Datatype="Int" />
+    <Member Name="sRTRIGInitPath" Datatype="R_TRIG" Version="1.0">
       <AttributeList>
         <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
       </AttributeList>
     </Member>
-    <Member Name="instMC_SetTool" Datatype="MC_SETTOOL" Version="9.0">
+    <Member Name="sRTRIGStart" Datatype="R_TRIG" Version="1.0">
       <AttributeList>
         <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
       </AttributeList>
     </Member>
-    <Member Name="instMoveLinAbs" Datatype="MC_MOVELINEARABSOLUTE" Version="9.0" />
-    <Member Name="statToolActivated" Datatype="Bool" />
+    <Member Name="sRTRIGStop" Datatype="R_TRIG" Version="1.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+    </Member>
+    <Member Name="sRTRIGAlarm" Datatype="R_TRIG" Version="1.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+    </Member>
   </Section>
 </Sections></Interface>
-      <Name>instFB_AxisCtrl</Name>
+      <Name>instFB_AutoCtrl_5Pts</Name>
       <Namespace />
-      <Number>2</Number>
+      <Number>23</Number>
       <ProgrammingLanguage>DB</ProgrammingLanguage>
     </AttributeList>
     <ObjectList>
@@ -41,7 +51,7 @@
           <MultilingualTextItem ID="2" CompositionName="Items">
             <AttributeList>
               <Culture>en-US</Culture>
-              <Text />
+              <Text>Instance DB for FB_AutoCtrl_5Pts (Phase 4a, 2026-05-21). Huashili-pattern CASE auto FB; replaces FB_AutoCtrl_ABCDE. DB number may be auto-assigned by TIA on import.</Text>
             </AttributeList>
           </MultilingualTextItem>
         </ObjectList>

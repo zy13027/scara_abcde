@@ -1,216 +1,122 @@
-﻿FUNCTION_BLOCK "FB_AxisCtrl"
+FUNCTION_BLOCK "FB_AxisCtrl"
 { S7_Optimized_Access := 'TRUE' }
-VERSION : 1.3
+VERSION : 2.1
 // =====================================================================
-// Per-axis enable / home / reset / tool-activate for SCARA 4-joint kinematic
-// (2026-05-18 rev 1.3 â€” added REGION StatusDerived computing axesReady,
-//  per HMI cycle-7.1 BackColor Q2 ACK for lmpKinReady_Ubp Range-1:1 binding)
-// (2026-05-17 rev 1.2 â€” added MC_SetTool defensive activation closing the
-//  last loose end from NOTE_v9_UserFault_RootCause_Analysis.md)
+// SCARA ABCDE - Axis / Kinematics Control  (Phase 3, 2026-05-21)
 //
-// CHANGES vs v1.2:
-//   - ADDED REGION StatusDerived: writes GDB_Control.axesReady as
-//     axesEnabled AND axesHomed AND NOT axesError. Single derived Bool
-//     tag that HMI lmpKinReady_Ubp BackColor Range dyn binds to (per
-//     HMI agent cycle-7.1 Â§1 Q2 reply). Avoids HMI-side JS compute /
-//     Tag-Cycle handler on the 3 component Bools.
+// The single Motion Control owner. Belongs to the 600 axis/kinematics
+// layer; runs in OB30 (CyclicInterrupt_10ms, 10 ms), decoupled from the
+// 500 process logic in OB1. All I/O is the consolidated
+// GDB_AxisCtrl.LKinCtrl interface (the OB1<->OB30 shared-DB bridge).
 //
-// CHANGES vs v1.1:
-//   - ADDED REGION SetTool: calls MC_SetTool(ToolNumber:=1) once after
-//     axesEnabled goes TRUE. ScaraArm3D.Tool[1].Frame.z = 50mm is the
-//     defined TCP offset, but TIA V20 defaults ToolNumber=0 on cold start
-//     (no active tool selected). Without MC_SetTool, MC_MoveLinearAbsolute
-//     returns motionFBStatus=0x8001 -> TO.ErrorWord.X2 = UserFault.
-//   - This was the documented historical root cause of v9 16-box palletizing
-//     UserFault (see NOTE_v9_UserFault_RootCause_Analysis.md for cascade).
-//   - Phase 1/2 ABCDE rebuild has been working because TO retentive memory
-//     inherited active ToolNumber=1 from the earlier FB_PalletizingProgramme
-//     SET_TOOL state run. This fix makes activation deterministic for cold
-//     start + memory reset (no dependency on retentive state).
-//   - Statics: instMC_SetTool (MC_SETTOOL multi-instance), statToolActivated
-//     (Bool one-shot latch).
+// V2.1 - adds the kinematic linear-move owner (REGION MoveLinear). The
+// auto FBs no longer call MC themselves: they write a target pose into
+// GDB_AxisCtrl.LKinCtrl.input.movelinear, hold bo_execute, and read
+// output.movelinear.bo_done back. This FB runs the one
+// MC_MoveLinearAbsolute on ScaraArm3D - the Huashili motion/process split.
 //
-// CHANGES vs v1.0 (preserved from rev 1.1):
-//   - REPLACED `MC_GROUPRESET` (NOT a valid TIA V20 system instruction â€”
-//     verified by reading LKinCtrl_MC_GroupReset.scl in .backup/2026-05-17/:
-//     it uses MC_RESET per-axis + MC_RESET on the TO_Kinematics)
-//   - Uses 4Ã— per-axis MC_RESET + 1Ã— MC_RESET on ScaraArm3D kinematic TO
+// V2.0 - rebuilt on the approved LKinCtrl library (郑老板 approval):
+//   - Power:  4x raw MC_Power  ->  1x LKinCtrl_MC_GroupPower
+//   - Reset:  5x raw MC_Reset  ->  1x LKinCtrl_MC_GroupReset
+//   - Home:   moved OUT to the new FB_Init (LKinCtrl_MC_GroupHome);
+//             FB_AxisCtrl only reads back output.bo_homed.
+//   - SetTool: kept - MC_SetTool one-shot (Tool[1], the UserFault fix).
 //
-// PURPOSE: Replaces LKinCtrl_MC_GroupPower / GroupHome / GroupReset wrappers
-// (in .backup/2026-05-17/) with raw system MC instructions per source spec
-// line 11 ("ä¸ç”¨ä»»ä½•çš„åº“" / no libraries).
-//
-// PER-SCAN MC INSTRUCTION COUNT:
-//   - 4Ã— MC_Power    (one per joint J1..J4)
-//   - 4Ã— MC_Home     (one per joint J1..J4)
-//   - 5Ã— MC_Reset    (4 per joint + 1 on kinematic TO)
-//   - 1Ã— MC_SetTool  (one-shot on cold start; Execute=FALSE after Done)
-//   Total: 14 declared, ~4-5 actively pulsing at any time. Plus
-//   FB_AutoCtrl_ABCDE's + FB_AutoCtrl_Palletizing's 1Ã— MC_MoveLinearAbsolute
-//   each = ~5-6 active MC slots vs v9's pre-Phase-1 ~50 â†’ OB91 headroom
-//   preserved (manual TIA Diagnostics Buffer confirmed ZERO OB91 entries).
-//
-// HMI bindings (via GDB_Control):
-//   enableAxes (W Bool)   â†’ MC_Power.Enable for all 4 joints
-//   resetAxes  (W Bool)   â†’ MC_Reset.Execute for all 4 joints + kin TO
-//   homeAxes   (W Bool)   â†’ MC_Home.Execute for all 4 joints (single rising-edge)
-//
-// Mirror outputs to GDB_Control:
-//   axesEnabled := AND of all 4 MC_Power.Status
-//   axesHomed   := AND of all 4 MC_Home.Done
-//   axesError   := OR of all errors (Power + Home + Reset)
+// Group-level enable for now; per-axis-enable (review 4.2,
+// GDB_AxisCtrl.TOCtrl[1..4]) is a follow-on refinement.
 // =====================================================================
-// === Multi-instance MC_Power per joint axis ===
-   VAR 
-      instPower_J1 {InstructionName := 'MC_POWER'; LibVersion := '9.0'} : MC_POWER;
-      instPower_J2 {InstructionName := 'MC_POWER'; LibVersion := '9.0'} : MC_POWER;
-      instPower_J3 {InstructionName := 'MC_POWER'; LibVersion := '9.0'} : MC_POWER;
-      instPower_J4 {InstructionName := 'MC_POWER'; LibVersion := '9.0'} : MC_POWER;   // === Multi-instance MC_Home per joint axis ===
-      instHome_J1 {InstructionName := 'MC_HOME'; LibVersion := '9.0'} : MC_HOME;
-      instHome_J2 {InstructionName := 'MC_HOME'; LibVersion := '9.0'} : MC_HOME;
-      instHome_J3 {InstructionName := 'MC_HOME'; LibVersion := '9.0'} : MC_HOME;
-      instHome_J4 {InstructionName := 'MC_HOME'; LibVersion := '9.0'} : MC_HOME;   // === Multi-instance MC_Reset per joint axis + kinematic TO === (per LKinCtrl_MC_GroupReset pattern at .backup line 38-39)
-      instReset_J1 {InstructionName := 'MC_RESET'; LibVersion := '9.0'} : MC_RESET;
-      instReset_J2 {InstructionName := 'MC_RESET'; LibVersion := '9.0'} : MC_RESET;
-      instReset_J3 {InstructionName := 'MC_RESET'; LibVersion := '9.0'} : MC_RESET;
-      instReset_J4 {InstructionName := 'MC_RESET'; LibVersion := '9.0'} : MC_RESET;
-      instReset_Kin {InstructionName := 'MC_RESET'; LibVersion := '9.0'} : MC_RESET;   // === MC_SetTool  - one-shot Tool[1] activation on cold start === (rev 1.2  - closes UserFault root cause documented in  NOTE_v9_UserFault_RootCause_Analysis.md)
+   VAR
+      instGroupPower : "LKinCtrl_MC_GroupPower";
+      instGroupReset : "LKinCtrl_MC_GroupReset";
       instMC_SetTool {InstructionName := 'MC_SETTOOL'; LibVersion := '9.0'} : MC_SETTOOL;
-      statToolActivated : Bool;   // one-shot latch; cleared by memory reset
+      instMoveLinAbs {InstructionName := 'MC_MOVELINEARABSOLUTE'; LibVersion := '9.0'; S7_SetPoint := 'False'} : MC_MOVELINEARABSOLUTE;
+      statToolActivated : Bool;   // one-shot SetTool latch; cleared by memory reset
+   END_VAR
+
+   VAR_TEMP
+      tempPos : Array[1..6] of LReal;   // Cartesian Position array for MC_MoveLinearAbsolute
    END_VAR
 
 
 BEGIN
-	
-	
-	 // =====================================================================
-	 // REGION Power  - per-axis MC_Power calls
-	 // All 4 joints share the same enableAxes bit + StartMode[i]/StopMode[i].
-	 // =====================================================================
-	 #instPower_J1(Axis      := "J1_SCARA_Arm3D",
-	               Enable    := "GDB_AxisCtrl".LKinCtrl.input.bo_enable,
-	               StartMode := "GDB_AxisCtrl".LKinCtrl.input.configuration.power.startMode[1],
-	               StopMode  := "GDB_AxisCtrl".LKinCtrl.input.configuration.power.stopMode[1]);
-	
-	 #instPower_J2(Axis      := "J2_SCARA_Arm3D",
-	               Enable    := "GDB_AxisCtrl".LKinCtrl.input.bo_enable,
-	               StartMode := "GDB_AxisCtrl".LKinCtrl.input.configuration.power.startMode[2],
-	               StopMode  := "GDB_AxisCtrl".LKinCtrl.input.configuration.power.stopMode[2]);
-	
-	 #instPower_J3(Axis      := "J3_SCARA_Arm3D",
-	               Enable    := "GDB_AxisCtrl".LKinCtrl.input.bo_enable,
-	               StartMode := "GDB_AxisCtrl".LKinCtrl.input.configuration.power.startMode[3],
-	               StopMode  := "GDB_AxisCtrl".LKinCtrl.input.configuration.power.stopMode[3]);
-	
-	 #instPower_J4(Axis      := "J4_SCARA_Arm3D",
-	               Enable    := "GDB_AxisCtrl".LKinCtrl.input.bo_enable,
-	               StartMode := "GDB_AxisCtrl".LKinCtrl.input.configuration.power.startMode[4],
-	               StopMode  := "GDB_AxisCtrl".LKinCtrl.input.configuration.power.stopMode[4]);
-	
-	 // Mirror axesEnabled = AND of all 4 Status outputs
-	 "GDB_AxisCtrl".LKinCtrl.output.bo_enabled := #instPower_J1.Status
-	                               AND #instPower_J2.Status
-	                               AND #instPower_J3.Status
-	                               AND #instPower_J4.Status;
-	
-	 // =====================================================================
-	 // REGION Reset  - 4 per-axis MC_RESET + 1 on kinematic TO
-	 // MC_RESET accepts TO_PositioningAxis (joints) AND TO_Kinematics (group).
-	 // Single rising-edge from HMI resetAxes button.
-	 // =====================================================================
-	 #instReset_J1(Axis := "J1_SCARA_Arm3D", Execute := "GDB_AxisCtrl".LKinCtrl.input.bo_reset);
-	 #instReset_J2(Axis := "J2_SCARA_Arm3D", Execute := "GDB_AxisCtrl".LKinCtrl.input.bo_reset);
-	 #instReset_J3(Axis := "J3_SCARA_Arm3D", Execute := "GDB_AxisCtrl".LKinCtrl.input.bo_reset);
-	 #instReset_J4(Axis := "J4_SCARA_Arm3D", Execute := "GDB_AxisCtrl".LKinCtrl.input.bo_reset);
-	 #instReset_Kin(Axis := "ScaraArm3D",    Execute := "GDB_AxisCtrl".LKinCtrl.input.bo_reset);
-	
-	 "GDB_AxisCtrl".LKinCtrl.output.bo_fault := #instPower_J1.Error
-	                             OR #instPower_J2.Error
-	                             OR #instPower_J3.Error
-	                             OR #instPower_J4.Error
-	                             OR #instHome_J1.Error
-	                             OR #instHome_J2.Error
-	                             OR #instHome_J3.Error
-	                             OR #instHome_J4.Error
-	                             OR #instReset_J1.Error
-	                             OR #instReset_J2.Error
-	                             OR #instReset_J3.Error
-	                             OR #instReset_J4.Error
-	                             OR #instReset_Kin.Error;
-	
-	 // =====================================================================
-	 // REGION Home  - per-axis MC_Home calls
-	 // HomeMode[i]=7 ("set actual position")  - no physical homing motion.
-	 // HomePos[i] from Startup OB (all zeros for SCARA zero pose).
-	 // =====================================================================
-	 #instHome_J1(Axis     := "J1_SCARA_Arm3D",
-	              Execute  := "GDB_AxisCtrl".LKinCtrl.input.bo_home,
-	              Position := "GDB_AxisCtrl".LKinCtrl.input.configuration.home.r64_homeposition[1],
-	              Mode     := "GDB_AxisCtrl".LKinCtrl.input.configuration.home.i16_mode[1]);
-	
-	 #instHome_J2(Axis     := "J2_SCARA_Arm3D",
-	              Execute  := "GDB_AxisCtrl".LKinCtrl.input.bo_home,
-	              Position := "GDB_AxisCtrl".LKinCtrl.input.configuration.home.r64_homeposition[2],
-	              Mode     := "GDB_AxisCtrl".LKinCtrl.input.configuration.home.i16_mode[2]);
-	
-	 #instHome_J3(Axis     := "J3_SCARA_Arm3D",
-	              Execute  := "GDB_AxisCtrl".LKinCtrl.input.bo_home,
-	              Position := "GDB_AxisCtrl".LKinCtrl.input.configuration.home.r64_homeposition[3],
-	              Mode     := "GDB_AxisCtrl".LKinCtrl.input.configuration.home.i16_mode[3]);
-	
-	 #instHome_J4(Axis     := "J4_SCARA_Arm3D",
-	              Execute  := "GDB_AxisCtrl".LKinCtrl.input.bo_home,
-	              Position := "GDB_AxisCtrl".LKinCtrl.input.configuration.home.r64_homeposition[4],
-	              Mode     := "GDB_AxisCtrl".LKinCtrl.input.configuration.home.i16_mode[4]);
-	
-	 // Mirror axesHomed = AND of all 4 Done outputs
-	 IF #instHome_J1.Done
-	    AND #instHome_J2.Done
-	    AND #instHome_J3.Done
-	    AND #instHome_J4.Done
-	 THEN
-	     "GDB_AxisCtrl".LKinCtrl.output.bo_homed := TRUE;
-	 END_IF;
-	
-	 // =====================================================================
-	 // REGION SetTool  - activate Tool[1] on ScaraArm3D after axes enable
-	 // =====================================================================
-	 // Historical UserFault root cause (per NOTE_v9_UserFault_RootCause_Analysis.md):
-	 //   ScaraArm3D.ToolNumber defaults to 0 on cold start (no active tool).
-	 //   ScaraArm3D.Tool[1].Frame.z = 50mm is DEFINED in the TO XML but NEVER
-	 //   APPLIED until MC_SetTool selects ToolNumber=1.
-	 //   Without active tool, MC_MoveLinearAbsolute returns motionFBStatus=0x8001
-	 //   ("Invalid input value") which surfaces as TO.ErrorWord.X2 = UserFault.
-	 //
-	 // One-shot idempotent pattern:
-	 //   - Only runs while statToolActivated=FALSE (cleared on memory reset)
-	 //   - Gated on axesEnabled=TRUE (tool selection requires kinematic powered)
-	 //   - Drops Execute=FALSE after Done to release the MC instruction
-	 //   - Latches statToolActivated=TRUE so subsequent scans skip entirely
-	 //
-	 // Error handling: if MC_SetTool errors, statToolActivated stays FALSE and
-	 // next scan retries. Operator can see persistent retry via Error output;
-	 // motion cycle won't start meaningfully until tool activates.
-	 IF "GDB_AxisCtrl".LKinCtrl.output.bo_enabled AND NOT #statToolActivated THEN
-	     #instMC_SetTool(AxesGroup  := "ScaraArm3D",
-	                     Execute    := TRUE,
-	                     ToolNumber := 1);
-	     IF #instMC_SetTool.Done THEN
-	         #instMC_SetTool(AxesGroup := "ScaraArm3D",
-	                         Execute   := FALSE);
-	         #statToolActivated := TRUE;
-	     END_IF;
-	 END_IF;
-	
-	 // =====================================================================
-	 // REGION StatusDerived  - axesReady (rev 1.3, 2026-05-18)
-	 // Single Bool tag for HMI BackColor binding (cycle-7.1 Q2 ACK).
-	 // Reads the values written above in REGION Power / Reset / Home.
-	 // =====================================================================
-	 "GDB_AxisCtrl".LKinCtrl.output.bo_ready := "GDB_AxisCtrl".LKinCtrl.output.bo_enabled
-	                            AND "GDB_AxisCtrl".LKinCtrl.output.bo_homed
-	                            AND NOT "GDB_AxisCtrl".LKinCtrl.output.bo_fault;
-	
-	
-END_FUNCTION_BLOCK
 
+    REGION Power
+        // Enable all kinematic axes via the library group-power FB.
+        // startMode / stopMode arrays come from the consolidated config.
+        #instGroupPower(enable    := "GDB_AxisCtrl".LKinCtrl.input.bo_enable,
+                        startMode := "GDB_AxisCtrl".LKinCtrl.input.configuration.power.startMode,
+                        stopMode  := "GDB_AxisCtrl".LKinCtrl.input.configuration.power.stopMode,
+                        axesGroup := "ScaraArm3D");
+        "GDB_AxisCtrl".LKinCtrl.output.bo_enabled := #instGroupPower.axesEnabled;
+    END_REGION
+
+    REGION Reset
+        // Reset all axes + the kinematics TO via the library group-reset FB.
+        #instGroupReset(execute   := "GDB_AxisCtrl".LKinCtrl.input.bo_reset,
+                        restart   := "GDB_AxisCtrl".LKinCtrl.input.configuration.reset.restart,
+                        axesGroup := "ScaraArm3D");
+    END_REGION
+
+    REGION Fault
+        "GDB_AxisCtrl".LKinCtrl.output.bo_fault := #instGroupPower.error
+                                                   OR #instGroupReset.error;
+    END_REGION
+
+    REGION SetTool
+        // One-shot Tool[1] activation once the group is enabled. Without an
+        // active tool, MC_MoveLinearAbsolute returns UserFault (documented
+        // root cause). Idempotent: latches statToolActivated, drops Execute
+        // after Done. Cleared by memory reset.
+        IF "GDB_AxisCtrl".LKinCtrl.output.bo_enabled AND NOT #statToolActivated THEN
+            #instMC_SetTool(AxesGroup  := "ScaraArm3D",
+                            Execute    := TRUE,
+                            ToolNumber := 1);
+            IF #instMC_SetTool.Done THEN
+                #instMC_SetTool(AxesGroup := "ScaraArm3D",
+                                Execute   := FALSE);
+                #statToolActivated := TRUE;
+            END_IF;
+        END_IF;
+    END_REGION
+
+    REGION MoveLinear
+        // Kinematic linear move on ScaraArm3D. The auto FBs (OB1) write the
+        // target pose + dynamics into GDB_AxisCtrl.LKinCtrl.input.movelinear
+        // and hold bo_execute; this region runs the one MC_MoveLinearAbsolute
+        // and mirrors its status into output.movelinear for the auto FB's
+        // wait-in-place step. BufferMode 1 (buffered) - the auto CASE
+        // serializes moves (one per step, waits for Done), so no
+        // cross-command blending is needed.
+        #tempPos[1] := "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.x;
+        #tempPos[2] := "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.y;
+        #tempPos[3] := "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.z;
+        #tempPos[4] := "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.a;
+        #tempPos[5] := "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.b;
+        #tempPos[6] := "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.c;
+
+        #instMoveLinAbs(AxesGroup    := "ScaraArm3D",
+                        Execute      := "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute,
+                        Position     := #tempPos,
+                        Velocity     := "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_velocity,
+                        Acceleration := "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_acceleration,
+                        Deceleration := "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_deceleration,
+                        Jerk         := "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_jerk,
+                        BufferMode   := 1);
+
+        "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_done           := #instMoveLinAbs.Done;
+        "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_busy           := #instMoveLinAbs.Busy;
+        "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_active         := #instMoveLinAbs.Active;
+        "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_error          := #instMoveLinAbs.Error;
+        "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_commandaborted := #instMoveLinAbs.CommandAborted;
+    END_REGION
+
+    REGION StatusDerived
+        // bo_ready = enabled AND homed AND NOT fault. bo_homed is written
+        // by FB_Init - call FB_Init before FB_AxisCtrl in OB30.
+        "GDB_AxisCtrl".LKinCtrl.output.bo_ready :=
+            "GDB_AxisCtrl".LKinCtrl.output.bo_enabled
+            AND "GDB_AxisCtrl".LKinCtrl.output.bo_homed
+            AND NOT "GDB_AxisCtrl".LKinCtrl.output.bo_fault;
+    END_REGION
+
+END_FUNCTION_BLOCK

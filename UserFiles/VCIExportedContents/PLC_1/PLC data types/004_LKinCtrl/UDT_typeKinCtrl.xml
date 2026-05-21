@@ -28,6 +28,21 @@
       <Member Name="bo_movepathstart" Datatype="Bool" />
       <Member Name="bo_movepathstop" Datatype="Bool" />
       <Member Name="bo_movepathhalt" Datatype="Bool" />
+      <Member Name="movelinear" Datatype="Struct">
+        <Member Name="bo_execute" Datatype="Bool" />
+        <Member Name="targetposition" Datatype="Struct">
+          <Member Name="x" Datatype="LReal" />
+          <Member Name="y" Datatype="LReal" />
+          <Member Name="z" Datatype="LReal" />
+          <Member Name="a" Datatype="LReal" />
+          <Member Name="b" Datatype="LReal" />
+          <Member Name="c" Datatype="LReal" />
+        </Member>
+        <Member Name="r64_velocity" Datatype="LReal" />
+        <Member Name="r64_acceleration" Datatype="LReal" />
+        <Member Name="r64_deceleration" Datatype="LReal" />
+        <Member Name="r64_jerk" Datatype="LReal" />
+      </Member>
       <Member Name="configuration" Datatype="Struct">
         <Member Name="home" Datatype="Struct">
           <AttributeList>
@@ -103,6 +118,13 @@
         <Member Name="a" Datatype="LReal" />
         <Member Name="b" Datatype="LReal" />
         <Member Name="c" Datatype="LReal" />
+      </Member>
+      <Member Name="movelinear" Datatype="Struct">
+        <Member Name="bo_done" Datatype="Bool" />
+        <Member Name="bo_busy" Datatype="Bool" />
+        <Member Name="bo_active" Datatype="Bool" />
+        <Member Name="bo_error" Datatype="Bool" />
+        <Member Name="bo_commandaborted" Datatype="Bool" />
       </Member>
     </Member>
     <Member Name="inout" Datatype="Struct">

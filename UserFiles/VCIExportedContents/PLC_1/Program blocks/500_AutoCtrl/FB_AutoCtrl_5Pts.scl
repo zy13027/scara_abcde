@@ -1,66 +1,210 @@
-﻿FUNCTION_BLOCK "FB_AutoCtrl_5Pts"
+FUNCTION_BLOCK "FB_AutoCtrl_5Pts"
 { S7_Optimized_Access := 'TRUE' }
-VERSION : 0.1
+VERSION : 1.0
+// =====================================================================
+// SCARA ABCDE - 5-Point Auto Cycle  (Phase 4a, 2026-05-21)
+//
+// Huashili-pattern CASE state machine. Runs in OB1 (process logic). It
+// owns the ABCDE 5-point sequence and commands motion ONLY by writing
+// GDB_AxisCtrl.LKinCtrl.input.movelinear - it never calls an MC
+// instruction. FB_AxisCtrl (OB30) runs the actual MC_MoveLinearAbsolute.
+//
+// Structure (Huashili FB_AutoCtrl): the REGIONs Initialise path / startup
+// / Pause / Stop / Alarm / E_Stop edge-detect the HMI command bits and
+// jump the step variable; REGION Auto holds the CASE.
+//
+// Step model (GDB_MachineCmd.i16_AutoStep):
+//   0   idle              10  head reset       20  preconditions
+//   30  load target       50  issue motion     75  pause (reserved)
+//   100 wait-in-place     110 handshake done   200 abort
+//   230 advance / wrap    800 E-Stop hold      900 tail reset
+//
+// Move handshake (cross-OB, OB1<->OB30): step 50 holds bo_execute TRUE;
+// step 100 waits output.movelinear.bo_done; step 110 then waits bo_done
+// to clear - this confirms FB_AxisCtrl saw bo_execute drop, so the next
+// move is a clean rising edge for MC_MoveLinearAbsolute.
+//
+// Replaces FB_AutoCtrl_ABCDE (retired once this FB is verified).
+// =====================================================================
+   VAR
+      pts : Array[1..5] of "UDT_typePoint5";
+      statTargetPos { S7_SetPoint := 'False' } : "UDT_typePoint5";
+      statPointIdx : Int;
+      sRTRIGInitPath {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+      sRTRIGStart {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+      sRTRIGStop {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+      sRTRIGAlarm {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+   END_VAR
+
 
 BEGIN
-	REGION Initialise path
-	    
-	    
-	END_REGION
-	
-	
-	REGION startup
-	    
-	END_REGION
-	
-	
-	REGION Pause
-	    
-	    
-	END_REGION
-	
-	
-	REGION Stop
-	    
-	    
-	    
-	END_REGION
-	
-	
-	
-	REGION Alarm
-	    
-	    
-	END_REGION
-	
-	
-	REGION E_Stop 
-	    
-	    
-	END_REGION
-	
-	
-	REGION Auto
-	    
-	    CASE "GDB_MachineCmd".i16_AutoStep OF
-	            
-	        0: //Idle
-	            ;
-	            
-	        10: //Parameters Reset
-	            ;
-	            
-	        20://Appreity Device Start 
-	            ;
-	            
-	        30://Path Data Assignment
-	            
-	            ;
-	            
-	            
-	            
-	    END_CASE;
-	    
-	END_REGION
-END_FUNCTION_BLOCK
 
+    REGION Initialise path
+        // On the HMI Init-Path rising edge, build the ABCDE 5-point table -
+        // a square in the WCS, all at Z = 400 mm. (Ported from FB_AutoCtrl_ABCDE.)
+        #sRTRIGInitPath(CLK := "GDB_MachineCmd".bo_InitPath);
+        IF #sRTRIGInitPath.Q THEN
+            #pts[1].x := 1800.0; #pts[1].y := 0.0;    #pts[1].z := 400.0; #pts[1].a := 0.0;   // A
+            #pts[2].x := 1800.0; #pts[2].y := 300.0;  #pts[2].z := 400.0; #pts[2].a := 0.0;   // B
+            #pts[3].x := 1500.0; #pts[3].y := 300.0;  #pts[3].z := 400.0; #pts[3].a := 0.0;   // C
+            #pts[4].x := 1500.0; #pts[4].y := -300.0; #pts[4].z := 400.0; #pts[4].a := 0.0;   // D
+            #pts[5].x := 1800.0; #pts[5].y := -300.0; #pts[5].z := 400.0; #pts[5].a := 0.0;   // E
+            "GDB_MachineCmd".bo_PathInitialed := TRUE;
+        END_IF;
+    END_REGION
+
+
+    REGION startup
+        // Start permissive: AUTO mode, E-Stop healthy, idle, path initialised,
+        // no alarm. On the Start rising edge, enter the cycle at head reset.
+        #sRTRIGStart(CLK := "GDB_MachineCmd".bo_Start);
+        IF "GDB_MachineCmd".bo_Mode
+            AND "GDB_MachineCmd".bo_ESTOP_LOCK
+            AND ("GDB_MachineCmd".i16_AutoStep = 0)
+            AND #sRTRIGStart.Q
+            AND "GDB_MachineCmd".bo_PathInitialed
+            AND NOT "GDB_MachineCmd".bo_Alarm
+        THEN
+            "GDB_MachineCmd".i16_AutoStep := 10;
+        END_IF;
+    END_REGION
+
+
+    REGION Pause
+        // Reserved. GDB_MachineCmd has no halt/pause command bit in the
+        // minimal demo; the CASE keeps step 75 as the pause hook. Wire a
+        // halt bit + edge detector here when pause is added (review backlog).
+        ;
+    END_REGION
+
+
+    REGION Stop
+        // Stop -> abort. Route through step 200 so the in-flight move command
+        // is dropped and the tail reset (900) runs before returning to idle.
+        #sRTRIGStop(CLK := "GDB_MachineCmd".bo_Stop);
+        IF #sRTRIGStop.Q
+            AND ("GDB_MachineCmd".i16_AutoStep >= 10)
+            AND ("GDB_MachineCmd".i16_AutoStep <= 230)
+        THEN
+            "GDB_MachineCmd".i16_AutoStep := 200;
+        END_IF;
+    END_REGION
+
+
+    REGION Alarm
+        // Any system alarm -> abort (same path as Stop).
+        #sRTRIGAlarm(CLK := "GDB_MachineCmd".bo_Alarm);
+        IF #sRTRIGAlarm.Q
+            AND ("GDB_MachineCmd".i16_AutoStep >= 10)
+            AND ("GDB_MachineCmd".i16_AutoStep <= 230)
+        THEN
+            "GDB_MachineCmd".i16_AutoStep := 200;
+        END_IF;
+    END_REGION
+
+
+    REGION E_Stop
+        // E-Stop chain open (bo_ESTOP_LOCK = FALSE) -> jump to the hold
+        // state 800 from any running step.
+        IF NOT "GDB_MachineCmd".bo_ESTOP_LOCK
+            AND ("GDB_MachineCmd".i16_AutoStep >= 10)
+            AND ("GDB_MachineCmd".i16_AutoStep <= 230)
+        THEN
+            "GDB_MachineCmd".i16_AutoStep := 800;
+        END_IF;
+    END_REGION
+
+
+    REGION Auto
+
+        CASE "GDB_MachineCmd".i16_AutoStep OF
+
+            0:  // Idle - await Start
+                ;
+
+            10: // Head reset - clear the in-flight move command, reset index
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+                #statPointIdx := 1;
+                "GDB_MachineCmd".i16_AutoStep := 20;
+
+            20: // Preconditions - wait until the OB30 axis layer is ready
+                //                  (axes enabled + homed + no fault)
+                IF "GDB_AxisCtrl".LKinCtrl.output.bo_ready THEN
+                    "GDB_MachineCmd".i16_AutoStep := 30;
+                END_IF;
+
+            30: // Path-data assignment - load pts[idx] into the move command.
+                // Parameters BEFORE command: target + dynamics set here; the
+                // execute bit is set only in step 50.
+                #statTargetPos := #pts[#statPointIdx];
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.x := #statTargetPos.x;
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.y := #statTargetPos.y;
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.z := #statTargetPos.z;
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.a := #statTargetPos.a;
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.b := 0.0;
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.c := 0.0;
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_velocity     := 300.0;
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_acceleration := 3000.0;
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_deceleration := 3000.0;
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_jerk         := 30000.0;
+                "GDB_MachineCmd".i16_AutoStep := 50;
+
+            50: // Issue motion - hand the move to the 600 axis layer
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := TRUE;
+                "GDB_MachineCmd".i16_AutoStep := 100;
+
+            75: // Pause - reserved (see REGION Pause)
+                ;
+
+            100: // Wait-in-place - FB_AxisCtrl reports the move complete.
+                 // On error / abort, bail to the abort step.
+                IF "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_done THEN
+                    "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+                    "GDB_MachineCmd".i16_AutoStep := 110;
+                ELSIF "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_error
+                    OR "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_commandaborted
+                THEN
+                    "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+                    "GDB_MachineCmd".i16_AutoStep := 200;
+                END_IF;
+
+            110: // Handshake done - wait for bo_done to clear, confirming the
+                 // OB30 axis layer saw bo_execute drop. Guarantees the next
+                 // move is a clean rising edge for MC_MoveLinearAbsolute.
+                IF NOT "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_done THEN
+                    "GDB_MachineCmd".i16_AutoStep := 230;
+                END_IF;
+
+            200: // Abort - drop the command, fall through to the tail reset
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+                "GDB_MachineCmd".i16_AutoStep := 900;
+
+            230: // Advance - next point; the ABCDE cycle wraps E -> A
+                IF #statPointIdx >= 5 THEN
+                    #statPointIdx := 1;
+                ELSE
+                    #statPointIdx := #statPointIdx + 1;
+                END_IF;
+                "GDB_MachineCmd".i16_AutoStep := 30;
+
+            800: // E-Stop hold - command dropped; auto-recovers to the tail
+                 // reset once the E-Stop chain is healthy again.
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+                IF "GDB_MachineCmd".bo_ESTOP_LOCK THEN
+                    "GDB_MachineCmd".i16_AutoStep := 900;
+                END_IF;
+
+            900: // Tail reset - mirror of step 10; return to idle
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+                #statPointIdx := 1;
+                "GDB_MachineCmd".i16_AutoStep := 0;
+
+            ELSE  // Unknown step - fail safe to idle
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+                "GDB_MachineCmd".i16_AutoStep := 0;
+
+        END_CASE;
+
+    END_REGION
+
+END_FUNCTION_BLOCK

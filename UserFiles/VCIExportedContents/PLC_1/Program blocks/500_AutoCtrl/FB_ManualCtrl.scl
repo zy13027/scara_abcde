@@ -257,10 +257,13 @@ BEGIN
 	 // Previous %X3 read was unreliable on this ABCDE deployment (bit position
 	 // varies across S7-1500T MC TO versions). Power.Status IS the "axis ready"
 	 // semantic per Siemens MC docs.
-	 "GDB_ManualStatus".bo_J1_Enabled := "instFB_AxisCtrl".instPower_J1.Status;
-	 "GDB_ManualStatus".bo_J2_Enabled := "instFB_AxisCtrl".instPower_J2.Status;
-	 "GDB_ManualStatus".bo_J3_Enabled := "instFB_AxisCtrl".instPower_J3.Status;
-	 "GDB_ManualStatus".bo_J4_Enabled := "instFB_AxisCtrl".instPower_J4.Status;
+	 // V2.0 (Phase 3): FB_AxisCtrl rebuilt on LKinCtrl_MC_GroupPower — the
+	 // per-joint instPower_J{n} instances no longer exist. Group enable is
+	 // all-or-nothing, so all 4 joints mirror the group bo_enabled.
+	 "GDB_ManualStatus".bo_J1_Enabled := "GDB_AxisCtrl".LKinCtrl.output.bo_enabled;
+	 "GDB_ManualStatus".bo_J2_Enabled := "GDB_AxisCtrl".LKinCtrl.output.bo_enabled;
+	 "GDB_ManualStatus".bo_J3_Enabled := "GDB_AxisCtrl".LKinCtrl.output.bo_enabled;
+	 "GDB_ManualStatus".bo_J4_Enabled := "GDB_AxisCtrl".LKinCtrl.output.bo_enabled;
 	
 	 "GDB_ManualStatus".bo_J1_Homed := "J1_SCARA_Arm3D".StatusWord.%X5;
 	 "GDB_ManualStatus".bo_J2_Homed := "J2_SCARA_Arm3D".StatusWord.%X5;

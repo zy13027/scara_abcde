@@ -1,0 +1,38 @@
+ORGANIZATION_BLOCK "CyclicInterrupt_10ms"
+TITLE = "Axis / Kinematics Control - 10 ms cyclic interrupt"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 1.0
+// =====================================================================
+// SCARA ABCDE - CyclicInterrupt_10ms (OB30)
+// (Phase 3, 2026-05-21 - refactor onto the Huashili layered architecture)
+//
+// The axis / kinematics layer. Per the 2026-05-21 TIA programming review,
+// all Motion Control runs here - decoupled from the OB1 process logic into
+// a 10 ms cyclic interrupt for deterministic, isolated MC timing.
+//
+// Call order matters:
+//   1. FB_Init     - homes the SCARA kinematics group (LKinCtrl_MC_GroupHome);
+//                    writes GDB_AxisCtrl.LKinCtrl.output.bo_homed.
+//   2. FB_AxisCtrl - group power / reset / SetTool, derived status, and the
+//                    kinematic linear move (MC_MoveLinearAbsolute). Its
+//                    StatusDerived region reads bo_homed, so FB_Init runs first.
+//
+// OB1 (Main) holds only process logic; it commands motion by writing
+// GDB_AxisCtrl and never calls an MC instruction itself.
+// =====================================================================
+
+BEGIN
+
+    REGION Init_Homing
+        // Homes ScaraArm3D via LKinCtrl_MC_GroupHome. Edge-triggered on
+        // GDB_AxisCtrl.LKinCtrl.input.bo_home; latches output.bo_homed.
+        "instFB_Init"();
+    END_REGION
+
+    REGION Axis_Kinematics_Control
+        // Group power / reset / SetTool one-shot / derived status, plus the
+        // kinematic MC_MoveLinearAbsolute driven by GDB_AxisCtrl.LKinCtrl.
+        "instFB_AxisCtrl"();
+    END_REGION
+
+END_ORGANIZATION_BLOCK

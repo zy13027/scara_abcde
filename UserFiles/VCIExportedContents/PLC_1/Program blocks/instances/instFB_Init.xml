@@ -1,38 +1,26 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Document>
   <Engineering version="V20" />
   <SW.Blocks.InstanceDB ID="0">
     <AttributeList>
       <HeaderVersion>1.1</HeaderVersion>
-      <InstanceOfName>FB_AxisCtrl</InstanceOfName>
+      <InstanceOfName>FB_Init</InstanceOfName>
       <InstanceOfType>FB</InstanceOfType>
       <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
   <Section Name="Input" />
   <Section Name="Output" />
   <Section Name="InOut" />
   <Section Name="Static">
-    <Member Name="instGroupPower" Datatype="&quot;LKinCtrl_MC_GroupPower&quot;">
+    <Member Name="instGroupHome" Datatype="&quot;LKinCtrl_MC_GroupHome&quot;">
       <AttributeList>
         <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
       </AttributeList>
     </Member>
-    <Member Name="instGroupReset" Datatype="&quot;LKinCtrl_MC_GroupReset&quot;">
-      <AttributeList>
-        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
-      </AttributeList>
-    </Member>
-    <Member Name="instMC_SetTool" Datatype="MC_SETTOOL" Version="9.0">
-      <AttributeList>
-        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
-      </AttributeList>
-    </Member>
-    <Member Name="instMoveLinAbs" Datatype="MC_MOVELINEARABSOLUTE" Version="9.0" />
-    <Member Name="statToolActivated" Datatype="Bool" />
   </Section>
 </Sections></Interface>
-      <Name>instFB_AxisCtrl</Name>
+      <Name>instFB_Init</Name>
       <Namespace />
-      <Number>2</Number>
+      <Number>22</Number>
       <ProgrammingLanguage>DB</ProgrammingLanguage>
     </AttributeList>
     <ObjectList>
@@ -41,7 +29,7 @@
           <MultilingualTextItem ID="2" CompositionName="Items">
             <AttributeList>
               <Culture>en-US</Culture>
-              <Text />
+              <Text>Instance DB for FB_Init (Phase 3, 2026-05-21). Homing block - LKinCtrl_MC_GroupHome on ScaraArm3D, runs in OB30. DB number may be auto-assigned by TIA on import.</Text>
             </AttributeList>
           </MultilingualTextItem>
         </ObjectList>
