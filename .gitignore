@@ -26,3 +26,6 @@ UserFiles/VCIExportedContents/.backup/
 
 # Operator-local TIA project metadata
 hmiDemoSCARA_ABCDE.info
+
+# JetBrains IDE metadata
+.idea/
