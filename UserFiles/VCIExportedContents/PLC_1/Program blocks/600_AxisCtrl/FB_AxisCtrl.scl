@@ -88,27 +88,27 @@ BEGIN
 	 // All 4 joints share the same enableAxes bit + StartMode[i]/StopMode[i].
 	 // =====================================================================
 	 #instPower_J1(Axis      := "J1_SCARA_Arm3D",
-	               Enable    := "GDB_Control".enableAxes,
-	               StartMode := "GDB_Control".StartMode[1],
-	               StopMode  := "GDB_Control".StopMode[1]);
+	               Enable    := "GDB_AxisCtrl".LKinCtrl.input.bo_enable,
+	               StartMode := "GDB_AxisCtrl".LKinCtrl.input.configuration.power.startMode[1],
+	               StopMode  := "GDB_AxisCtrl".LKinCtrl.input.configuration.power.stopMode[1]);
 	
 	 #instPower_J2(Axis      := "J2_SCARA_Arm3D",
-	               Enable    := "GDB_Control".enableAxes,
-	               StartMode := "GDB_Control".StartMode[2],
-	               StopMode  := "GDB_Control".StopMode[2]);
+	               Enable    := "GDB_AxisCtrl".LKinCtrl.input.bo_enable,
+	               StartMode := "GDB_AxisCtrl".LKinCtrl.input.configuration.power.startMode[2],
+	               StopMode  := "GDB_AxisCtrl".LKinCtrl.input.configuration.power.stopMode[2]);
 	
 	 #instPower_J3(Axis      := "J3_SCARA_Arm3D",
-	               Enable    := "GDB_Control".enableAxes,
-	               StartMode := "GDB_Control".StartMode[3],
-	               StopMode  := "GDB_Control".StopMode[3]);
+	               Enable    := "GDB_AxisCtrl".LKinCtrl.input.bo_enable,
+	               StartMode := "GDB_AxisCtrl".LKinCtrl.input.configuration.power.startMode[3],
+	               StopMode  := "GDB_AxisCtrl".LKinCtrl.input.configuration.power.stopMode[3]);
 	
 	 #instPower_J4(Axis      := "J4_SCARA_Arm3D",
-	               Enable    := "GDB_Control".enableAxes,
-	               StartMode := "GDB_Control".StartMode[4],
-	               StopMode  := "GDB_Control".StopMode[4]);
+	               Enable    := "GDB_AxisCtrl".LKinCtrl.input.bo_enable,
+	               StartMode := "GDB_AxisCtrl".LKinCtrl.input.configuration.power.startMode[4],
+	               StopMode  := "GDB_AxisCtrl".LKinCtrl.input.configuration.power.stopMode[4]);
 	
 	 // Mirror axesEnabled = AND of all 4 Status outputs
-	 "GDB_Control".axesEnabled := #instPower_J1.Status
+	 "GDB_AxisCtrl".LKinCtrl.output.bo_enabled := #instPower_J1.Status
 	                               AND #instPower_J2.Status
 	                               AND #instPower_J3.Status
 	                               AND #instPower_J4.Status;
@@ -118,13 +118,13 @@ BEGIN
 	 // MC_RESET accepts TO_PositioningAxis (joints) AND TO_Kinematics (group).
 	 // Single rising-edge from HMI resetAxes button.
 	 // =====================================================================
-	 #instReset_J1(Axis := "J1_SCARA_Arm3D", Execute := "GDB_Control".resetAxes);
-	 #instReset_J2(Axis := "J2_SCARA_Arm3D", Execute := "GDB_Control".resetAxes);
-	 #instReset_J3(Axis := "J3_SCARA_Arm3D", Execute := "GDB_Control".resetAxes);
-	 #instReset_J4(Axis := "J4_SCARA_Arm3D", Execute := "GDB_Control".resetAxes);
-	 #instReset_Kin(Axis := "ScaraArm3D",    Execute := "GDB_Control".resetAxes);
+	 #instReset_J1(Axis := "J1_SCARA_Arm3D", Execute := "GDB_AxisCtrl".LKinCtrl.input.bo_reset);
+	 #instReset_J2(Axis := "J2_SCARA_Arm3D", Execute := "GDB_AxisCtrl".LKinCtrl.input.bo_reset);
+	 #instReset_J3(Axis := "J3_SCARA_Arm3D", Execute := "GDB_AxisCtrl".LKinCtrl.input.bo_reset);
+	 #instReset_J4(Axis := "J4_SCARA_Arm3D", Execute := "GDB_AxisCtrl".LKinCtrl.input.bo_reset);
+	 #instReset_Kin(Axis := "ScaraArm3D",    Execute := "GDB_AxisCtrl".LKinCtrl.input.bo_reset);
 	
-	 "GDB_Control".axesError := #instPower_J1.Error
+	 "GDB_AxisCtrl".LKinCtrl.output.bo_fault := #instPower_J1.Error
 	                             OR #instPower_J2.Error
 	                             OR #instPower_J3.Error
 	                             OR #instPower_J4.Error
@@ -144,24 +144,24 @@ BEGIN
 	 // HomePos[i] from Startup OB (all zeros for SCARA zero pose).
 	 // =====================================================================
 	 #instHome_J1(Axis     := "J1_SCARA_Arm3D",
-	              Execute  := "GDB_Control".homeAxes,
-	              Position := "GDB_Control".HomePos[1],
-	              Mode     := "GDB_Control".HomeMode[1]);
+	              Execute  := "GDB_AxisCtrl".LKinCtrl.input.bo_home,
+	              Position := "GDB_AxisCtrl".LKinCtrl.input.configuration.home.r64_homeposition[1],
+	              Mode     := "GDB_AxisCtrl".LKinCtrl.input.configuration.home.i16_mode[1]);
 	
 	 #instHome_J2(Axis     := "J2_SCARA_Arm3D",
-	              Execute  := "GDB_Control".homeAxes,
-	              Position := "GDB_Control".HomePos[2],
-	              Mode     := "GDB_Control".HomeMode[2]);
+	              Execute  := "GDB_AxisCtrl".LKinCtrl.input.bo_home,
+	              Position := "GDB_AxisCtrl".LKinCtrl.input.configuration.home.r64_homeposition[2],
+	              Mode     := "GDB_AxisCtrl".LKinCtrl.input.configuration.home.i16_mode[2]);
 	
 	 #instHome_J3(Axis     := "J3_SCARA_Arm3D",
-	              Execute  := "GDB_Control".homeAxes,
-	              Position := "GDB_Control".HomePos[3],
-	              Mode     := "GDB_Control".HomeMode[3]);
+	              Execute  := "GDB_AxisCtrl".LKinCtrl.input.bo_home,
+	              Position := "GDB_AxisCtrl".LKinCtrl.input.configuration.home.r64_homeposition[3],
+	              Mode     := "GDB_AxisCtrl".LKinCtrl.input.configuration.home.i16_mode[3]);
 	
 	 #instHome_J4(Axis     := "J4_SCARA_Arm3D",
-	              Execute  := "GDB_Control".homeAxes,
-	              Position := "GDB_Control".HomePos[4],
-	              Mode     := "GDB_Control".HomeMode[4]);
+	              Execute  := "GDB_AxisCtrl".LKinCtrl.input.bo_home,
+	              Position := "GDB_AxisCtrl".LKinCtrl.input.configuration.home.r64_homeposition[4],
+	              Mode     := "GDB_AxisCtrl".LKinCtrl.input.configuration.home.i16_mode[4]);
 	
 	 // Mirror axesHomed = AND of all 4 Done outputs
 	 IF #instHome_J1.Done
@@ -169,7 +169,7 @@ BEGIN
 	    AND #instHome_J3.Done
 	    AND #instHome_J4.Done
 	 THEN
-	     "GDB_Control".axesHomed := TRUE;
+	     "GDB_AxisCtrl".LKinCtrl.output.bo_homed := TRUE;
 	 END_IF;
 	
 	 // =====================================================================
@@ -191,7 +191,7 @@ BEGIN
 	 // Error handling: if MC_SetTool errors, statToolActivated stays FALSE and
 	 // next scan retries. Operator can see persistent retry via Error output;
 	 // motion cycle won't start meaningfully until tool activates.
-	 IF "GDB_Control".axesEnabled AND NOT #statToolActivated THEN
+	 IF "GDB_AxisCtrl".LKinCtrl.output.bo_enabled AND NOT #statToolActivated THEN
 	     #instMC_SetTool(AxesGroup  := "ScaraArm3D",
 	                     Execute    := TRUE,
 	                     ToolNumber := 1);
@@ -207,9 +207,9 @@ BEGIN
 	 // Single Bool tag for HMI BackColor binding (cycle-7.1 Q2 ACK).
 	 // Reads the values written above in REGION Power / Reset / Home.
 	 // =====================================================================
-	 "GDB_Control".axesReady := "GDB_Control".axesEnabled
-	                            AND "GDB_Control".axesHomed
-	                            AND NOT "GDB_Control".axesError;
+	 "GDB_AxisCtrl".LKinCtrl.output.bo_ready := "GDB_AxisCtrl".LKinCtrl.output.bo_enabled
+	                            AND "GDB_AxisCtrl".LKinCtrl.output.bo_homed
+	                            AND NOT "GDB_AxisCtrl".LKinCtrl.output.bo_fault;
 	
 	
 END_FUNCTION_BLOCK

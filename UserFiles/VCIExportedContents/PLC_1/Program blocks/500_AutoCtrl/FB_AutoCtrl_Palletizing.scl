@@ -233,8 +233,8 @@ BEGIN
 	     "GDB_PalletizingCmd".bo_PalletDone := FALSE;
 	     "GDB_PalletizingCmd".i16_PalletStep := 1;
 	
-	     "GDB_Control".bo_gripperGrip    := FALSE;
-	     "GDB_Control".bo_gripperRelease := FALSE;
+	     "GDB_MCDData".bo_gripperGrip    := FALSE;
+	     "GDB_MCDData".bo_gripperRelease := FALSE;
 	 END_IF;
 	
 	 // =====================================================================
@@ -246,8 +246,8 @@ BEGIN
 	     #statPhase     := 0;
 	     #statCmdPtr    := 0;
 	     #statExecState := 0;
-	     "GDB_Control".bo_gripperGrip    := FALSE;
-	     "GDB_Control".bo_gripperRelease := FALSE;
+	     "GDB_MCDData".bo_gripperGrip    := FALSE;
+	     "GDB_MCDData".bo_gripperRelease := FALSE;
 	 END_IF;
 	
 	 // =====================================================================
@@ -321,8 +321,8 @@ BEGIN
 	
 	             2: // GRIPPER
 	                 IF #statExecState = 0 THEN
-	                     "GDB_Control".bo_gripperGrip    := "GDB_PalletizingPath".aCmd[#statCmdPtr].bo_GripperGrip;
-	                     "GDB_Control".bo_gripperRelease := "GDB_PalletizingPath".aCmd[#statCmdPtr].bo_GripperRelease;
+	                     "GDB_MCDData".bo_gripperGrip    := "GDB_PalletizingPath".aCmd[#statCmdPtr].bo_GripperGrip;
+	                     "GDB_MCDData".bo_gripperRelease := "GDB_PalletizingPath".aCmd[#statCmdPtr].bo_GripperRelease;
 	                     "GDB_PalletizingCmd".i16_PalletStep := "GDB_PalletizingPath".aCmd[#statCmdPtr].i16_HmiStep;
 	                     #statExecState := 1;
 	                 ELSE
@@ -330,7 +330,7 @@ BEGIN
 	                                       PT := DINT_TO_TIME(LREAL_TO_DINT("GDB_PalletizingPath".aCmd[#statCmdPtr].lr_DwellMs)));
 	                     IF #instGripperTimer.Q THEN
 	                         #instGripperTimer(IN := FALSE, PT := T#0MS);
-	                         "GDB_Control".bo_gripperRelease := FALSE;   // end any blow-off pulse
+	                         "GDB_MCDData".bo_gripperRelease := FALSE;   // end any blow-off pulse
 	                         #statCmdPtr    := #statCmdPtr + 1;
 	                         #statExecState := 0;
 	                     END_IF;
@@ -368,14 +368,14 @@ BEGIN
 	     8: // COMPLETE -- all boxes placed; hold idle
 	         "GDB_PalletizingCmd".bo_PalletDone := TRUE;
 	         "GDB_PalletizingCmd".i16_PalletStep := 0;
-	         "GDB_Control".bo_gripperGrip    := FALSE;
-	         "GDB_Control".bo_gripperRelease := FALSE;
+	         "GDB_MCDData".bo_gripperGrip    := FALSE;
+	         "GDB_MCDData".bo_gripperRelease := FALSE;
 	
 	     9: // FAULT -- hold safe; recover on the HMI reset button (resetAxes)
-	         "GDB_Control".bo_gripperGrip    := FALSE;
-	         "GDB_Control".bo_gripperRelease := FALSE;
+	         "GDB_MCDData".bo_gripperGrip    := FALSE;
+	         "GDB_MCDData".bo_gripperRelease := FALSE;
 	         "GDB_PalletizingCmd".i16_PalletStep := 0;
-	         IF "GDB_Control".resetAxes THEN
+	         IF "GDB_AxisCtrl".LKinCtrl.input.bo_reset THEN
 	             "GDB_PalletizingCmd".bo_Alarm := FALSE;
 	             #statPhase     := 0;
 	             #statCmdPtr    := 0;

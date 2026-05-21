@@ -110,6 +110,16 @@
         <MultiLanguageText Lang="en-US">Grip-success feedback (2026-05-21): MCD writes via the sScaraHasGrippedObj output signal on the Suction_Cup_Gripper SignalAdapter (MCD writes, PLC reads). TRUE = the suction cup has successfully gripped a container; FALSE = nothing held. Lets the PLC confirm a real pick before the SCARA raises, and pins the grip chain for diagnostics.</MultiLanguageText>
       </Comment>
     </Member>
+    <Member Name="bo_gripperGrip" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Phase 2 (2026-05-21): suction-cup vacuum-ON command (PLC writes, MCD reads via the sScaraGrip signal adapter). Level signal — TRUE during transport. Relocated from the retired GDB_Control during the GDB_AxisCtrl consolidation; joins the other MCD-interface signals here.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_gripperRelease" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Phase 2 (2026-05-21): suction-cup active-release pulse (PLC writes, MCD reads via the sScaraRelease signal adapter). Relocated from the retired GDB_Control during the GDB_AxisCtrl consolidation.</MultiLanguageText>
+      </Comment>
+    </Member>
   </Section>
 </Sections></Interface>
       <MemoryLayout>Optimized</MemoryLayout>
