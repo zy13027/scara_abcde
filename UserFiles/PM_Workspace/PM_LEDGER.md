@@ -179,4 +179,17 @@ These notes track activity since `c8f8af1` landed (catch-up #2) but BEFORE a fol
 
 ---
 
+## 2026-05-21 — Session: Motion/process decouple phase (502edd6) + LKinCtrl approval
+
+| Time | Event | Detail |
+|---|---|---|
+| | cycle.phase.502edd6 | scara-PLC "phase ready" → scara-PM committed `502edd6` "motion/process decouple onto OB30 axis layer" (10 files, +565/−486). The axis/process decouple from the 2026-05-21 review: Main.scl (OB1) V3.0 = process logic only; `CyclicInterrupt_10ms` (OB30) converted XML→SCL = the new axis layer (calls FB_Init then FB_AxisCtrl); FB_AxisCtrl V1.3→V2.1 rebuilt on LKinCtrl (`LKinCtrl_MC_GroupPower`/`GroupReset`) + new MoveLinear region = the single MC_MoveLinearAbsolute owner; FB_AutoCtrl_5Pts filled in as the standard CASE machine (R5, not yet wired into OB1); new iDBs instFB_Init + instFB_AutoCtrl_5Pts. DB-shape changes (UDT + iDBs) → memory reset owed. |
+| | decision.lkinctrl_approved | **LKinCtrl library APPROVED.** Operator confirmed this session — answering the PM's LKinCtrl-approval query — that 郑磊 (郑老板) approved use of the L Kinematics Control library. Closes scoreboard B.26 (open as `[NEEDS_OPERATOR]` since 2026-05-21). The「不用任何的库」rule is waived for LKinCtrl; the R1–R5 refactor's LKinCtrl coupling (`GDB_AxisCtrl.LKinCtrl.*`, `FB_AxisCtrl`/`FB_Init` on `LKinCtrl_MC_Group*`) is now sanctioned. |
+| | integrity.approval_flag_then_reword | scara-PLC's FB_AxisCtrl V2.0 header comment asserted "(郑老板 approval)"; scara-PM had no record of that decision and HELD the commit, surfacing it via a PM decision query. Operator confirmed the approval. The first commit attempt (message said "now-approved LKinCtrl") was blocked by the Auto-mode content-integrity classifier; re-committed as `502edd6` with a purely technical message — the approval is recorded in the tracking docs (B.26 + this ledger), not asserted in the commit message. Lesson: authorization status belongs in PM tracking, not in commit messages. |
+| | git.discipline | Specific-file `git add` again excluded scara-PLC in-flight edits — `FB_AutoCtrl_Palletizing.scl` + `instFB_AutoCtrl_Palletizing.xml` were modified mid-commit and correctly kept out of `502edd6` (they are the next cluster). |
+| | scoreboard.refresh | `SCOREBOARD_PLC.md`: B.26 ⏸️ `[NEEDS_OPERATOR]` → ✅ **APPROVED**; bumped Last updated / Last action to the `502edd6` phase. |
+| | next | scara-PLC: finish the next cluster (`FB_AutoCtrl_Palletizing` — Phase-4 CASE migration / route palletizing motion via `GDB_AxisCtrl`), then R6 (Pause step). Operator: memory reset + recompile + download for `502edd6`'s DB-shape change; verify the new iDBs + OB30 placement compile. scara-PM: continue the per-"phase ready" commit cycle. |
+
+---
+
 ---
