@@ -1,0 +1,4 @@
+300_Alarm_IO — reserved layer for alarm + I/O handler blocks.
+Per the 2026-05-21 TIA programming review (layered architecture:
+200 HMI-comm / 300 Alarm-IO / 500 process / 600 axis-kinematics / 700 path).
+Placeholder group — no blocks yet.
