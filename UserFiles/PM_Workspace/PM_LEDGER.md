@@ -127,4 +127,37 @@ These notes track activity since `c8f8af1` landed (catch-up #2) but BEFORE a fol
 
 ---
 
+## 2026-05-21 — Session: PM catch-up #4 — VCI re-export + LKinCtrl baseline committed/pushed + 2026-05-21 TIA review absorbed
+
+| Time | Event | Detail |
+|---|---|---|
+| | git.remote.live | SCARA git remote now configured + live: `origin → https://github.com/zy13027/scara_abcde.git`, branch `main`. Closes the long-standing `[NEEDS_OPERATOR]` remote-push gap carried since 2026-05-19 — catch-up #2/#3 backlog (`8e2468f`+`c8f8af1`) was local-only awaiting a remote. |
+| | git.commit.catchup4 | Catch-up #4 committed as `a36f789` "PM catch-up #4: VCI re-export + LKinCtrl import + consolidated UDTs/GDB_AxisCtrl (pre-refactor baseline)" — 204 files, +33273/−2694. Contents: full VCI re-export of PLC_1 source; LKinCtrl library snapshot (`900_TIALib/LKinCtrl_Blocks/` + `002_AxisCtrl`/`004_LKinCtrl` UDTs — large SCL e.g. LKinCtrl_OffsetContour ~2178 LOC, LKinCtrl_MC_ExecuteKinMotionCmd ~3413 LOC); consolidated UDTs + GDB_AxisCtrl; new folder skeleton 000_OB/100_HMI_Comm/600_AxisCtrl/700_Palletizing; FB_AutoCtrl_5Pts.scl skeleton; 2 meeting docs; `.backup/` + old `HMI_1/Screens/` spec deletions. |
+| | git.dup_commit.fixed | A stray parallel `git add -A && git commit` created a duplicate `6e9582d` "PM catch-up #4" capturing only a 1-line `hmiDemoSCARA_ABCDE.info` change. Un-committed via `git reset HEAD~1` (local-only, never pushed, no data lost). Real `a36f789` is the single canonical catch-up #4. |
+| | git.push | `a36f789` pushed to `origin/main` — first SCARA remote push. `origin/main` now carries `d9597d1` (Phase 2/3 plan docs) + `24cbb51` (.idea/ → .gitignore) + `a36f789`. |
+| | folder.rearchitecture | Two follow-on commits applied the Phase-1 folder re-architecture: `8fdae36` "Phase 1 — folder re-architecture: dedupe + layered numbering" (`300_Alarm_IO/.gitkeep`) + `2b88a7d` "Phase 1 (apply) — folder dedupe / rename / move" (12 files, −826 dup lines). Result tree at HEAD: `000_OB / 200_HMI_Comm / 300_Alarm_IO / 500_AutoCtrl / 600_AxisCtrl / 700_Palletizing / 900_TIALib / instances`. `100_HMI_Comm`+`600_HMI_Comm` duplicate deduped→`200_HMI_Comm`; `FB_AxisCtrl`→`600_AxisCtrl`; `100_OB`→`000_OB`. Both commits **local-only** — `main` `[ahead 2]` of `origin/main`. |
+| | absorb.tia_review | Absorbed the 2026-05-21 TIA programming review (minutes + checklist in `PM_Workspace/`). 闫磊 (闫老板) mandate: 轴控与工艺逻辑解耦. 5-layer architecture 200/300/500/600/700; standard CASE step model (王硕 model: 0/10/20/30-80/50/75/100/200/230/800-900); `GDB_Control`→600 + structify + per-axis Enable; new `FB_Init` for homing; `FB_AutoCtrl_5Pts`+ABCDE→standard CASE; add Pause step. 郑磊 (郑老板) open item: L Kinematics Control library approval. |
+| | cycle.handoff.read | Re-read `Meeting_2026-05-21_TIA_Programming_Review.md` + `Meeting_2026-05-21_TIA_Review_Checklist.md`. Inspected `a36f789` + post-baseline commits via `git show --stat` / `git diff --stat` / `git ls-tree`. Confirmed current Program-blocks tree + per-folder file inventory at HEAD `2b88a7d`. |
+| | cycle.handoff.write | Wrote `VCIExportedContents/PM_HANDOFF_2026-05-21_scaraPLC_CatchUp4_PreRefactorBaseline.md` (status INFORMATIONAL → scara-PLC; 9 sections). Records `a36f789` baseline contents; reports folder re-architecture started (`8fdae36`+`2b88a7d`, local-only); hands scara-PLC the R1–R6 code-refactor checklist (R1 GDB_Control→600 / R2 structify+per-axis Enable / R3 new FB_Init / R4 MC_*+MovePath out of 500 / R5 FB_AutoCtrl_5Pts+ABCDE→standard CASE / R6 Pause step) + §6 sequencing; flags `[NEEDS_OPERATOR]` LKinCtrl approval gate (郑磊). |
+| | scoreboard.refresh | Refreshed `SCOREBOARD_PLC.md`: bumped Last updated/Last action to catch-up #4; added top "Recently completed" row; added B.23 (catch-up #4 commit+push, remote gap closed ✅), B.24 (TIA review absorb + handoff ✅), B.25 (R1–R6 refactor execution 🆕 `[NEEDS_scaraPLC]`), B.26 (LKinCtrl decision ⏸️ `[NEEDS_OPERATOR]`). |
+| | next.commit | New handoff + scoreboard + ledger updates uncommitted — join the next commit (suggested "PM catch-up #5" alongside the R1–R6 refactor, or a docs-only commit). Folder re-architecture `8fdae36`+`2b88a7d` should be pushed so `origin/main` reflects the layered tree before R1–R6 begins. |
+| | next.session | Operator: escalate the LKinCtrl library question to 郑磊; push `8fdae36`+`2b88a7d`. scara-PLC: execute R1–R6 per handoff §6 (R1→R2 first — data structure dictates downstream). scara-HMI: global Header (actual + target position) per the TIA review. |
+
+---
+
+## 2026-05-21 — Session: Git single-owner directive — two-session conflict resolution
+
+| Time | Event | Detail |
+|---|---|---|
+| | conflict.surfaced | Operator surfaced the root problem: two Claude sessions running git ops on the one `hmiDemoSCARA_ABCDE` repo. Already cost a clobbered staging area + split commit (catch-up #4: real `a36f789` + duplicate `6e9582d`, undone via `git reset HEAD~1`); the refactor session's folder re-architecture (`8fdae36`+`2b88a7d`) was committed without scara-PM's knowledge — each session acting on a stale view. Risk compounds across R1–R6. |
+| | conflict.designation | AskUserQuestion — who is sole git owner. Operator chose **"This PM session owns git"** (keeps AGENT_CONTRACT §4.3 PM-as-sole-pusher). scara-PLC edits SCL/XML but never runs git; signals "phase N ready"; scara-PM commits the cluster. |
+| | analysis.contract_gap | AGENT_CONTRACT.md §4.3 makes PM sole *pusher* but was written for v9's 2-worktree/2-branch topology (`plc/*`+`pm/*`) where lane-separate branches make concurrent *commits* safe. SCARA is single-branch `main` — no worktree split — so concurrent commits race the index just like concurrent pushes. §4.3 must extend to **sole git operator** for SCARA. (SCARA's AGENT_CONTRACT.md is still the unadapted v9-verbatim copy — scoreboard B.8.) |
+| | directive.write | Authored `VCIExportedContents/PM_DIRECTIVE_2026-05-21_GitSingleOwner.md` (status `[NEEDS_HUMAN]`; §1 why / §2 the rule / §3 what each session does / §4 state to reconcile / §5 enforcement / §6 cross-refs). Rule: exactly one session runs git on this repo = scara-PM; all others read-only git only (`status`/`log`/`diff`/`fetch`). |
+| | bootstrap.reinforce | Added a ⛔ "DO NOT RUN GIT ON THIS REPO" box to `AGENT_BOOTSTRAP_PLC.md` (after the existing cross-tree-ban box) — mirrors the 2026-05-19 directive's bootstrap-reinforcement pattern. Forbids scara-PLC any git write command; read-only git OK; signal "phase N ready" instead of self-committing. |
+| | scoreboard.refresh | `SCOREBOARD_PLC.md`: added B.27 (two-session git conflict + single-owner designation ✅); bumped Last updated / Last action to the git-directive action. |
+| | git.frozen | scara-PM froze its own git ops this turn — did NOT commit or push. Reconciliation (push `8fdae36`+`2b88a7d`; commit handoff + scoreboard + ledger + directive + bootstrap edit; `git rm --cached hmiDemoSCARA_ABCDE.info`) deliberately held until the operator confirms the parallel session has stopped running git — committing while the other session is still git-active would just make scara-PM the next racing actor. |
+| | next.operator | Operator: (1) point the parallel/refactor session at `PM_DIRECTIVE_2026-05-21_GitSingleOwner.md`, confirm it has stopped running git; (2) authorize the push. Then scara-PM runs the §4 reconciliation in one clean sweep. |
+
+---
+
 ---

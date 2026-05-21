@@ -3,8 +3,8 @@
 **Project:** SCARA ABCDE 5-point auto cycle (minimal rebuild from hmiDemoMomoryCapacity_v9)
 **Plan:** `C:\Users\Admin\.claude\plans\zazzy-mixing-hammock.md`
 **Source spec:** `UserFiles/VCIExportedContents/杨子楠5月17日周计划.md` (cross-mounted reference)
-**Last updated:** 2026-05-21 (PM bookkeeping catch-up #3 partial — palletizing V4.2 buffered-path + suction-cup capture blocker + ABCDE/HMI auto-control verified; `PLC_HANDOFF_2026-05-21` authored)
-**Last action:** Authored `PLC_HANDOFF_2026-05-21_PalletizingV4_SuctionCupBlocker_AbcdeHmiVerified.md`. Palletizing FB rewritten V3.0→V4.2 buffered-path (+GDB_PalletizingPath, UDT_PathCmd, FB_ConveyorCtrl); smoke reported 16/16 cycle-counter both modes. **Open blocker:** suction-cup capture fails — NX `Suction_Cup_Gripper` won't attach the box (PLC verified vs LSKI ref); demo non-functional until NX fix. ABCDE "Auto"+HMI co-sim drive verified; button→status-tag map handed to scara-HMI. Catch-up #3 commit still deferred (no SCARA git remote).
+**Last updated:** 2026-05-21 (PM catch-up #4 — VCI re-export + LKinCtrl baseline `a36f789` committed + pushed; 2026-05-21 TIA review absorbed → `PM_HANDOFF_2026-05-21_scaraPLC_CatchUp4_PreRefactorBaseline.md`; git single-owner directive authored after a two-session git conflict)
+**Last action:** Authored `PM_DIRECTIVE_2026-05-21_GitSingleOwner.md` + added a ⛔ git-ban box to `AGENT_BOOTSTRAP_PLC.md`. Operator designated scara-PM **sole git operator** on single-branch `main` after two parallel sessions clobbered staging + split catch-up #4 (`a36f789` real / `6e9582d` duplicate, undone). scara-PLC now never runs git — edits SCL/XML, signals "phase N ready", scara-PM commits. **Pending:** git reconciliation (push `8fdae36`+`2b88a7d` · commit docs · `git rm --cached hmiDemoSCARA_ABCDE.info`) held until the parallel session is confirmed stood down. Catch-up #4 `a36f789` (204 files) + `PM_HANDOFF_2026-05-21_scaraPLC_CatchUp4_PreRefactorBaseline.md` (R1–R6 brief) done earlier this session.
 
 ---
 
@@ -61,11 +61,17 @@
 | B.20 | J1 pointless-motion / modulo whip | ⏸️ Operator applied TO fix (J1 modulo off + SW limits J1±160 / J2−1820..+600 / J3±134); one-box real-mode re-test owed. |
 | B.21 | ABCDE "Auto" tab + HMI co-sim drive verified; bo_Start/Stop/InitPath=edge, bo_Mode=level; button→status-tag map documented | ✅ This cycle — `[INFO]` in `PLC_HANDOFF_2026-05-21` §4 for scara-HMI cycle-7.7 header strip. |
 | B.22 | scara-HMI Cycle 7.6 ABCDE 5/5 re-test (per `HMI_HANDOFF_2026-05-19_Cycle7_6_IssueA_Closed` §5) | 🆕 `[NEEDS_scaraPLC]` carry-forward — not run this session (palletizing priority took precedence). |
+| B.23 | Catch-up #4 absorb + commit + push (VCI re-export + LKinCtrl import + consolidated UDTs/GDB_AxisCtrl) | ✅ This cycle — `a36f789` (204 files, +33273/−2694) committed + **pushed to `origin/main`** (`github.com/zy13027/scara_abcde`). SCARA git remote now configured + live — **closes the long-standing `[NEEDS_OPERATOR]` remote-push gap** carried since 2026-05-19. Phase-1 folder re-architecture `8fdae36`+`2b88a7d` (layered 200/300/500/600/700) applied — local-only, `main` `[ahead 2]`. |
+| B.24 | Absorb 2026-05-21 TIA programming review + author scara-PLC refactor handoff | ✅ This cycle — `PM_HANDOFF_2026-05-21_scaraPLC_CatchUp4_PreRefactorBaseline.md` (INFORMATIONAL → scara-PLC). 闫磊 decouple mandate → R1–R6 checklist: GDB_Control→600 + structify + per-axis Enable, new FB_Init, MC_*/MovePath out of 500, FB_AutoCtrl_5Pts+ABCDE→standard CASE, add Pause step. |
+| B.25 | R1–R6 layered code refactor execution | 🆕 `[NEEDS_scaraPLC]` — multi-session; sequence per handoff §6 (R1→R2 data structure first). Folders moved; code-level axis/process decoupling is the open work. |
+| B.26 | LKinCtrl library usage decision | ⏸️ `[NEEDS_OPERATOR]` — 郑磊 (郑老板) must rule whether L Kinematics Control library is permitted (conflicts with project「不用任何的库」rule). Blocks any hard LKinCtrl dependency in R1–R6 code; keep `FB_MovePath`/`GDB_MovePath` in 700 library-agnostic until decided. |
+| B.27 | Two-session git conflict — single-owner designation | ✅ This cycle — operator designated scara-PM **sole git operator** (single-branch `main`; concurrent commits from 2 sessions clobbered staging + split catch-up #4). Authored `PM_DIRECTIVE_2026-05-21_GitSingleOwner.md` + ⛔ git box in `AGENT_BOOTSTRAP_PLC.md`. scara-PLC edits SCL/XML + signals "phase N ready"; scara-PM commits. ⏸️ `[NEEDS_HUMAN]` operator points other sessions at the directive + confirms stand-down → then scara-PM runs §4 reconciliation. |
 
 ## Recently completed
 
 | Date | Cycle | Handoff / Doc | Status |
 |---|---|---|---|
+| 2026-05-21 | PM catch-up #4 | `PM_HANDOFF_2026-05-21_scaraPLC_CatchUp4_PreRefactorBaseline.md` + commit `a36f789` (pushed) | ✅ pre-refactor baseline pushed to `origin/main`; R1–R6 refactor brief handed to scara-PLC |
 | 2026-05-21 | PM catch-up #3 (partial) | `PLC_HANDOFF_2026-05-21_PalletizingV4_SuctionCupBlocker_AbcdeHmiVerified.md` | ⏸️ palletizing blocked on NX suction-cup; ABCDE/HMI drive verified |
 | 2026-05-18 | PM catch-up #2 | `PM_HANDOFF_2026-05-18_Phase1Complete_Phase2Staged.md` | ✅ landed; **Phase 1 全 100%** |
 | 2026-05-18 | C71 Phase 2.4 HMI Status Facade | `PLC_HANDOFF_2026-05-18_C71_HMIStatusFacade.md` + `hmiStatusFacade_20260518_220300.log` (9/9) | ✅ centralised read-side facade; INFORMATIONAL → scara-HMI for cycle-7.X+ incremental migration |

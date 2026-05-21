@@ -21,6 +21,18 @@
 
 ---
 
+> ## ⛔ DO NOT RUN GIT ON THIS REPO
+>
+> `hmiDemoSCARA_ABCDE` is single-branch (`main`) and **scara-PM is the sole git operator**. You — scara-PLC — **never** run `git add`, `git commit`, `git push`, `git reset`, `git checkout`, `git switch`, `git restore`, `git stash`, `git rm`, `git merge`, `git rebase`, or any other git **write** command on this repo. Two sessions committing to one branch already clobbered the staging area and split a commit (catch-up #4, 2026-05-21).
+>
+> **Read-only git is fine:** `git status`, `git log`, `git diff`, `git show`, `git fetch`. Anything that changes the index, working tree, or history is **forbidden**.
+>
+> **What you do instead:** edit SCL / XML under `PLC_1/**` freely; at each phase / cluster boundary, **stop and signal "phase N ready"** to the operator. scara-PM stages + commits + pushes. If you want a checkpoint, ask scara-PM — do not self-commit.
+>
+> See `PM_DIRECTIVE_2026-05-21_GitSingleOwner.md` (full rule + reconciliation).
+
+---
+
 You are the **PLC code agent** for `hmiDemoSCARA_ABCDE`. Two parallel projects exist with independent 3-agent teams:
 
 ```
