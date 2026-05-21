@@ -160,4 +160,23 @@ These notes track activity since `c8f8af1` landed (catch-up #2) but BEFORE a fol
 
 ---
 
+## 2026-05-21 — Session: Single-owner git cycle — §4 reconciliation + R1–R3 layered-refactor phase commits + README
+
+| Time | Event | Detail |
+|---|---|---|
+| | git.reconcile.done | Operator authorized the held §4 reconciliation ("run this in one clean sweep"). scara-PM executed: `git rm --cached hmiDemoSCARA_ABCDE.info`; committed `33fe91d` (catch-up #4 handoff + `PM_DIRECTIVE_2026-05-21_GitSingleOwner.md` + `AGENT_BOOTSTRAP_PLC.md` git-box + scoreboard + ledger — 6 files); pushed `8fdae36`+`2b88a7d`+`33fe91d` → `origin/main`. Single-owner rule now live on origin. Closes the `git.frozen` + `next.operator` rows of the previous block. |
+| | cycle.phase.e9affe6 | scara-PLC "phase ready" → scara-PM committed + pushed `e9affe6` "UDT_typeKinCtrl per-axis power/reset structs" (+15: `power` struct startMode/stopMode[1..6], `reset` struct restart[1..7], output +bo_ready/bo_standstill). UDT shape change — operator confirmed PLCSIM-Adv memory reset done. |
+| | cycle.phase.2e3a9de | "phase ready" → `2e3a9de` "migrate GDB_Control call sites to GDB_AxisCtrl" — Startup.scl + FB_HMIStatusMirror.scl + FB_ManualCtrl.scl (24/24); flat `GDB_Control` members repointed to structured `GDB_AxisCtrl.LKinCtrl.input/output.*`. Pushed. |
+| | cycle.phase.787a9b1 | "phase ready" → `787a9b1` "retire GDB_Control, delete the dead DB" — FB_AxisCtrl.scl + FB_AutoCtrl_Palletizing.scl migrated; GDB_MCDData.xml +bo_gripperGrip/Release (relocated from GDB_Control); `GDB_Control.xml` DELETED (4 files, +58/−163). Verified via `git grep`: zero live `GDB_Control` refs. Pushed. R1/R2 complete. |
+| | verification.grep_correction | The dedicated Grep tool under-reported on `FB_AxisCtrl.scl` (returned 3 of ~40 matches — choked on the file's mojibake bytes); `2e3a9de`'s commit-message "no live refs" claim was therefore premature. Re-verified reliably via `git grep` before `787a9b1`'s DB deletion. No harm — project compiled at `2e3a9de` because `GDB_Control.xml` still existed. Lesson: on mojibake-affected SCL, use `git grep`, not the Grep tool. |
+| | cycle.phase.5458010 | "phase ready" → `5458010` "add FB_Init homing block (600_AxisCtrl)" — new standalone 60-line FB; homes ScaraArm3D via `LKinCtrl_MC_GroupHome`; modes 5 (active homing) / 7 (set-current, absolute encoders). Refactor item R3. Pushed. Operator `[NEEDS_HUMAN]`: instantiate FB_Init iDB + place call in OB30. |
+| | doc.readme | `d7c7765` "replace stub README with a full project README" — replaced the `# scara_abcde` stub with a project-facing README (overview, control stack, layered PLC architecture, phases, repo layout, harness, getting-started). English; no internal-process detail. Pushed; live on the repo front page. |
+| | flag.lkinctrl_deepening | The layered refactor has built real LKinCtrl coupling: the whole axis-control surface routes through `GDB_AxisCtrl.LKinCtrl.*` (Startup / HMI-mirror / ManualCtrl / FB_AxisCtrl) and `FB_Init` is built directly on `LKinCtrl_MC_GroupHome`. The 郑磊 LKinCtrl-usage decision (scoreboard B.26) is still open — a "no" now means rework, and the cost rises every phase. Escalated to operator each phase. |
+| | git.single_owner.holding | Single-owner discipline verified across 6 commits (`33fe91d`,`e9affe6`,`2e3a9de`,`787a9b1`,`5458010`,`d7c7765`): scara-PLC ran no git; scara-PM sole committer/pusher; specific-file `git add` (never repo-wide `-A`) kept every phase commit clean — caught + excluded scara-PLC in-flight edits 3× (UDT_typeKinCtrl mid-`33fe91d`; GDB_MCDData/FB_AutoCtrl_Palletizing/FB_AxisCtrl mid-`2e3a9de`; FB_Init mid-`787a9b1`). origin/main = `d7c7765`, in sync, working tree clean. |
+| | debt | ~30 stale `GDB_Control` comments across 9 files — comment sweep owed. Remaining refactor: R4 (MC_*/MovePath out of 500), R5 (FB_AutoCtrl_5Pts+ABCDE → standard CASE step model), R6 (add Pause step). |
+| | scoreboard.refresh | `SCOREBOARD_PLC.md`: bumped Last updated/Last action; added Recently-completed row (R1–R3 + README); B.25 🆕→🚧 (R1/R2/R3 done, R4–R6 open); B.26 note updated (LKinCtrl coupling now built — escalated); B.27 reconciliation ✅ closed; +B.28 (README ✅). |
+| | next | scara-PLC: R4 → R5 → R6. Operator: instantiate FB_Init iDB + OB30 call; escalate the LKinCtrl decision to 郑磊; per-phase memory-reset / recompile / download before re-test. scara-PM: continue the per-"phase ready" commit cycle. This tracking update lands as a PM-tracking commit. |
+
+---
+
 ---
