@@ -73,12 +73,27 @@
             </Sections>
           </Member>
         </Member>
+        <Member Name="power" Datatype="Struct">
+          <AttributeList>
+            <BooleanAttribute Name="ExternalWritable" SystemDefined="true">false</BooleanAttribute>
+          </AttributeList>
+          <Member Name="startMode" Datatype="Array[1..6] of DInt" />
+          <Member Name="stopMode" Datatype="Array[1..6] of Int" />
+        </Member>
+        <Member Name="reset" Datatype="Struct">
+          <AttributeList>
+            <BooleanAttribute Name="ExternalWritable" SystemDefined="true">false</BooleanAttribute>
+          </AttributeList>
+          <Member Name="restart" Datatype="Array[1..7] of Bool" />
+        </Member>
       </Member>
     </Member>
     <Member Name="output" Datatype="Struct">
       <Member Name="bo_enabled" Datatype="Bool" />
       <Member Name="bo_homed" Datatype="Bool" />
       <Member Name="bo_fault" Datatype="Bool" />
+      <Member Name="bo_ready" Datatype="Bool" />
+      <Member Name="bo_standstill" Datatype="Bool" />
       <Member Name="bo_done" Datatype="Bool" />
       <Member Name="i16_activeCmdNo" Datatype="Int" />
       <Member Name="actualposition" Datatype="Struct">
