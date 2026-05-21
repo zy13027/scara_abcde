@@ -3,9 +3,9 @@
 **Target device:** MTP1000 Unified Basic Panel 10" (6AV2123-3KB32-0AW0, 1280×800)
 **5-control-per-screen cap** (Siemens docs; operator empirically confirms during authoring)
 **HMI driver:** WinCC Unified Basic (NOT Comfort — no `ToggleTag` system function; use JS PULSE pattern via `HMIRuntime.Tags(...).Write()` + setTimeout 250ms)
-**Last updated:** 2026-05-17 22:00 (Phase C.D — UBP family ack + Phase C.0/C.0b PLC diagnostic mirror documented)
-**Plan:** Phase C (`C:\Users\Admin\.claude\plans\zazzy-mixing-hammock.md`)
-**Status:** Sections 1-4 below are the **originally-spec'd MTP1000 1280×800 design** (superseded — HMI agent's Cycle-7.0 UBP 1024×600 build is canonical). See Section 5 for the actually-built UBP family + Section 6 for Phase C.0/C.0b PLC diagnostic mirror tags.
+**Last updated:** 2026-05-21 (Phase 6 — architectural-refactor binding deltas; see Section 7)
+**Plan:** Architectural refactor (`C:\Users\Admin\.claude\plans\dazzling-squishing-sloth.md`)
+**Status:** Sections 1-4 below are the **originally-spec'd MTP1000 1280×800 design** (superseded — HMI agent's Cycle-7.0 UBP 1024×600 build is canonical). See Section 5 for the as-built UBP family, Section 6 for the PLC diagnostic mirror tags, and **Section 7 for the 2026-05-21 architectural-refactor binding deltas — the HMI agent's action list.**
 
 ---
 
@@ -125,6 +125,10 @@ Per `HMI_HANDOFF_2026-05-17_Cycle7_0_PhaseE_CompileGreen.md` (filed in v9 comm t
 
 ### 5.3 — UBP family binding consumers (PLC tags consumed)
 
+> **PARTLY SUPERSEDED by Section 7 (2026-05-21 refactor).** The four
+> `instFB_AutoCtrl_ABCDE.statTargetPos.*` rows below are repointed — see Section 7.1.
+> `i16_AutoStep` keeps its path but its value set changed — see Section 7.2.
+
 | PLC tag | UBP widget(s) | R/W | Trigger | Notes |
 |---|---|---|---|---|
 | `GDB_MachineCmd.bo_Start` | `btnAutoStart` on `02_Auto_Ubp` | W | PULSE 250ms | Wang Shuo R_TRIG rising-edge in FB_AutoCtrl_ABCDE consumes; per HMI agent cycle-7.0 |
@@ -233,9 +237,58 @@ This is documented because previous Phase D + F V8 smoke tests reported `GDB_MCD
 
 ---
 
+## 7. 2026-05-21 Architectural Refactor — binding deltas (HMI action list)
+
+The layered-architecture refactor (plan `dazzling-squishing-sloth.md`) restructured the PLC:
+process logic in OB1, axis/kinematics in OB30, both auto FBs rebuilt as Huashili-pattern CASE
+state machines, manual jog moved onto `LKinCtrl_MC_JogFrame`. Binding impact below.
+
+### 7.1 — Broken bindings — HMI must repoint
+
+`FB_AutoCtrl_ABCDE` is retired; the production 5-point auto FB is **`FB_AutoCtrl_5Pts`**.
+
+| Old PLC path | New PLC path (recommended) | Widgets |
+|---|---|---|
+| `instFB_AutoCtrl_ABCDE.statTargetPos.x` | `GDB_HMI_Status.target_x` | `txtTargetX` on `02_Auto_Ubp` |
+| `instFB_AutoCtrl_ABCDE.statTargetPos.y` | `GDB_HMI_Status.target_y` | `txtTargetY` |
+| `instFB_AutoCtrl_ABCDE.statTargetPos.z` | `GDB_HMI_Status.target_z` | `txtTargetZ` |
+| `instFB_AutoCtrl_ABCDE.statTargetPos.a` | `GDB_HMI_Status.target_a` | `txtTargetA` |
+
+**Bind the `GDB_HMI_Status` facade, not the iDB directly.** `FB_HMIStatusMirror` mirrors the
+active cycle's target into `GDB_HMI_Status.target_{x,y,z,a}` — a stable read surface that
+absorbs future FB renames. (Direct `instFB_AutoCtrl_5Pts.statTargetPos.*` also works but is
+not rename-proof.)
+
+### 7.2 — Value-semantics changes — same path, new meaning
+
+| PLC path | Change |
+|---|---|
+| `GDB_MachineCmd.i16_AutoStep` | Now the Huashili CASE state — `0/10/20/30/50/100/110/200/230/800/900` (was `0/10/20/30/40/50`). Path unchanged; an IOField bound to it shows the new value set. |
+| `GDB_PalletizingCmd.i16_PalletStep` | Now the CASE state (`0/10/.../900`), **not** the old `1..48` box-phase index. |
+| `GDB_HMI_Status.currentStep` / `totalSteps` | `FB_HMIStatusMirror` V0.2 now writes `currentStep` as a progress COUNT — point index `1..5` (ABCDE) or boxes-placed `0..16` (palletizing) — with `totalSteps` `5` / `16`. Recommended for an "N of M" progress display. |
+
+### 7.3 — Manual jog is now Cartesian (Phase 5)
+
+Manual jog uses `LKinCtrl_MC_JogFrame` on the kinematics group in the **WCS (Cartesian)** frame
+— it no longer jogs individual joints. The deferred jog buttons (§5.6) map: `bo_J1_Jog*` → TCP
+**X**, `bo_J2_Jog*` → **Y**, `bo_J3_Jog*` → **Z**, `bo_J4_Jog*` → **A**. When the jog widgets
+are wired, label them X / Y / Z / A, not J1..J4. The command paths
+(`GDB_ManualCmd.bo_J{n}_Jog{Forward,Backward}`) and `GDB_ManualStatus.*` are unchanged.
+
+### 7.4 — Unchanged — safe to keep
+
+- `GDB_MachineCmd.{bo_Start, bo_Stop, bo_InitPath, bo_Mode, bo_ESTOP_LOCK}` — paths + semantics unchanged.
+- `GDB_PalletizingCmd.*`, `GDB_ManualCmd.*`, `GDB_ManualStatus.*` — global command/status DBs, unchanged.
+- `GDB_HMI_Status.*` — the facade read surface; shape unchanged. Preferred for ALL reads.
+- TO tags — `J{n}_SCARA_Arm3D.{ActualPosition,ActualVelocity}`, `ScaraArm3D.Position[]` — unchanged.
+- Phase 1 folder moves did NOT change any symbolic path.
+
+---
+
 ## Refresh model
 
 - **Sections 1-4** (original MTP1000 1280×800 4-screen spec): historical reference, superseded by Section 5. DO NOT edit further.
 - **Section 5** (UBP family canonical): updated when HMI agent authors / modifies UBP screens (sync via HMI handoff cycle).
 - **Section 6** (Phase C.0/C.0b diagnostic mirror): updated when PLC agent extends `FB_MCDDataTransfer` / `FB_AxisCtrl` / similar diagnostic publishers.
+- **Section 7** (2026-05-21 refactor deltas): the authoritative change list for the layered-architecture refactor; the HMI agent re-authors the tag table + screens against it, then this section folds into Section 5 once the HMI rebuild is verified.
 - Per AGENT_CONTRACT.md, this file is **PLC-agent sole writer** (HMI agent proposes new rows via HMI_HANDOFF §6; PM/PLC agent absorbs).
