@@ -1,40 +1,41 @@
 FUNCTION_BLOCK "FB_AxisCtrl"
 { S7_Optimized_Access := 'TRUE' }
-VERSION : 2.1
+VERSION : 2.2
 // =====================================================================
-// SCARA ABCDE - Axis / Kinematics Control  (Phase 3, 2026-05-21)
+// SCARA ABCDE - Axis / Kinematics Control  (Phase 5, 2026-05-21)
 //
 // The single Motion Control owner. Belongs to the 600 axis/kinematics
 // layer; runs in OB30 (CyclicInterrupt_10ms, 10 ms), decoupled from the
 // 500 process logic in OB1. All I/O is the consolidated
 // GDB_AxisCtrl.LKinCtrl interface (the OB1<->OB30 shared-DB bridge).
 //
-// V2.1 - adds the kinematic linear-move owner (REGION MoveLinear). The
-// auto FBs no longer call MC themselves: they write a target pose into
-// GDB_AxisCtrl.LKinCtrl.input.movelinear, hold bo_execute, and read
-// output.movelinear.bo_done back. This FB runs the one
-// MC_MoveLinearAbsolute on ScaraArm3D - the Huashili motion/process split.
+// V2.2 - adds the Cartesian frame jog owner (REGION JogFrame). FB_ManualCtrl
+// no longer calls MC_MoveJog (which conflicts with axes inside a kinematics
+// group): it sets direction bits in GDB_AxisCtrl.LKinCtrl.input.jogframe and
+// this FB runs LKinCtrl_MC_JogFrame on ScaraArm3D in the WCS frame.
+//
+// V2.1 - kinematic linear-move owner (REGION MoveLinear): the auto FBs
+// write GDB_AxisCtrl.LKinCtrl.input.movelinear + hold bo_execute; this FB
+// runs the one MC_MoveLinearAbsolute.
 //
 // V2.0 - rebuilt on the approved LKinCtrl library (郑老板 approval):
-//   - Power:  4x raw MC_Power  ->  1x LKinCtrl_MC_GroupPower
-//   - Reset:  5x raw MC_Reset  ->  1x LKinCtrl_MC_GroupReset
-//   - Home:   moved OUT to the new FB_Init (LKinCtrl_MC_GroupHome);
-//             FB_AxisCtrl only reads back output.bo_homed.
-//   - SetTool: kept - MC_SetTool one-shot (Tool[1], the UserFault fix).
-//
-// Group-level enable for now; per-axis-enable (review 4.2,
-// GDB_AxisCtrl.TOCtrl[1..4]) is a follow-on refinement.
+//   Power 4x MC_Power -> LKinCtrl_MC_GroupPower; Reset 5x MC_Reset ->
+//   LKinCtrl_MC_GroupReset; Home moved OUT to FB_Init; SetTool one-shot kept.
 // =====================================================================
    VAR
       instGroupPower : "LKinCtrl_MC_GroupPower";
       instGroupReset : "LKinCtrl_MC_GroupReset";
       instMC_SetTool {InstructionName := 'MC_SETTOOL'; LibVersion := '9.0'} : MC_SETTOOL;
       instMoveLinAbs {InstructionName := 'MC_MOVELINEARABSOLUTE'; LibVersion := '9.0'; S7_SetPoint := 'False'} : MC_MOVELINEARABSOLUTE;
+      instJogFrame : "LKinCtrl_MC_JogFrame";
       statToolActivated : Bool;   // one-shot SetTool latch; cleared by memory reset
    END_VAR
 
    VAR_TEMP
       tempPos : Array[1..6] of LReal;   // Cartesian Position array for MC_MoveLinearAbsolute
+      tempJogFwd : Bool;   // resolved jog-forward for LKinCtrl_MC_JogFrame
+      tempJogBwd : Bool;   // resolved jog-backward for LKinCtrl_MC_JogFrame
+      tempJogDir : USInt;   // resolved jog direction (1=X 2=Y 3=Z 4=A 5=B 6=C)
    END_VAR
 
 
@@ -108,6 +109,51 @@ BEGIN
         "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_active         := #instMoveLinAbs.Active;
         "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_error          := #instMoveLinAbs.Error;
         "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_commandaborted := #instMoveLinAbs.CommandAborted;
+    END_REGION
+
+    REGION JogFrame
+        // Cartesian frame jog of ScaraArm3D in the WCS. FB_ManualCtrl (OB1)
+        // sets the direction bits in GDB_AxisCtrl.LKinCtrl.input.jogframe;
+        // this region resolves the one active bit to a (jogDirection,
+        // jogForward/Backward) pair and runs LKinCtrl_MC_JogFrame. The ELSIF
+        // chain picks a single direction - LKinCtrl errors on two at once.
+        #tempJogFwd := FALSE;
+        #tempJogBwd := FALSE;
+        #tempJogDir := 1;
+        IF "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogX+" THEN
+            #tempJogDir := 1; #tempJogFwd := TRUE;
+        ELSIF "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogX-" THEN
+            #tempJogDir := 1; #tempJogBwd := TRUE;
+        ELSIF "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogY+" THEN
+            #tempJogDir := 2; #tempJogFwd := TRUE;
+        ELSIF "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogY-" THEN
+            #tempJogDir := 2; #tempJogBwd := TRUE;
+        ELSIF "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogZ+" THEN
+            #tempJogDir := 3; #tempJogFwd := TRUE;
+        ELSIF "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogZ-" THEN
+            #tempJogDir := 3; #tempJogBwd := TRUE;
+        ELSIF "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogA+" THEN
+            #tempJogDir := 4; #tempJogFwd := TRUE;
+        ELSIF "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogA-" THEN
+            #tempJogDir := 4; #tempJogBwd := TRUE;
+        ELSIF "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogB+" THEN
+            #tempJogDir := 5; #tempJogFwd := TRUE;
+        ELSIF "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogB-" THEN
+            #tempJogDir := 5; #tempJogBwd := TRUE;
+        ELSIF "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogC+" THEN
+            #tempJogDir := 6; #tempJogFwd := TRUE;
+        ELSIF "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogC-" THEN
+            #tempJogDir := 6; #tempJogBwd := TRUE;
+        END_IF;
+
+        #instJogFrame(jogForward   := #tempJogFwd,
+                      jogBackward  := #tempJogBwd,
+                      jogDirection := #tempJogDir,
+                      jogModeInc   := FALSE,
+                      coordSystem  := 0,
+                      tool         := 1,
+                      dynamics     := "GDB_AxisCtrl".LKinCtrl.input.configuration.jogframe.dynamics,
+                      axesGroup    := "ScaraArm3D");
     END_REGION
 
     REGION StatusDerived

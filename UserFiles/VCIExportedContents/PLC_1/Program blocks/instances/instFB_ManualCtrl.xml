@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Document>
   <Engineering version="V20" />
   <SW.Blocks.InstanceDB ID="0">
@@ -11,34 +11,12 @@
   <Section Name="Output" />
   <Section Name="InOut" />
   <Section Name="Static">
-    <Member Name="instJog_J1" Datatype="MC_MOVEJOG" Version="9.0">
-      <AttributeList>
-        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
-      </AttributeList>
-    </Member>
-    <Member Name="instJog_J2" Datatype="MC_MOVEJOG" Version="9.0">
-      <AttributeList>
-        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
-      </AttributeList>
-    </Member>
-    <Member Name="instJog_J3" Datatype="MC_MOVEJOG" Version="9.0">
-      <AttributeList>
-        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
-      </AttributeList>
-    </Member>
-    <Member Name="instJog_J4" Datatype="MC_MOVEJOG" Version="9.0">
-      <AttributeList>
-        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
-      </AttributeList>
-    </Member>
-    <Member Name="instMoveLinAbs" Datatype="MC_MOVELINEARABSOLUTE" Version="9.0" />
     <Member Name="sRTRIGKinGo" Datatype="R_TRIG" Version="1.0">
       <AttributeList>
         <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
       </AttributeList>
     </Member>
     <Member Name="statManualOK" Datatype="Bool" />
-    <Member Name="statKinExecutePulse" Datatype="Bool" />
   </Section>
 </Sections></Interface>
       <Name>instFB_ManualCtrl</Name>
@@ -52,7 +30,7 @@
           <MultilingualTextItem ID="2" CompositionName="Items">
             <AttributeList>
               <Culture>en-US</Culture>
-              <Text>Phase G (C67, 2026-05-18) — instance DB for FB_ManualCtrl. Holds 4 MC_MoveJog + 1 MC_MoveLinearAbsolute + 1 R_TRIG + 1 Bool static. Total 6 multi-instance MC slots; with FB_AxisCtrl's 14 + FB_AutoCtrl_ABCDE's 1 = 21 declared system-wide, well under OB91 budget.</Text>
+              <Text>Instance DB for FB_ManualCtrl V1.0 (Phase 5, 2026-05-21). Rebuilt - the 4x MC_MoveJog + 1x MC_MoveLinearAbsolute are gone; manual jog/move route through GDB_AxisCtrl to FB_AxisCtrl (OB30).</Text>
             </AttributeList>
           </MultilingualTextItem>
         </ObjectList>
@@ -62,7 +40,7 @@
           <MultilingualTextItem ID="4" CompositionName="Items">
             <AttributeList>
               <Culture>en-US</Culture>
-              <Text>instFB_ManualCtrl (Phase G)</Text>
+              <Text />
             </AttributeList>
           </MultilingualTextItem>
         </ObjectList>

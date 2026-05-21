@@ -27,6 +27,11 @@
       </AttributeList>
     </Member>
     <Member Name="instMoveLinAbs" Datatype="MC_MOVELINEARABSOLUTE" Version="9.0" />
+    <Member Name="instJogFrame" Datatype="&quot;LKinCtrl_MC_JogFrame&quot;">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+    </Member>
     <Member Name="statToolActivated" Datatype="Bool" />
   </Section>
 </Sections></Interface>

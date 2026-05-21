@@ -1,51 +1,44 @@
-﻿FUNCTION_BLOCK "FB_AutoCtrl_Palletizing"
+FUNCTION_BLOCK "FB_AutoCtrl_Palletizing"
 { S7_Optimized_Access := 'TRUE' }
-VERSION : 4.2
+VERSION : 5.0
 // =====================================================================
-// V4.2 (2026-05-20) -- WAIT_ARRIVAL gates on the LEVEL of
-// PalletizingSensor, not its rising edge -- a box already present when
-// WAIT_ARRIVAL is entered (arrived early) now advances the pick instead
-// of stalling on a missed edge.
+// SCARA Palletizing - 16-Box 4-Layer Auto Cycle  (Phase 4b, 2026-05-21)
 //
-// V4.1 (2026-05-20) -- Pure pick-and-place. The infeed (box spawn +
-// conveyor belt) has moved out to the new FB_ConveyorCtrl, so this FB
-// no longer writes SpawnContainerCmd or BeltVelocity. WAIT_ARRIVAL now
-// only gates the pick on box arrival; the conveyor delivers the box and
-// the two belt sensors are the runtime handshake between the two FBs.
+// Huashili-pattern CASE state machine. Runs in OB1 (process logic). It
+// owns the palletizing sequence and commands motion ONLY by writing
+// GDB_AxisCtrl.LKinCtrl.input.movelinear - it never calls an MC
+// instruction. FB_AxisCtrl (OB30) runs the MC_MoveLinearAbsolute.
 //
-// V4.0 (2026-05-20) -- Buffered-path command executor.
-// Replaces the V3.0 8-phase + sub-state sequencer with a generic
-// command-list executor: REGION 1 builds GDB_PalletizingPath.aCmd
-// (9 commands/box x 16 + END_OF_PATH), REGION 4 walks it, driving the
-// single MC_MoveLinearAbsolute with per-command BufferMode (5 = blend
-// travel, 1 = stop at pick/place). Continuous blended motion -- the
-// no-library pattern proven in FB_AutoCtrl_ABCDE (Phase F / gate V8).
-// LKinCtrl is forbidden by gate V1, so this is a custom executor, raw
-// MC only, ONE MC_MoveLinearAbsolute instance (OB91 safe).
-// statPhase is a coarse status: 0 idle / 5 running / 8 complete / 9 fault.
-// Alarm router + FAULT phase carried from V3.0.
+// V5.0 - rebuilt onto the Huashili 7-REGION + CASE shell (same pattern as
+// FB_AutoCtrl_5Pts); motion split out to the 600 axis layer. The command-
+// list builder (16 boxes x 9 commands -> GDB_PalletizingPath.aCmd) is
+// carried over verbatim from V4.2 into REGION Initialise path. The V4.2
+// progress-based executor is replaced by the CASE: one aCmd[] entry per
+// pass, MOVE commands handed to the axis layer with an execute/done
+// handshake. The CASE serializes moves (waits for bo_done) - the V4.2
+// BufferMode-5 cross-command blending is traded for the clean structure.
+//
+// Step model (GDB_PalletizingCmd.i16_PalletStep):
+//   0 idle  10 head reset  20 preconditions  30 fetch + dispatch
+//   40 gripper dwell  50 issue move  60 wait arrival  65 arrival settle
+//   100 wait move done  110 handshake done  200 abort
+//   230 cycle complete  800 E-Stop hold  900 tail reset
+//
+// aCmd[] command types: 0 = END  1 = MOVE  2 = GRIPPER  3 = WAIT_ARRIVAL.
 // =====================================================================
-// Edge-detect instances
-   VAR 
+   VAR
       sRTRIGInitialPath {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
       sRTRIGStart {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
       sRTRIGStop {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
-      sRTRIGPalletizingSensor {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
-      sRTRIGAlarm {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;   // Single shared motion FB (KEY for OB91 health)
-      instMoveLinAbs {InstructionName := 'MC_MOVELINEARABSOLUTE'; LibVersion := '9.0'; S7_SetPoint := 'False'} : MC_MOVELINEARABSOLUTE;   // Current command's motion target
-      statTargetPos { S7_SetPoint := 'False'} : "UDT_typePoint5";   // Buffered-path executor state
+      sRTRIGAlarm {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+      statTargetPos { S7_SetPoint := 'False' } : "UDT_typePoint5";
       statCmdPtr : Int;   // index into GDB_PalletizingPath.aCmd (0 = idle)
-      statExecState : Int;   // 0 = enter command, 1 = running
-      statPhase : Int;   // coarse status: 0 idle / 5 running / 8 complete / 9 fault
       statBoxesPlaced : Int;
-      statActiveBoxes : Int;   // Blended-motion progress (BufferMode 5 advance @ >0.5 -- FB_AutoCtrl_ABCDE pattern)
-      statTotalDistance : LReal;
-      statProgress : LReal;   // Timers
       instGripperTimer {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
-      instArrivalSettleTimer {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;   // REGION 1 -- command-list builder
+      instArrivalSettleTimer {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
    END_VAR
 
-   VAR_TEMP 
+   VAR_TEMP
       tempBoxIdx : Int;
       tempLayerNum : Int;
       tempPosInLayer : Int;
@@ -54,361 +47,385 @@ VERSION : 4.2
       tempBoxX : LReal;
       tempBoxY : LReal;
       tempPickX : LReal;
-      tempPickY : LReal;   // REGION 4 -- executor
-      tempCmdType : Int;
-      tempBufMode : Int;
-      tempExecPulse : Bool;
-      tempVel : LReal;
-      tempRemaining : LReal;
-      tempPosArray : Array[1..6] of LReal;
+      tempPickY : LReal;
+      tempCmdType : Int;   // command type at statCmdPtr (executor)
    END_VAR
 
 
 BEGIN
-	
-	
-	 // =====================================================================
-	 // REGION 1 -- BUILD COMMAND LIST (GDB_PalletizingPath.aCmd)
-	 // 16 boxes x 4 layers, 9 commands/box: WAIT_ARRIVAL, ABOVE_PICK,
-	 // PICK_DESCEND, GRIPPER(grip), PICK_RAISE, APPROACH_PLACE, PLACE_DESCEND,
-	 // GRIPPER(release), PLACE_RETRACT. Geometry verbatim from V3.0 (Brief 32).
-	 // cmdType: 0=END 1=MOVE 2=GRIPPER 3=WAIT_ARRIVAL. BufferMode: 5=blend 1=stop.
-	 // =====================================================================
-	 #sRTRIGInitialPath(CLK := "GDB_PalletizingCmd".bo_InitPallet);
-	 IF #sRTRIGInitialPath.Q THEN
-	     #statActiveBoxes := 16;
-	     "GDB_PalletizingCmd".i16_TotalBoxes := 16;
-	     #tempCmdW := 0;
-	
-	     FOR #tempBoxIdx := 1 TO 16 DO
-	         #tempLayerNum   := (#tempBoxIdx - 1) / 4 + 1;
-	         #tempPosInLayer := (#tempBoxIdx - 1) MOD 4;
-	         #tempPlaceZ     := "GDB_PalletizingCmd".lr_PalletTopZ
-	                          + #tempLayerNum * "GDB_PalletizingCmd".lr_BoxHeight;
-	         IF #tempPosInLayer = 0 THEN
-	             #tempBoxX := "GDB_PalletizingCmd".lr_PalletTopX - 200.0;
-	             #tempBoxY := "GDB_PalletizingCmd".lr_PalletTopY - 300.0;
-	         ELSIF #tempPosInLayer = 1 THEN
-	             #tempBoxX := "GDB_PalletizingCmd".lr_PalletTopX + 200.0;
-	             #tempBoxY := "GDB_PalletizingCmd".lr_PalletTopY - 300.0;
-	         ELSIF #tempPosInLayer = 2 THEN
-	             #tempBoxX := "GDB_PalletizingCmd".lr_PalletTopX + 200.0;
-	             #tempBoxY := "GDB_PalletizingCmd".lr_PalletTopY + 300.0;
-	         ELSE
-	             #tempBoxX := "GDB_PalletizingCmd".lr_PalletTopX - 200.0;
-	             #tempBoxY := "GDB_PalletizingCmd".lr_PalletTopY + 300.0;
-	         END_IF;
-	         #tempPickX := "GDB_PalletizingCmd".lr_PickX + "GDB_PalletizingCmd".lr_WristOffsetX;
-	         #tempPickY := "GDB_PalletizingCmd".lr_PickY + "GDB_PalletizingCmd".lr_WristOffsetY;
-	
-	         // cmd 1 -- WAIT_ARRIVAL
-	         #tempCmdW := #tempCmdW + 1;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType := 3;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep := (#tempBoxIdx - 1) * 3 + 1;
-	
-	         // cmd 2 -- MOVE ABOVE_PICK (blend)
-	         #tempCmdW := #tempCmdW + 1;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType    := 1;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].x              := #tempPickX;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].y              := #tempPickY;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].z              := "GDB_PalletizingCmd".lr_PickZ
-	                                                               + "GDB_PalletizingCmd".lr_PickApproachZOffset
-	                                                               + "GDB_PalletizingCmd".lr_WristOffsetZ;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].a              := 0.0;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := 2000.0;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_BufferMode := 5;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].bo_IsBoxEnd    := FALSE;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep    := (#tempBoxIdx - 1) * 3 + 1;
-	
-	         // cmd 3 -- MOVE PICK_DESCEND (stop)
-	         #tempCmdW := #tempCmdW + 1;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType    := 1;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].x              := #tempPickX;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].y              := #tempPickY;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].z              := "GDB_PalletizingCmd".lr_PickZ
-	                                                               + "GDB_PalletizingCmd".lr_WristOffsetZ;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].a              := 0.0;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := 2000.0;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_BufferMode := 1;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].bo_IsBoxEnd    := FALSE;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep    := (#tempBoxIdx - 1) * 3 + 1;
-	
-	         // cmd 4 -- GRIPPER grip (vacuum ON, hold lr_GripperCloseMs)
-	         #tempCmdW := #tempCmdW + 1;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType      := 2;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].lr_DwellMs       := "GDB_PalletizingCmd".lr_GripperCloseMs;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].bo_GripperGrip   := TRUE;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].bo_GripperRelease := FALSE;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep      := (#tempBoxIdx - 1) * 3 + 1;
-	
-	         // cmd 5 -- MOVE PICK_RAISE (blend)
-	         #tempCmdW := #tempCmdW + 1;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType    := 1;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].x              := #tempPickX;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].y              := #tempPickY;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].z              := "GDB_PalletizingCmd".lr_PickZ
-	                                                               + "GDB_PalletizingCmd".lr_PickApproachZOffset
-	                                                               + "GDB_PalletizingCmd".lr_WristOffsetZ;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].a              := 0.0;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := 2000.0;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_BufferMode := 5;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].bo_IsBoxEnd    := FALSE;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep    := (#tempBoxIdx - 1) * 3 + 1;
-	
-	         // cmd 6 -- MOVE APPROACH_PLACE (blend)
-	         #tempCmdW := #tempCmdW + 1;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType    := 1;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].x              := #tempBoxX + "GDB_PalletizingCmd".lr_WristOffsetX;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].y              := #tempBoxY + "GDB_PalletizingCmd".lr_WristOffsetY;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].z              := #tempPlaceZ
-	                                                               + "GDB_PalletizingCmd".lr_PlaceApproachZOffset
-	                                                               + "GDB_PalletizingCmd".lr_WristOffsetZ;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].a              := 0.0;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := 2000.0;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_BufferMode := 5;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].bo_IsBoxEnd    := FALSE;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep    := (#tempBoxIdx - 1) * 3 + 1;
-	
-	         // cmd 7 -- MOVE PLACE_DESCEND (stop)
-	         #tempCmdW := #tempCmdW + 1;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType    := 1;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].x              := #tempBoxX + "GDB_PalletizingCmd".lr_WristOffsetX;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].y              := #tempBoxY + "GDB_PalletizingCmd".lr_WristOffsetY;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].z              := #tempPlaceZ + "GDB_PalletizingCmd".lr_WristOffsetZ;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].a              := 0.0;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := 2000.0;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_BufferMode := 1;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].bo_IsBoxEnd    := FALSE;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep    := (#tempBoxIdx - 1) * 3 + 2;
-	
-	         // cmd 8 -- GRIPPER release (vacuum OFF + blow-off, hold lr_GripperOpenMs)
-	         #tempCmdW := #tempCmdW + 1;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType      := 2;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].lr_DwellMs       := "GDB_PalletizingCmd".lr_GripperOpenMs;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].bo_GripperGrip   := FALSE;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].bo_GripperRelease := TRUE;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep      := (#tempBoxIdx - 1) * 3 + 2;
-	
-	         // cmd 9 -- MOVE PLACE_RETRACT (blend) -- box end
-	         #tempCmdW := #tempCmdW + 1;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType    := 1;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].x              := #tempBoxX + "GDB_PalletizingCmd".lr_WristOffsetX;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].y              := #tempBoxY + "GDB_PalletizingCmd".lr_WristOffsetY;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].z              := #tempPlaceZ
-	                                                               + "GDB_PalletizingCmd".lr_PlaceApproachZOffset
-	                                                               + "GDB_PalletizingCmd".lr_WristOffsetZ;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].a              := 0.0;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := 2000.0;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_BufferMode := 5;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].bo_IsBoxEnd    := TRUE;
-	         "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep    := (#tempBoxIdx - 1) * 3 + 3;
-	     END_FOR;
-	
-	     // END_OF_PATH terminator
-	     #tempCmdW := #tempCmdW + 1;
-	     "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType := 0;
-	     "GDB_PalletizingPath".i16_CmdCount := #tempCmdW;
-	
-	     "GDB_PalletizingCmd".bo_PalletInitialed := TRUE;
-	     "GDB_PalletizingCmd".bo_PalletDone := FALSE;
-	 END_IF;
-	
-	 // =====================================================================
-	 // REGION 2 -- START (permissive AND -> launch the command list)
-	 // =====================================================================
-	 #sRTRIGStart(CLK := "GDB_PalletizingCmd".bo_Start);
-	 IF "GDB_PalletizingCmd".bo_Mode
-	     AND "GDB_PalletizingCmd".bo_ESTOP_LOCK
-	     AND ("GDB_PalletizingCmd".i16_PalletStep = 0)
-	     AND #sRTRIGStart.Q
-	     AND "GDB_PalletizingCmd".bo_PalletInitialed
-	     AND NOT "GDB_PalletizingCmd".bo_Alarm
-	     AND NOT "GDB_MachineCmd".bo_Mode
-	     AND NOT "GDB_ManualCmd".bo_Mode
-	 THEN
-	     #statCmdPtr      := 1;
-	     #statExecState   := 0;
-	     #statBoxesPlaced := 0;
-	     #statPhase       := 5;    // running
-	     "GDB_PalletizingCmd".bo_PalletDone := FALSE;
-	     "GDB_PalletizingCmd".i16_PalletStep := 1;
-	
-	     "GDB_MCDData".bo_gripperGrip    := FALSE;
-	     "GDB_MCDData".bo_gripperRelease := FALSE;
-	 END_IF;
-	
-	 // =====================================================================
-	 // REGION 3 -- STOP (R_TRIG -> idle; the conveyor stops itself on bo_Stop)
-	 // =====================================================================
-	 #sRTRIGStop(CLK := "GDB_PalletizingCmd".bo_Stop);
-	 IF #sRTRIGStop.Q THEN
-	     "GDB_PalletizingCmd".i16_PalletStep := 0;
-	     #statPhase     := 0;
-	     #statCmdPtr    := 0;
-	     #statExecState := 0;
-	     "GDB_MCDData".bo_gripperGrip    := FALSE;
-	     "GDB_MCDData".bo_gripperRelease := FALSE;
-	 END_IF;
-	
-	 // =====================================================================
-	 // REGION 4 -- BUFFERED-PATH EXECUTOR
-	 // =====================================================================
-	 #sRTRIGPalletizingSensor(CLK := "GDB_MCDData".PalletizingSensor);
-	
-	 // ---- Alarm router (detect -> route) ----
-	 // Any fault source raises bo_Alarm; this catches the rising edge and
-	 // routes the executor into the FAULT phase (statPhase 9).
-	 #sRTRIGAlarm(CLK := "GDB_PalletizingCmd".bo_Alarm);
-	 IF #sRTRIGAlarm.Q THEN
-	     #statPhase     := 9;
-	     #statExecState := 0;
-	 END_IF;
-	
-	 // ---- Resolve current command (bounds-guarded; SCL has no short-circuit,
-	 // so the aCmd[] read is nested inside the bounds IF, never in a condition).
-	 #tempCmdType := -1;
-	 #tempBufMode := 1;
-	 #tempVel     := 2000.0;
-	 IF #statPhase = 5 THEN
-	     IF #statCmdPtr >= 1 AND #statCmdPtr <= 200 THEN
-	         #tempCmdType := "GDB_PalletizingPath".aCmd[#statCmdPtr].i16_CmdType;
-	         IF #tempCmdType = 1 THEN
-	             #tempBufMode := "GDB_PalletizingPath".aCmd[#statCmdPtr].i16_BufferMode;
-	             #tempVel     := "GDB_PalletizingPath".aCmd[#statCmdPtr].lr_Velocity;
-	         END_IF;
-	     END_IF;
-	 END_IF;
-	 // One-scan Execute pulse: a MOVE command on its enter scan (statExecState 0).
-	 #tempExecPulse := (#tempCmdType = 1) AND (#statExecState = 0);
-	
-	 // ---- Command executor ----
-	 CASE #statPhase OF
-	     5: // RUNNING -- walk the command list
-	         CASE #tempCmdType OF
-	             1: // MOVE
-	                 IF #statExecState = 0 THEN
-	                     // enter: latch target, publish HMI step, snapshot distance
-	                     #statTargetPos.x := "GDB_PalletizingPath".aCmd[#statCmdPtr].x;
-	                     #statTargetPos.y := "GDB_PalletizingPath".aCmd[#statCmdPtr].y;
-	                     #statTargetPos.z := "GDB_PalletizingPath".aCmd[#statCmdPtr].z;
-	                     #statTargetPos.a := "GDB_PalletizingPath".aCmd[#statCmdPtr].a;
-	                     "GDB_PalletizingCmd".i16_PalletStep := "GDB_PalletizingPath".aCmd[#statCmdPtr].i16_HmiStep;
-	                     #statTotalDistance := SQRT(SQR(#statTargetPos.x - "ScaraArm3D".Tcp.x)
-	                                              + SQR(#statTargetPos.y - "ScaraArm3D".Tcp.y)
-	                                              + SQR(#statTargetPos.z - "ScaraArm3D".Tcp.z));
-	                     #statExecState := 1;
-	                 ELSE
-	                     // running: progress metric, then per-BufferMode advance
-	                     #tempRemaining := SQRT(SQR(#statTargetPos.x - "ScaraArm3D".Tcp.x)
-	                                          + SQR(#statTargetPos.y - "ScaraArm3D".Tcp.y)
-	                                          + SQR(#statTargetPos.z - "ScaraArm3D".Tcp.z));
-	                     IF #statTotalDistance > 0.001 THEN
-	                         #statProgress := 1.0 - #tempRemaining / #statTotalDistance;
-	                     ELSE
-	                         #statProgress := 1.0;
-	                     END_IF;
-	                     // BufferMode 5 -> advance at 50% so the next move blends
-	                     // in; BufferMode 1 -> advance only on physical arrival.
-	                     IF (#tempBufMode = 5 AND #statProgress > 0.5)
-	                         OR (#tempBufMode = 1 AND #tempRemaining < 1.0) THEN
-	                         IF "GDB_PalletizingPath".aCmd[#statCmdPtr].bo_IsBoxEnd THEN
-	                             #statBoxesPlaced := #statBoxesPlaced + 1;
-	                         END_IF;
-	                         #statCmdPtr    := #statCmdPtr + 1;
-	                         #statExecState := 0;
-	                     END_IF;
-	                 END_IF;
-	
-	             2: // GRIPPER
-	                 IF #statExecState = 0 THEN
-	                     "GDB_MCDData".bo_gripperGrip    := "GDB_PalletizingPath".aCmd[#statCmdPtr].bo_GripperGrip;
-	                     "GDB_MCDData".bo_gripperRelease := "GDB_PalletizingPath".aCmd[#statCmdPtr].bo_GripperRelease;
-	                     "GDB_PalletizingCmd".i16_PalletStep := "GDB_PalletizingPath".aCmd[#statCmdPtr].i16_HmiStep;
-	                     #statExecState := 1;
-	                 ELSE
-	                     #instGripperTimer(IN := TRUE,
-	                                       PT := DINT_TO_TIME(LREAL_TO_DINT("GDB_PalletizingPath".aCmd[#statCmdPtr].lr_DwellMs)));
-	                     IF #instGripperTimer.Q THEN
-	                         #instGripperTimer(IN := FALSE, PT := T#0MS);
-	                         "GDB_MCDData".bo_gripperRelease := FALSE;   // end any blow-off pulse
-	                         #statCmdPtr    := #statCmdPtr + 1;
-	                         #statExecState := 0;
-	                     END_IF;
-	                 END_IF;
-	
-	             3: // WAIT_ARRIVAL -- gate the pick on box arrival
-	                 // statExecState: 0 = enter, 1 = wait for arrival, 2 = settle.
-	                 IF #statExecState = 0 THEN
-	                     "GDB_PalletizingCmd".i16_PalletStep := "GDB_PalletizingPath".aCmd[#statCmdPtr].i16_HmiStep;
-	                     #statExecState := 1;
-	                 ELSIF #statExecState = 1 THEN
-	                     // real mode: advance when a box is present at the pick
-	                     // end -- LEVEL of PalletizingSensor, not its edge, so a
-	                     // box that arrived early (sensor already TRUE) still
-	                     // advances. phantom mode: no sensor -- advance at once.
-	                     IF "GDB_MCDData".PalletizingSensor
-	                         OR NOT "GDB_PalletizingCmd".bo_RequireSensorGate THEN
-	                         #statExecState := 2;
-	                     END_IF;
-	                 ELSE
-	                     // settle, then advance to the descend-to-pick MOVE
-	                     #instArrivalSettleTimer(IN := TRUE,
-	                                             PT := DINT_TO_TIME(LREAL_TO_DINT("GDB_PalletizingCmd".lr_ArrivalSettleMs)));
-	                     IF #instArrivalSettleTimer.Q THEN
-	                         #instArrivalSettleTimer(IN := FALSE, PT := T#0MS);
-	                         #statCmdPtr    := #statCmdPtr + 1;
-	                         #statExecState := 0;
-	                     END_IF;
-	                 END_IF;
-	
-	             0: // END_OF_PATH
-	                 #statPhase := 8;
-	         END_CASE;
-	
-	     8: // COMPLETE -- all boxes placed; hold idle
-	         "GDB_PalletizingCmd".bo_PalletDone := TRUE;
-	         "GDB_PalletizingCmd".i16_PalletStep := 0;
-	         "GDB_MCDData".bo_gripperGrip    := FALSE;
-	         "GDB_MCDData".bo_gripperRelease := FALSE;
-	
-	     9: // FAULT -- hold safe; recover on the HMI reset button (resetAxes)
-	         "GDB_MCDData".bo_gripperGrip    := FALSE;
-	         "GDB_MCDData".bo_gripperRelease := FALSE;
-	         "GDB_PalletizingCmd".i16_PalletStep := 0;
-	         IF "GDB_AxisCtrl".LKinCtrl.input.bo_reset THEN
-	             "GDB_PalletizingCmd".bo_Alarm := FALSE;
-	             #statPhase     := 0;
-	             #statCmdPtr    := 0;
-	             #statExecState := 0;
-	         END_IF;
-	 END_CASE;
-	
-	 // ---- Motion driver: single MC_MoveLinearAbsolute (OB91 safe) ----
-	 // Execute pulses for one scan on a MOVE-command enter. Velocity and
-	 // BufferMode are the per-command values captured above, before the CASE
-	 // possibly advanced statCmdPtr. When not on a MOVE, Execute is FALSE.
-	 #tempPosArray[1] := #statTargetPos.x;
-	 #tempPosArray[2] := #statTargetPos.y;
-	 #tempPosArray[3] := #statTargetPos.z;
-	 #tempPosArray[4] := #statTargetPos.a;
-	 #tempPosArray[5] := 0.0;
-	 #tempPosArray[6] := 0.0;
-	 #instMoveLinAbs(AxesGroup    := "ScaraArm3D",
-	                 Execute      := #tempExecPulse,
-	                 Position     := #tempPosArray,
-	                 Velocity     := #tempVel,
-	                 Acceleration := 10000.0,
-	                 Deceleration := 10000.0,
-	                 Jerk         := 100000.0,
-	                 BufferMode   := #tempBufMode);
-	
-	 // ---- Motion-fault detector (raises the alarm only) ----
-	 // On an MC fault while running, raise bo_Alarm; the alarm router (top of
-	 // REGION 4) routes the executor into the FAULT phase next scan.
-	 IF #statPhase = 5 AND #instMoveLinAbs.Error THEN
-	     "GDB_PalletizingCmd".bo_Alarm := TRUE;
-	 END_IF;
-	
-	
-END_FUNCTION_BLOCK
 
+    REGION Initialise path
+        // ================================================================
+        // Command-list builder (carried over verbatim from V4.2 REGION 1).
+        // 16 boxes x 4 layers, 9 commands/box: WAIT_ARRIVAL, ABOVE_PICK,
+        // PICK_DESCEND, GRIPPER(grip), PICK_RAISE, APPROACH_PLACE,
+        // PLACE_DESCEND, GRIPPER(release), PLACE_RETRACT + END_OF_PATH.
+        // cmdType: 0=END 1=MOVE 2=GRIPPER 3=WAIT_ARRIVAL.
+        // ================================================================
+        #sRTRIGInitialPath(CLK := "GDB_PalletizingCmd".bo_InitPallet);
+        IF #sRTRIGInitialPath.Q THEN
+            "GDB_PalletizingCmd".i16_TotalBoxes := 16;
+            #tempCmdW := 0;
+
+            FOR #tempBoxIdx := 1 TO 16 DO
+                #tempLayerNum   := (#tempBoxIdx - 1) / 4 + 1;
+                #tempPosInLayer := (#tempBoxIdx - 1) MOD 4;
+                #tempPlaceZ     := "GDB_PalletizingCmd".lr_PalletTopZ
+                                 + #tempLayerNum * "GDB_PalletizingCmd".lr_BoxHeight;
+                IF #tempPosInLayer = 0 THEN
+                    #tempBoxX := "GDB_PalletizingCmd".lr_PalletTopX - 200.0;
+                    #tempBoxY := "GDB_PalletizingCmd".lr_PalletTopY - 300.0;
+                ELSIF #tempPosInLayer = 1 THEN
+                    #tempBoxX := "GDB_PalletizingCmd".lr_PalletTopX + 200.0;
+                    #tempBoxY := "GDB_PalletizingCmd".lr_PalletTopY - 300.0;
+                ELSIF #tempPosInLayer = 2 THEN
+                    #tempBoxX := "GDB_PalletizingCmd".lr_PalletTopX + 200.0;
+                    #tempBoxY := "GDB_PalletizingCmd".lr_PalletTopY + 300.0;
+                ELSE
+                    #tempBoxX := "GDB_PalletizingCmd".lr_PalletTopX - 200.0;
+                    #tempBoxY := "GDB_PalletizingCmd".lr_PalletTopY + 300.0;
+                END_IF;
+                #tempPickX := "GDB_PalletizingCmd".lr_PickX + "GDB_PalletizingCmd".lr_WristOffsetX;
+                #tempPickY := "GDB_PalletizingCmd".lr_PickY + "GDB_PalletizingCmd".lr_WristOffsetY;
+
+                // cmd 1 -- WAIT_ARRIVAL
+                #tempCmdW := #tempCmdW + 1;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType := 3;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep := (#tempBoxIdx - 1) * 3 + 1;
+
+                // cmd 2 -- MOVE ABOVE_PICK (blend)
+                #tempCmdW := #tempCmdW + 1;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType    := 1;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].x              := #tempPickX;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].y              := #tempPickY;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].z              := "GDB_PalletizingCmd".lr_PickZ
+                                                                      + "GDB_PalletizingCmd".lr_PickApproachZOffset
+                                                                      + "GDB_PalletizingCmd".lr_WristOffsetZ;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].a              := 0.0;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := 2000.0;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_BufferMode := 5;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].bo_IsBoxEnd    := FALSE;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep    := (#tempBoxIdx - 1) * 3 + 1;
+
+                // cmd 3 -- MOVE PICK_DESCEND (stop)
+                #tempCmdW := #tempCmdW + 1;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType    := 1;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].x              := #tempPickX;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].y              := #tempPickY;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].z              := "GDB_PalletizingCmd".lr_PickZ
+                                                                      + "GDB_PalletizingCmd".lr_WristOffsetZ;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].a              := 0.0;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := 2000.0;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_BufferMode := 1;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].bo_IsBoxEnd    := FALSE;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep    := (#tempBoxIdx - 1) * 3 + 1;
+
+                // cmd 4 -- GRIPPER grip (vacuum ON, hold lr_GripperCloseMs)
+                #tempCmdW := #tempCmdW + 1;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType      := 2;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].lr_DwellMs       := "GDB_PalletizingCmd".lr_GripperCloseMs;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].bo_GripperGrip   := TRUE;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].bo_GripperRelease := FALSE;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep      := (#tempBoxIdx - 1) * 3 + 1;
+
+                // cmd 5 -- MOVE PICK_RAISE (blend)
+                #tempCmdW := #tempCmdW + 1;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType    := 1;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].x              := #tempPickX;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].y              := #tempPickY;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].z              := "GDB_PalletizingCmd".lr_PickZ
+                                                                      + "GDB_PalletizingCmd".lr_PickApproachZOffset
+                                                                      + "GDB_PalletizingCmd".lr_WristOffsetZ;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].a              := 0.0;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := 2000.0;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_BufferMode := 5;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].bo_IsBoxEnd    := FALSE;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep    := (#tempBoxIdx - 1) * 3 + 1;
+
+                // cmd 6 -- MOVE APPROACH_PLACE (blend)
+                #tempCmdW := #tempCmdW + 1;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType    := 1;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].x              := #tempBoxX + "GDB_PalletizingCmd".lr_WristOffsetX;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].y              := #tempBoxY + "GDB_PalletizingCmd".lr_WristOffsetY;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].z              := #tempPlaceZ
+                                                                      + "GDB_PalletizingCmd".lr_PlaceApproachZOffset
+                                                                      + "GDB_PalletizingCmd".lr_WristOffsetZ;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].a              := 0.0;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := 2000.0;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_BufferMode := 5;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].bo_IsBoxEnd    := FALSE;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep    := (#tempBoxIdx - 1) * 3 + 1;
+
+                // cmd 7 -- MOVE PLACE_DESCEND (stop)
+                #tempCmdW := #tempCmdW + 1;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType    := 1;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].x              := #tempBoxX + "GDB_PalletizingCmd".lr_WristOffsetX;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].y              := #tempBoxY + "GDB_PalletizingCmd".lr_WristOffsetY;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].z              := #tempPlaceZ + "GDB_PalletizingCmd".lr_WristOffsetZ;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].a              := 0.0;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := 2000.0;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_BufferMode := 1;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].bo_IsBoxEnd    := FALSE;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep    := (#tempBoxIdx - 1) * 3 + 2;
+
+                // cmd 8 -- GRIPPER release (vacuum OFF + blow-off, hold lr_GripperOpenMs)
+                #tempCmdW := #tempCmdW + 1;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType      := 2;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].lr_DwellMs       := "GDB_PalletizingCmd".lr_GripperOpenMs;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].bo_GripperGrip   := FALSE;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].bo_GripperRelease := TRUE;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep      := (#tempBoxIdx - 1) * 3 + 2;
+
+                // cmd 9 -- MOVE PLACE_RETRACT (blend) -- box end
+                #tempCmdW := #tempCmdW + 1;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType    := 1;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].x              := #tempBoxX + "GDB_PalletizingCmd".lr_WristOffsetX;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].y              := #tempBoxY + "GDB_PalletizingCmd".lr_WristOffsetY;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].z              := #tempPlaceZ
+                                                                      + "GDB_PalletizingCmd".lr_PlaceApproachZOffset
+                                                                      + "GDB_PalletizingCmd".lr_WristOffsetZ;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].a              := 0.0;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := 2000.0;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_BufferMode := 5;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].bo_IsBoxEnd    := TRUE;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep    := (#tempBoxIdx - 1) * 3 + 3;
+            END_FOR;
+
+            // END_OF_PATH terminator
+            #tempCmdW := #tempCmdW + 1;
+            "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType := 0;
+            "GDB_PalletizingPath".i16_CmdCount := #tempCmdW;
+
+            "GDB_PalletizingCmd".bo_PalletInitialed := TRUE;
+            "GDB_PalletizingCmd".bo_PalletDone := FALSE;
+        END_IF;
+    END_REGION
+
+
+    REGION startup
+        // Start permissive: palletizing AUTO mode, E-Stop healthy, idle,
+        // path initialised, no alarm, AND the 3-way mode mutex (ABCDE +
+        // manual both off). On the Start rising edge, enter at head reset.
+        #sRTRIGStart(CLK := "GDB_PalletizingCmd".bo_Start);
+        IF "GDB_PalletizingCmd".bo_Mode
+            AND "GDB_PalletizingCmd".bo_ESTOP_LOCK
+            AND ("GDB_PalletizingCmd".i16_PalletStep = 0)
+            AND #sRTRIGStart.Q
+            AND "GDB_PalletizingCmd".bo_PalletInitialed
+            AND NOT "GDB_PalletizingCmd".bo_Alarm
+            AND NOT "GDB_MachineCmd".bo_Mode
+            AND NOT "GDB_ManualCmd".bo_Mode
+        THEN
+            "GDB_PalletizingCmd".i16_PalletStep := 10;
+        END_IF;
+    END_REGION
+
+
+    REGION Pause
+        // Reserved. GDB_PalletizingCmd has no halt/pause command bit in the
+        // minimal demo; wire a halt bit + edge detector here when pause is
+        // added (review backlog).
+        ;
+    END_REGION
+
+
+    REGION Stop
+        // Stop -> abort. Route through step 200 so the in-flight move command
+        // and the gripper outputs are dropped and the tail reset (900) runs.
+        #sRTRIGStop(CLK := "GDB_PalletizingCmd".bo_Stop);
+        IF #sRTRIGStop.Q
+            AND ("GDB_PalletizingCmd".i16_PalletStep >= 10)
+            AND ("GDB_PalletizingCmd".i16_PalletStep <= 230)
+        THEN
+            "GDB_PalletizingCmd".i16_PalletStep := 200;
+        END_IF;
+    END_REGION
+
+
+    REGION Alarm
+        // Any palletizing alarm -> abort (same path as Stop).
+        #sRTRIGAlarm(CLK := "GDB_PalletizingCmd".bo_Alarm);
+        IF #sRTRIGAlarm.Q
+            AND ("GDB_PalletizingCmd".i16_PalletStep >= 10)
+            AND ("GDB_PalletizingCmd".i16_PalletStep <= 230)
+        THEN
+            "GDB_PalletizingCmd".i16_PalletStep := 200;
+        END_IF;
+    END_REGION
+
+
+    REGION E_Stop
+        // E-Stop chain open (bo_ESTOP_LOCK = FALSE) -> jump to the hold
+        // state 800 from any running step.
+        IF NOT "GDB_PalletizingCmd".bo_ESTOP_LOCK
+            AND ("GDB_PalletizingCmd".i16_PalletStep >= 10)
+            AND ("GDB_PalletizingCmd".i16_PalletStep <= 230)
+        THEN
+            "GDB_PalletizingCmd".i16_PalletStep := 800;
+        END_IF;
+    END_REGION
+
+
+    REGION Auto
+
+        CASE "GDB_PalletizingCmd".i16_PalletStep OF
+
+            0:  // Idle - await Start
+                ;
+
+            10: // Head reset - clear command + gripper outputs, reset pointers
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+                "GDB_MCDData".bo_gripperGrip    := FALSE;
+                "GDB_MCDData".bo_gripperRelease := FALSE;
+                #statCmdPtr      := 1;
+                #statBoxesPlaced := 0;
+                "GDB_PalletizingCmd".bo_PalletDone := FALSE;
+                "GDB_PalletizingCmd".i16_PalletStep := 20;
+
+            20: // Preconditions - wait until the OB30 axis layer is ready
+                IF "GDB_AxisCtrl".LKinCtrl.output.bo_ready THEN
+                    "GDB_PalletizingCmd".i16_PalletStep := 30;
+                END_IF;
+
+            30: // Fetch + dispatch the command at statCmdPtr.
+                // The aCmd[] read is nested inside the bounds IF - S7-1500 SCL
+                // does not guarantee short-circuit evaluation.
+                IF #statCmdPtr >= 1 AND #statCmdPtr <= 200 THEN
+                    #tempCmdType := "GDB_PalletizingPath".aCmd[#statCmdPtr].i16_CmdType;
+                    CASE #tempCmdType OF
+                        0:  // END_OF_PATH -> cycle complete
+                            "GDB_PalletizingCmd".i16_PalletStep := 230;
+
+                        1:  // MOVE - load target + dynamics (parameters before command)
+                            #statTargetPos.x := "GDB_PalletizingPath".aCmd[#statCmdPtr].x;
+                            #statTargetPos.y := "GDB_PalletizingPath".aCmd[#statCmdPtr].y;
+                            #statTargetPos.z := "GDB_PalletizingPath".aCmd[#statCmdPtr].z;
+                            #statTargetPos.a := "GDB_PalletizingPath".aCmd[#statCmdPtr].a;
+                            "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.x := #statTargetPos.x;
+                            "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.y := #statTargetPos.y;
+                            "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.z := #statTargetPos.z;
+                            "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.a := #statTargetPos.a;
+                            "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.b := 0.0;
+                            "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.c := 0.0;
+                            "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_velocity     := "GDB_PalletizingPath".aCmd[#statCmdPtr].lr_Velocity;
+                            "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_acceleration := 10000.0;
+                            "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_deceleration := 10000.0;
+                            "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_jerk         := 100000.0;
+                            "GDB_PalletizingCmd".i16_PalletStep := 50;
+
+                        2:  // GRIPPER - write the suction-cup level bits
+                            "GDB_MCDData".bo_gripperGrip    := "GDB_PalletizingPath".aCmd[#statCmdPtr].bo_GripperGrip;
+                            "GDB_MCDData".bo_gripperRelease := "GDB_PalletizingPath".aCmd[#statCmdPtr].bo_GripperRelease;
+                            "GDB_PalletizingCmd".i16_PalletStep := 40;
+
+                        3:  // WAIT_ARRIVAL
+                            "GDB_PalletizingCmd".i16_PalletStep := 60;
+
+                        ELSE  // unknown command type -> abort
+                            "GDB_PalletizingCmd".i16_PalletStep := 200;
+                    END_CASE;
+                ELSE
+                    "GDB_PalletizingCmd".i16_PalletStep := 200;   // pointer out of range
+                END_IF;
+
+            40: // Gripper dwell - hold the grip/release for lr_DwellMs
+                IF #statCmdPtr >= 1 AND #statCmdPtr <= 200 THEN
+                    #instGripperTimer(IN := TRUE,
+                                      PT := DINT_TO_TIME(LREAL_TO_DINT("GDB_PalletizingPath".aCmd[#statCmdPtr].lr_DwellMs)));
+                    IF #instGripperTimer.Q THEN
+                        #instGripperTimer(IN := FALSE, PT := T#0MS);
+                        "GDB_MCDData".bo_gripperRelease := FALSE;   // end any blow-off pulse
+                        #statCmdPtr := #statCmdPtr + 1;
+                        "GDB_PalletizingCmd".i16_PalletStep := 30;
+                    END_IF;
+                ELSE
+                    "GDB_PalletizingCmd".i16_PalletStep := 200;
+                END_IF;
+
+            50: // Issue motion - hand the move to the 600 axis layer
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := TRUE;
+                "GDB_PalletizingCmd".i16_PalletStep := 100;
+
+            60: // Wait arrival - gate the pick on box arrival. Real mode waits
+                // for the PalletizingSensor LEVEL; phantom mode (no sensor
+                // gate) proceeds at once.
+                IF "GDB_MCDData".PalletizingSensor
+                    OR NOT "GDB_PalletizingCmd".bo_RequireSensorGate
+                THEN
+                    "GDB_PalletizingCmd".i16_PalletStep := 65;
+                END_IF;
+
+            65: // Arrival settle - let the box settle before descend-to-pick
+                #instArrivalSettleTimer(IN := TRUE,
+                                        PT := DINT_TO_TIME(LREAL_TO_DINT("GDB_PalletizingCmd".lr_ArrivalSettleMs)));
+                IF #instArrivalSettleTimer.Q THEN
+                    #instArrivalSettleTimer(IN := FALSE, PT := T#0MS);
+                    #statCmdPtr := #statCmdPtr + 1;
+                    "GDB_PalletizingCmd".i16_PalletStep := 30;
+                END_IF;
+
+            100: // Wait-in-place - FB_AxisCtrl reports the move complete.
+                 // On error / abort, bail to the abort step.
+                IF "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_done THEN
+                    "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+                    "GDB_PalletizingCmd".i16_PalletStep := 110;
+                ELSIF "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_error
+                    OR "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_commandaborted
+                THEN
+                    "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+                    "GDB_PalletizingCmd".i16_PalletStep := 200;
+                END_IF;
+
+            110: // Handshake done - wait for bo_done to clear (the OB30 axis
+                 // layer saw bo_execute drop), count a box on a box-end move,
+                 // then advance the command pointer.
+                IF NOT "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_done THEN
+                    IF #statCmdPtr >= 1 AND #statCmdPtr <= 200 THEN
+                        IF "GDB_PalletizingPath".aCmd[#statCmdPtr].bo_IsBoxEnd THEN
+                            #statBoxesPlaced := #statBoxesPlaced + 1;
+                        END_IF;
+                    END_IF;
+                    #statCmdPtr := #statCmdPtr + 1;
+                    "GDB_PalletizingCmd".i16_PalletStep := 30;
+                END_IF;
+
+            200: // Abort - drop the command + gripper outputs, go to tail reset
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+                "GDB_MCDData".bo_gripperGrip    := FALSE;
+                "GDB_MCDData".bo_gripperRelease := FALSE;
+                "GDB_PalletizingCmd".i16_PalletStep := 900;
+
+            230: // Cycle complete - all boxes placed (END_OF_PATH reached)
+                "GDB_PalletizingCmd".bo_PalletDone := TRUE;
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+                "GDB_MCDData".bo_gripperGrip    := FALSE;
+                "GDB_MCDData".bo_gripperRelease := FALSE;
+                "GDB_PalletizingCmd".i16_PalletStep := 0;
+
+            800: // E-Stop hold - outputs dropped; auto-recovers to the tail
+                 // reset once the E-Stop chain is healthy again.
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+                "GDB_MCDData".bo_gripperGrip    := FALSE;
+                "GDB_MCDData".bo_gripperRelease := FALSE;
+                IF "GDB_PalletizingCmd".bo_ESTOP_LOCK THEN
+                    "GDB_PalletizingCmd".i16_PalletStep := 900;
+                END_IF;
+
+            900: // Tail reset - mirror of step 10; return to idle
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+                "GDB_MCDData".bo_gripperGrip    := FALSE;
+                "GDB_MCDData".bo_gripperRelease := FALSE;
+                #statCmdPtr := 0;
+                "GDB_PalletizingCmd".i16_PalletStep := 0;
+
+            ELSE  // Unknown step - fail safe to idle
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+                "GDB_MCDData".bo_gripperGrip    := FALSE;
+                "GDB_MCDData".bo_gripperRelease := FALSE;
+                "GDB_PalletizingCmd".i16_PalletStep := 0;
+
+        END_CASE;
+
+    END_REGION
+
+END_FUNCTION_BLOCK

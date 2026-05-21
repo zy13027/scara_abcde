@@ -1,145 +1,122 @@
-﻿FUNCTION_BLOCK "FB_HMIStatusMirror"
+FUNCTION_BLOCK "FB_HMIStatusMirror"
 { S7_Optimized_Access := 'TRUE' }
-VERSION : 0.1
+VERSION : 0.2
 // =====================================================================
-// SCARA ABCDE Phase 2.4 (C71, 2026-05-18) â€” HMI Read-Only Facade Mirror
+// SCARA ABCDE - HMI Read-Only Facade Mirror  (Phase 6, 2026-05-21)
 //
-// Consolidates ~35 display tags from across the system into GDB_HMI_Status
-// each OB1 scan. HMI binds to GDB_HMI_Status for ALL READS (single binding
-// surface); HMI continues to write directly to the per-mode cmd DBs
-// (GDB_MachineCmd / GDB_PalletizingCmd / GDB_ManualCmd) for commands.
+// Consolidates display tags into GDB_HMI_Status each OB1 scan. The HMI
+// binds GDB_HMI_Status for ALL READS (single read surface); it still
+// writes the per-mode command DBs (GDB_MachineCmd / GDB_PalletizingCmd /
+// GDB_ManualCmd) directly for commands.
 //
-// 5 REGIONs:
-//   REGION 1: Active-mode arbitration (compute 0=None/1=ABCDE/2=Pallet/3=Manual)
-//   REGION 2: Mode-routed currentStep + totalSteps + target XYZA
-//   REGION 3: Group axis status (axesEnabled/Homed/Error/Ready)
-//   REGION 4: Per-joint status (4 joints Ã— 6 fields = 24 assignments)
-//   REGION 5: Safety + cycle-init flags + diagnostics
+// REGIONs: 1 active-mode arbitration / 2 mode-routed step + target /
+//          3 group axis status / 4 per-joint status / 5 safety + flags.
 //
-// Per-scan cost: ~35 simple assignments + 1 IF/ELSIF chain. Negligible
-// vs the FB_AutoCtrl_ABCDE / FB_AutoCtrl_Palletizing 4-REGION machinery.
+// Placed LAST in the OB1 call sequence so every upstream FB
+// (FB_ConveyorCtrl, FB_ManualCtrl, FB_AutoCtrl_5Pts, FB_AutoCtrl_Palletizing,
+// FB_MCDDataTransfer) has written fresh state before this FB mirrors it.
 //
-// Placement in Main.scl: LAST in the FB call sequence so all upstream
-// FBs (FB_AxisCtrl, FB_ManualCtrl, FB_AutoCtrl_ABCDE, FB_AutoCtrl_Palletizing,
-// FB_MCDDataTransfer) have written their fresh state by the time this
-// FB reads + mirrors them.
-//
-// Mutex semantics: arbitration uses IF/ELSIF priority chain (ABCDE wins
-// over Palletizing wins over Manual when multiple modes are TRUE).
-// PLC's REAL mutex enforcement is at each FB's START gate (silent reject
-// of conflicting Start pulses). This activeMode field is a DISPLAY-LAYER
-// derivative â€” operator should rely on it to know "which cycle is
-// actually running", but write-coordination is HMI's job (per C70 Â§4).
+// V0.2 (Phase 6) - repointed for the refactor: FB_AutoCtrl_ABCDE ->
+// FB_AutoCtrl_5Pts. currentStep is now a progress COUNT - the point index
+// (1..5) for ABCDE, the boxes-placed count (0..16) for palletizing - not
+// the raw CASE step variable (i16_AutoStep / i16_PalletStep), which after
+// the Phase 4 refactor carries machine-state values (0/10/.../900).
 // =====================================================================
-   VAR_TEMP 
+   VAR_TEMP
       tempActiveMode : Int;
    END_VAR
 
 
 BEGIN
-	
-	
-	 // =====================================================================
-	 // REGION 1 â€” Active-mode arbitration
-	 // Priority: ABCDE > Palletizing > Manual > None
-	 // Only one bo_Mode should be TRUE at a time (HMI's responsibility per
-	 // C70 Â§4 Option 4A); but if multiple are set, priority chain picks one
-	 // for display. PLC's per-FB START gates enforce the real mutex.
-	 // =====================================================================
-	 IF "GDB_MachineCmd".bo_Mode THEN
-	     #tempActiveMode := 1;       // ABCDE
-	 ELSIF "GDB_PalletizingCmd".bo_Mode THEN
-	     #tempActiveMode := 2;       // Palletizing
-	 ELSIF "GDB_ManualCmd".bo_Mode THEN
-	     #tempActiveMode := 3;       // Manual
-	 ELSE
-	     #tempActiveMode := 0;       // None / Idle
-	 END_IF;
-	 "GDB_HMI_Status".activeMode := #tempActiveMode;
-	
-	 // =====================================================================
-	 // REGION 2 â€” Mode-routed currentStep + totalSteps + target XYZA
-	 // ABCDE mode: step from i16_AutoStep, total=5, target from ABCDE iDB
-	 // Palletizing mode: step from i16_PalletStep, total=48, target from Pal iDB
-	 // Manual mode: step=0, total=0, target HOLDS last value (no write)
-	 // None: step=0, total=0, target holds last value
-	 // =====================================================================
-	 CASE #tempActiveMode OF
-	     1: // ABCDE
-	         "GDB_HMI_Status".currentStep := "GDB_MachineCmd".i16_AutoStep;
-	         "GDB_HMI_Status".totalSteps := 5;
-	         "GDB_HMI_Status".target_x := "instFB_AutoCtrl_ABCDE".statTargetPos.x;
-	         "GDB_HMI_Status".target_y := "instFB_AutoCtrl_ABCDE".statTargetPos.y;
-	         "GDB_HMI_Status".target_z := "instFB_AutoCtrl_ABCDE".statTargetPos.z;
-	         "GDB_HMI_Status".target_a := "instFB_AutoCtrl_ABCDE".statTargetPos.a;
-	     2: // Palletizing
-	         "GDB_HMI_Status".currentStep := "GDB_PalletizingCmd".i16_PalletStep;
-	         "GDB_HMI_Status".totalSteps := 48;
-	         "GDB_HMI_Status".target_x := "instFB_AutoCtrl_Palletizing".statTargetPos.x;
-	         "GDB_HMI_Status".target_y := "instFB_AutoCtrl_Palletizing".statTargetPos.y;
-	         "GDB_HMI_Status".target_z := "instFB_AutoCtrl_Palletizing".statTargetPos.z;
-	         "GDB_HMI_Status".target_a := "instFB_AutoCtrl_Palletizing".statTargetPos.a;
-	     3: // Manual â€” no auto-target trajectory; show 0 steps
-	         "GDB_HMI_Status".currentStep := 0;
-	         "GDB_HMI_Status".totalSteps := 0;
-	         // target_x/y/z/a NOT written â€” preserves last commanded target value
-	     ELSE // None / Idle
-	         "GDB_HMI_Status".currentStep := 0;
-	         "GDB_HMI_Status".totalSteps := 0;
-	         // target stays at last value
-	 END_CASE;
-	
-	 // =====================================================================
-	 // REGION 3 â€” Group axis status
-	 // =====================================================================
-	 "GDB_HMI_Status".axesEnabled := "GDB_AxisCtrl".LKinCtrl.output.bo_enabled;
-	 "GDB_HMI_Status".axesHomed := "GDB_AxisCtrl".LKinCtrl.output.bo_homed;
-	 "GDB_HMI_Status".axesError := "GDB_AxisCtrl".LKinCtrl.output.bo_fault;
-	 "GDB_HMI_Status".axesReady := "GDB_AxisCtrl".LKinCtrl.output.bo_ready;
-	
-	 // =====================================================================
-	 // REGION 4 â€” Per-joint status (4 joints Ã— 6 fields = 24 assignments)
-	 // Reads bool fields from GDB_ManualStatus (FB_ManualCtrl REGION 5 mirror),
-	 // and reads actual position/velocity direct from J{n}_SCARA_Arm3D TO.
-	 // Joint-name convention throughout (no kinematic-group swap on HMI surface).
-	 // =====================================================================
-	 "GDB_HMI_Status".j1_enabled := "GDB_ManualStatus".bo_J1_Enabled;
-	 "GDB_HMI_Status".j1_homed := "GDB_ManualStatus".bo_J1_Homed;
-	 "GDB_HMI_Status".j1_error := "GDB_ManualStatus".bo_J1_Error;
-	 "GDB_HMI_Status".j1_jogActive := "GDB_ManualStatus".bo_J1_JogActive;
-	 "GDB_HMI_Status".j1_actualPos := "J1_SCARA_Arm3D".ActualPosition;
-	 "GDB_HMI_Status".j1_actualVel := "J1_SCARA_Arm3D".ActualVelocity;
-	
-	 "GDB_HMI_Status".j2_enabled := "GDB_ManualStatus".bo_J2_Enabled;
-	 "GDB_HMI_Status".j2_homed := "GDB_ManualStatus".bo_J2_Homed;
-	 "GDB_HMI_Status".j2_error := "GDB_ManualStatus".bo_J2_Error;
-	 "GDB_HMI_Status".j2_jogActive := "GDB_ManualStatus".bo_J2_JogActive;
-	 "GDB_HMI_Status".j2_actualPos := "J2_SCARA_Arm3D".ActualPosition;
-	 "GDB_HMI_Status".j2_actualVel := "J2_SCARA_Arm3D".ActualVelocity;
-	
-	 "GDB_HMI_Status".j3_enabled := "GDB_ManualStatus".bo_J3_Enabled;
-	 "GDB_HMI_Status".j3_homed := "GDB_ManualStatus".bo_J3_Homed;
-	 "GDB_HMI_Status".j3_error := "GDB_ManualStatus".bo_J3_Error;
-	 "GDB_HMI_Status".j3_jogActive := "GDB_ManualStatus".bo_J3_JogActive;
-	 "GDB_HMI_Status".j3_actualPos := "J3_SCARA_Arm3D".ActualPosition;
-	 "GDB_HMI_Status".j3_actualVel := "J3_SCARA_Arm3D".ActualVelocity;
-	
-	 "GDB_HMI_Status".j4_enabled := "GDB_ManualStatus".bo_J4_Enabled;
-	 "GDB_HMI_Status".j4_homed := "GDB_ManualStatus".bo_J4_Homed;
-	 "GDB_HMI_Status".j4_error := "GDB_ManualStatus".bo_J4_Error;
-	 "GDB_HMI_Status".j4_jogActive := "GDB_ManualStatus".bo_J4_JogActive;
-	 "GDB_HMI_Status".j4_actualPos := "J4_SCARA_Arm3D".ActualPosition;
-	 "GDB_HMI_Status".j4_actualVel := "J4_SCARA_Arm3D".ActualVelocity;
-	
-	 // =====================================================================
-	 // REGION 5 â€” Safety + cycle-init flags + diagnostics
-	 // =====================================================================
-	 "GDB_HMI_Status".estopLock := "GDB_MachineCmd".bo_ESTOP_LOCK;
-	 "GDB_HMI_Status".alarm := "GDB_MachineCmd".bo_Alarm OR "GDB_PalletizingCmd".bo_Alarm;
-	 "GDB_HMI_Status".pathInitialed := "GDB_MachineCmd".bo_PathInitialed;
-	 "GDB_HMI_Status".palletInitialed := "GDB_PalletizingCmd".bo_PalletInitialed;
-	 "GDB_HMI_Status".toolActive := "instFB_AxisCtrl".statToolActivated;
-	
-	
-END_FUNCTION_BLOCK
 
+    REGION ActiveMode_Arbitration
+        // Priority: ABCDE > Palletizing > Manual > None. Only one bo_Mode
+        // should be TRUE at a time; if several are, the priority chain picks
+        // one for display. The real mutex is each FB's START gate.
+        IF "GDB_MachineCmd".bo_Mode THEN
+            #tempActiveMode := 1;       // ABCDE
+        ELSIF "GDB_PalletizingCmd".bo_Mode THEN
+            #tempActiveMode := 2;       // Palletizing
+        ELSIF "GDB_ManualCmd".bo_Mode THEN
+            #tempActiveMode := 3;       // Manual
+        ELSE
+            #tempActiveMode := 0;       // None / Idle
+        END_IF;
+        "GDB_HMI_Status".activeMode := #tempActiveMode;
+    END_REGION
+
+    REGION Step_And_Target
+        // Mode-routed progress count + target pose. currentStep is a
+        // "N of totalSteps" progress indicator, not the CASE step variable.
+        CASE #tempActiveMode OF
+            1: // ABCDE 5-point - point index 1..5
+                "GDB_HMI_Status".currentStep := "instFB_AutoCtrl_5Pts".statPointIdx;
+                "GDB_HMI_Status".totalSteps := 5;
+                "GDB_HMI_Status".target_x := "instFB_AutoCtrl_5Pts".statTargetPos.x;
+                "GDB_HMI_Status".target_y := "instFB_AutoCtrl_5Pts".statTargetPos.y;
+                "GDB_HMI_Status".target_z := "instFB_AutoCtrl_5Pts".statTargetPos.z;
+                "GDB_HMI_Status".target_a := "instFB_AutoCtrl_5Pts".statTargetPos.a;
+            2: // Palletizing - boxes placed 0..16
+                "GDB_HMI_Status".currentStep := "instFB_AutoCtrl_Palletizing".statBoxesPlaced;
+                "GDB_HMI_Status".totalSteps := 16;
+                "GDB_HMI_Status".target_x := "instFB_AutoCtrl_Palletizing".statTargetPos.x;
+                "GDB_HMI_Status".target_y := "instFB_AutoCtrl_Palletizing".statTargetPos.y;
+                "GDB_HMI_Status".target_z := "instFB_AutoCtrl_Palletizing".statTargetPos.z;
+                "GDB_HMI_Status".target_a := "instFB_AutoCtrl_Palletizing".statTargetPos.a;
+            3: // Manual - no auto trajectory; target holds last value
+                "GDB_HMI_Status".currentStep := 0;
+                "GDB_HMI_Status".totalSteps := 0;
+            ELSE // None / Idle - target holds last value
+                "GDB_HMI_Status".currentStep := 0;
+                "GDB_HMI_Status".totalSteps := 0;
+        END_CASE;
+    END_REGION
+
+    REGION Group_Axis_Status
+        "GDB_HMI_Status".axesEnabled := "GDB_AxisCtrl".LKinCtrl.output.bo_enabled;
+        "GDB_HMI_Status".axesHomed := "GDB_AxisCtrl".LKinCtrl.output.bo_homed;
+        "GDB_HMI_Status".axesError := "GDB_AxisCtrl".LKinCtrl.output.bo_fault;
+        "GDB_HMI_Status".axesReady := "GDB_AxisCtrl".LKinCtrl.output.bo_ready;
+    END_REGION
+
+    REGION Per_Joint_Status
+        // Bool fields from GDB_ManualStatus (FB_ManualCtrl status mirror);
+        // actual position / velocity direct from the J{n}_SCARA_Arm3D TOs.
+        "GDB_HMI_Status".j1_enabled := "GDB_ManualStatus".bo_J1_Enabled;
+        "GDB_HMI_Status".j1_homed := "GDB_ManualStatus".bo_J1_Homed;
+        "GDB_HMI_Status".j1_error := "GDB_ManualStatus".bo_J1_Error;
+        "GDB_HMI_Status".j1_jogActive := "GDB_ManualStatus".bo_J1_JogActive;
+        "GDB_HMI_Status".j1_actualPos := "J1_SCARA_Arm3D".ActualPosition;
+        "GDB_HMI_Status".j1_actualVel := "J1_SCARA_Arm3D".ActualVelocity;
+
+        "GDB_HMI_Status".j2_enabled := "GDB_ManualStatus".bo_J2_Enabled;
+        "GDB_HMI_Status".j2_homed := "GDB_ManualStatus".bo_J2_Homed;
+        "GDB_HMI_Status".j2_error := "GDB_ManualStatus".bo_J2_Error;
+        "GDB_HMI_Status".j2_jogActive := "GDB_ManualStatus".bo_J2_JogActive;
+        "GDB_HMI_Status".j2_actualPos := "J2_SCARA_Arm3D".ActualPosition;
+        "GDB_HMI_Status".j2_actualVel := "J2_SCARA_Arm3D".ActualVelocity;
+
+        "GDB_HMI_Status".j3_enabled := "GDB_ManualStatus".bo_J3_Enabled;
+        "GDB_HMI_Status".j3_homed := "GDB_ManualStatus".bo_J3_Homed;
+        "GDB_HMI_Status".j3_error := "GDB_ManualStatus".bo_J3_Error;
+        "GDB_HMI_Status".j3_jogActive := "GDB_ManualStatus".bo_J3_JogActive;
+        "GDB_HMI_Status".j3_actualPos := "J3_SCARA_Arm3D".ActualPosition;
+        "GDB_HMI_Status".j3_actualVel := "J3_SCARA_Arm3D".ActualVelocity;
+
+        "GDB_HMI_Status".j4_enabled := "GDB_ManualStatus".bo_J4_Enabled;
+        "GDB_HMI_Status".j4_homed := "GDB_ManualStatus".bo_J4_Homed;
+        "GDB_HMI_Status".j4_error := "GDB_ManualStatus".bo_J4_Error;
+        "GDB_HMI_Status".j4_jogActive := "GDB_ManualStatus".bo_J4_JogActive;
+        "GDB_HMI_Status".j4_actualPos := "J4_SCARA_Arm3D".ActualPosition;
+        "GDB_HMI_Status".j4_actualVel := "J4_SCARA_Arm3D".ActualVelocity;
+    END_REGION
+
+    REGION Safety_And_Flags
+        "GDB_HMI_Status".estopLock := "GDB_MachineCmd".bo_ESTOP_LOCK;
+        "GDB_HMI_Status".alarm := "GDB_MachineCmd".bo_Alarm OR "GDB_PalletizingCmd".bo_Alarm;
+        "GDB_HMI_Status".pathInitialed := "GDB_MachineCmd".bo_PathInitialed;
+        "GDB_HMI_Status".palletInitialed := "GDB_PalletizingCmd".bo_PalletInitialed;
+        "GDB_HMI_Status".toolActive := "instFB_AxisCtrl".statToolActivated;
+    END_REGION
+
+END_FUNCTION_BLOCK

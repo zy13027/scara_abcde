@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Document>
   <Engineering version="V20" />
   <SW.Blocks.InstanceDB ID="0">
@@ -26,25 +26,14 @@
         <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
       </AttributeList>
     </Member>
-    <Member Name="sRTRIGPalletizingSensor" Datatype="R_TRIG" Version="1.0">
-      <AttributeList>
-        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
-      </AttributeList>
-    </Member>
     <Member Name="sRTRIGAlarm" Datatype="R_TRIG" Version="1.0">
       <AttributeList>
         <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
       </AttributeList>
     </Member>
-    <Member Name="instMoveLinAbs" Datatype="MC_MOVELINEARABSOLUTE" Version="9.0" />
     <Member Name="statTargetPos" Datatype="&quot;UDT_typePoint5&quot;" />
     <Member Name="statCmdPtr" Datatype="Int" />
-    <Member Name="statExecState" Datatype="Int" />
-    <Member Name="statPhase" Datatype="Int" />
     <Member Name="statBoxesPlaced" Datatype="Int" />
-    <Member Name="statActiveBoxes" Datatype="Int" />
-    <Member Name="statTotalDistance" Datatype="LReal" />
-    <Member Name="statProgress" Datatype="LReal" />
     <Member Name="instGripperTimer" Datatype="TON_TIME" Version="1.0">
       <AttributeList>
         <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
@@ -68,7 +57,7 @@
           <MultilingualTextItem ID="2" CompositionName="Items">
             <AttributeList>
               <Culture>en-US</Culture>
-              <Text>C69 Phase 2.2 (2026-05-18) — instance DB for FB_AutoCtrl_Palletizing. 48-element pts[] holds 16 boxes x 3 phases (approach/place/retract) for the 4-layer stacking pattern. instMoveLinAbs has NO AttributeList so SetPoint defaults to FALSE (required for MC_MoveLinearAbsolute Execute pulse to reach MC subsystem; lesson from Phase G C67 rev 0.1 failure).</Text>
+              <Text>Instance DB for FB_AutoCtrl_Palletizing V5.0 (Phase 4b, 2026-05-21). Huashili-pattern CASE auto FB; motion split out to FB_AxisCtrl (OB30). Rebuilt iDB shape - no instMoveLinAbs (MC moved out).</Text>
             </AttributeList>
           </MultilingualTextItem>
         </ObjectList>
@@ -78,7 +67,7 @@
           <MultilingualTextItem ID="4" CompositionName="Items">
             <AttributeList>
               <Culture>en-US</Culture>
-              <Text>instFB_AutoCtrl_Palletizing (C69 Phase 2.2)</Text>
+              <Text />
             </AttributeList>
           </MultilingualTextItem>
         </ObjectList>
