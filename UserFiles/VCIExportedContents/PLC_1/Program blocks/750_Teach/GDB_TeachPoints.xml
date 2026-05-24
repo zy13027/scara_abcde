@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Blocks.GlobalDB ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="Static">
+    <Member Name="aPoints" Datatype="Array[1..16] of &quot;LKinCtrl_typePoint&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Module F teach-point slots (1..16) -- CARTESIAN. Each slot reuses the Siemens-canonical LKinCtrl_typePoint UDT: name (WString), position[0..5] LReal (Cartesian X/Y/Z/A/B/C in WCS; SCARA populates [0..3] only), coordSystem USInt (default 0=WCS), linkConstellation DWord, turnJoint[0..5] DInt. FB_TeachCtrl writes here on operator's bo_Capture edge from GDB_AxisCtrl.LKinCtrl.output.actualposition. Replay (bo_StartReplay) walks these via Cartesian linear moves.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="aJointAngles" Datatype="Array[1..16, 1..4] of LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V1.1 (2026-05-23, joint extension per Phase 2 §7.1 spec &quot;TCP/&#20851;&#33410;&quot;): Per-slot joint angles J1/J2/J3/J4 captured at the same scan as aPoints[i]. 2D array (S7-1500T does not allow nested Array-of-Array in interface declarations -- same convention LKinCtrl_FrameTransTool's rotation matrices use). Access: aJointAngles[slot, joint] e.g. aJointAngles[3, 1] = slot 3's J1. FB_TeachCtrl writes from &quot;ScaraArm3D&quot;.AxesData.A[1..4].Position on the same bo_Capture rising edge. Stored for archival + future joint-space PTP replay (currently replay is Cartesian-linear only). J1/J2/J4 in degrees, J3 in mm (prismatic Z per the SCARA TO config).</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="abCaptured" Datatype="Array[1..16] of Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Per-slot "this slot has been captured" flag. FB_TeachCtrl sets TRUE on bo_Capture rising edge for slot i16_SlotIdx (one set covers BOTH aPoints[idx] and aJointAngles[idx], V1.1); clears on bo_Clear or bo_ClearAll. Replay (bo_StartReplay) skips slots where this is FALSE. Default FALSE (no slots captured at boot).</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="i16_PointCount" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">FB-computed status: COUNT of TRUE bits in abCaptured[1..16]. HMI displays as "Captured slots: N / 16". Also used by FB_TeachCtrl Replay_FSM as the bound for the slot iteration (replay only runs slots where abCaptured = TRUE).</MultiLanguageText>
+      </Comment>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <MemoryLayout>Optimized</MemoryLayout>
+      <MemoryReserve>100</MemoryReserve>
+      <Name>GDB_TeachPoints</Name>
+      <Namespace />
+      <Number>26</Number>
+      <ProgrammingLanguage>DB</ProgrammingLanguage>
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text>SCARA Phase 2 Module F teach-point storage (V1.1, 2026-05-23). 16 slots, each carrying BOTH Cartesian TCP (aPoints[i] = LKinCtrl_typePoint, Siemens-canonical) AND joint angles (aJointAngles[i] = Array[1..4] of LReal for J1-J4). V1.1 added joint capture per Phase 2 spec §7.1 (&quot;捕获脉冲 → 当前 TCP/关节 写点表&quot;). Operator captures both in one bo_Capture pulse via FB_TeachCtrl. Replay (bo_StartReplay) currently walks aPoints via Cartesian linear moves; joint-space PTP replay using aJointAngles is reserved for a future extension.</Text>
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text>Teach-point storage (Module F, 16 slots)</Text>
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Blocks.GlobalDB>
+</Document>

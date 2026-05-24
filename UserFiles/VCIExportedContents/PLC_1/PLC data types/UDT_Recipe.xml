@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="sName" Datatype="String[32]">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Recipe name (HMI display / identity).</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_Valid" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">PSC handshake: PSC sets FALSE before transferring a parameter set and TRUE only after all members are written. FB_PatternAutoGen consumes the recipe only when this is TRUE -- closes the mid-write race that bites v9's recipe adapter.</MultiLanguageText>
+      </Comment>
+      <StartValue>FALSE</StartValue>
+    </Member>
+    <Member Name="product" Datatype="Struct">
+      <Member Name="lr_Length" Datatype="LReal">
+        <Comment>
+          <MultiLanguageText Lang="en-US">Box length [mm]. Drives pitchX (= lr_Length + lr_Gap) via FB_PatternAutoGen.</MultiLanguageText>
+        </Comment>
+      </Member>
+      <Member Name="lr_Width" Datatype="LReal">
+        <Comment>
+          <MultiLanguageText Lang="en-US">Box width [mm]. Drives pitchY (= lr_Width + lr_Gap).</MultiLanguageText>
+        </Comment>
+      </Member>
+      <Member Name="lr_Height" Datatype="LReal">
+        <Comment>
+          <MultiLanguageText Lang="en-US">Box height [mm] -- copied straight to GDB_PalletizingCmd.lr_BoxHeight, the layer Z spacing for the Module-C builder.</MultiLanguageText>
+        </Comment>
+      </Member>
+      <Member Name="lr_Gap" Datatype="LReal">
+        <Comment>
+          <MultiLanguageText Lang="en-US">Clearance between boxes [mm]; added to box dims to derive pitch. Set 0 for boxes edge-to-edge.</MultiLanguageText>
+        </Comment>
+      </Member>
+    </Member>
+    <Member Name="pallet" Datatype="Struct">
+      <Member Name="lr_BaseLength" Datatype="LReal">
+        <Comment>
+          <MultiLanguageText Lang="en-US">Pallet base length [mm]. FB_PatternAutoGen auto-fits how many boxes fit along X: cols = (BaseLength + Gap) DIV (Length + Gap), floored.</MultiLanguageText>
+        </Comment>
+      </Member>
+      <Member Name="lr_BaseWidth" Datatype="LReal">
+        <Comment>
+          <MultiLanguageText Lang="en-US">Pallet base width [mm]. FB_PatternAutoGen auto-fits how many boxes fit along Y: rows = (BaseWidth + Gap) DIV (Width + Gap), floored.</MultiLanguageText>
+        </Comment>
+      </Member>
+      <Member Name="i16_LayerCount" Datatype="Int">
+        <Comment>
+          <MultiLanguageText Lang="en-US">Stacked layers (tower mode -- all layers use the same auto-gen grid). Total boxes = cols x rows x LayerCount, capped at the GDB_PalletizingPath.aCmd[] ceiling (22 for aCmd[1..200]).</MultiLanguageText>
+        </Comment>
+      </Member>
+    </Member>
+    <Member Name="dynamics" Datatype="Struct">
+      <Member Name="lr_Velocity" Datatype="LReal">
+        <Comment>
+          <MultiLanguageText Lang="en-US">Palletizing-move path velocity [mm/s]. Written into GDB_PalletizingCmd.lr_MoveVelocity by FB_PatternAutoGen.</MultiLanguageText>
+        </Comment>
+      </Member>
+      <Member Name="lr_Acceleration" Datatype="LReal">
+        <Comment>
+          <MultiLanguageText Lang="en-US">Palletizing-move acceleration [mm/s^2]. Written into GDB_PalletizingCmd.lr_MoveAccel.</MultiLanguageText>
+        </Comment>
+      </Member>
+      <Member Name="lr_Deceleration" Datatype="LReal">
+        <Comment>
+          <MultiLanguageText Lang="en-US">Palletizing-move deceleration [mm/s^2]. Written into GDB_PalletizingCmd.lr_MoveDecel.</MultiLanguageText>
+        </Comment>
+      </Member>
+      <Member Name="lr_Jerk" Datatype="LReal">
+        <Comment>
+          <MultiLanguageText Lang="en-US">Palletizing-move jerk [mm/s^3]. Written into GDB_PalletizingCmd.lr_MoveJerk.</MultiLanguageText>
+        </Comment>
+      </Member>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>UDT_Recipe</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text>SCARA Phase 2 Module D recipe (2026-05-23). One flat box-product recipe: product L/W/H + gap, pallet base L/W + layer count, palletizing move dynamics. LPallPatt-shaped (typeProductData / typePalletData / typePnPDynamics, pruned for 1511T -- no block-packing, no mirroring, no interlayers, no multigripper). Consumed by FB_PatternAutoGen, which auto-fits a one-block grid and writes the result into GDB_PalletizingCmd's Module-C config members. PSC binds to GDB_ActiveRecipe.recipe.* member-for-member; the recipe library lives HMI-side on the panel.</Text>
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text>Box-product recipe (Module D)</Text>
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

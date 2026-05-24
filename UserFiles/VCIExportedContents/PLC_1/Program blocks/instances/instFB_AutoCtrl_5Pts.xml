@@ -38,6 +38,12 @@
         <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
       </AttributeList>
     </Member>
+    <Member Name="sRTRIGPause" Datatype="R_TRIG" Version="1.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+    </Member>
+    <Member Name="statStepBeforePause" Datatype="Int" />
   </Section>
 </Sections></Interface>
       <Name>instFB_AutoCtrl_5Pts</Name>

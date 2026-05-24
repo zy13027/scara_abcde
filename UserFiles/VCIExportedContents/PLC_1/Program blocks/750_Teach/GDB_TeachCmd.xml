@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Blocks.GlobalDB ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="Static">
+    <Member Name="bo_Mode" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI: Teach mode selector (the 4th mutex mode). TRUE = teach commands + jog active and the replay FSM can run. FALSE = ignored. Mutex with GDB_MachineCmd.bo_Mode (ABCDE, transitional -- to be deleted), GDB_PalletizingCmd.bo_Mode (palletizing), GDB_ManualCmd.bo_Mode (manual). FB_TeachCtrl REGION Mode_Gate enforces single-mode-active via statTeachOK.</MultiLanguageText>
+      </Comment>
+      <StartValue>FALSE</StartValue>
+    </Member>
+    <Member Name="bo_ESTOP_LOCK" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Safety: E-Stop chain healthy (TRUE = OK, FALSE = E-Stop active). Mirrors GDB_PalletizingCmd / GDB_ManualCmd convention. Default TRUE (PLCSIM phantom; real fieldbus E-Stop integration is a separate task).</MultiLanguageText>
+      </Comment>
+      <StartValue>TRUE</StartValue>
+    </Member>
+    <Member Name="i16_SlotIdx" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI: which teach slot (1..16) the operator is currently operating on. Used by all four edge-pulsed operations (Capture, Verify, Clear) and as the HMI's "table row selector". Validated by FB_TeachCtrl as 1 &lt;= idx &lt;= 16; out-of-range pulses are ignored. Default 1.</MultiLanguageText>
+      </Comment>
+      <StartValue>1</StartValue>
+    </Member>
+    <Member Name="bo_Capture" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI PULSE: capture current TCP into aPoints[i16_SlotIdx]. Edge-detected by FB_TeachCtrl. On rising edge (and only while statTeachOK = TRUE AND idx in range): reads GDB_AxisCtrl.LKinCtrl.output.actualposition (populated by FB_AxisCtrl MirrorTCP from ScaraArm3D.Position[..]), writes to aPoints[idx].position[0..3] (4..5 zeroed), sets abCaptured[idx] := TRUE, sets i16_TeachStep := 10 briefly for HMI feedback. Operator's main teach action.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_Verify" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI PULSE: move robot to aPoints[i16_SlotIdx]. Edge-detected. On rising edge: copies aPoints[idx].position to GDB_AxisCtrl.LKinCtrl.input.movelinear.targetposition, sets r64_velocity to lr_ReplayVel, pulses bo_execute. Used to validate that a captured slot points where the operator intended.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_Clear" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI PULSE: clear aPoints[i16_SlotIdx] (zero the position fields) and set abCaptured[idx] := FALSE. Edge-detected. Operator re-arms the slot for capture.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_ClearAll" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI PULSE: clear ALL 16 slots in one pass. Edge-detected. FB loops 1..16 clearing both aPoints[i] and abCaptured[i]. Operator's "wipe and start over" gesture.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_StartReplay" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI PULSE: start once-through replay of all captured slots in index order. Edge-detected. FB_TeachCtrl Replay_FSM transitions from idle (0) to load_next_slot (100), iterates aPoints[1..16] skipping uncaptured slots, drives each via the shared movelinear interface. Replay ends with bo_ReplayDone := TRUE and FSM back to idle.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_StopReplay" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI PULSE: abort replay immediately. Edge-detected. FB_TeachCtrl Replay_FSM transitions to idle (0) from any active state, clears bo_execute, the current move aborts via the MC layer's bo_commandaborted.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="lr_ReplayVel" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI: replay-move velocity (mm/s). Applied uniformly to every replay move and to bo_Verify moves. Default 200.0 mm/s (matches FB_ManualCtrl's safe-jog Cartesian dynamic). Auto-cycle palletizing uses 300+ mm/s.</MultiLanguageText>
+      </Comment>
+      <StartValue>200.0</StartValue>
+    </Member>
+    <Member Name="i16_TeachStep" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">FB status: current step in FB_TeachCtrl Operator_Actions / Replay_FSM. Values: 0=idle, 10=capture-pulse-handled, 20=verify-in-flight, 30=clear-applied, 100=replay-running (i16_ReplayIdx advancing), 200=replay-done (latched until next StartReplay), 800=fault. HMI status display.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="i16_ReplayIdx" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">FB status: which slot is currently being executed during replay (1..16). 0 when idle. HMI highlights the active row in the teach-table view.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_ReplayDone" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">FB status: latched TRUE when replay reaches the end of captured slots (once-through). Cleared on next bo_StartReplay rising edge or on mode exit. HMI displays as a "Replay complete" lamp.</MultiLanguageText>
+      </Comment>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <MemoryLayout>Optimized</MemoryLayout>
+      <MemoryReserve>100</MemoryReserve>
+      <Name>GDB_TeachCmd</Name>
+      <Namespace />
+      <Number>27</Number>
+      <ProgrammingLanguage>DB</ProgrammingLanguage>
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text>SCARA Phase 2 Module F teach-mode command + status DB (2026-05-23). HMI writes the mode toggle, per-slot operations (Capture/Verify/Clear/ClearAll), and replay controls (Start/Stop/Vel). FB_TeachCtrl reads them, executes via the shared GDB_AxisCtrl interface, and publishes back i16_TeachStep / i16_ReplayIdx / bo_ReplayDone for HMI display. Mode mutex: bo_Mode must be TRUE while GDB_MachineCmd.bo_Mode (transitional), GDB_PalletizingCmd.bo_Mode, and GDB_ManualCmd.bo_Mode are all FALSE.</Text>
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text>Teach mode commands + status (Module F)</Text>
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Blocks.GlobalDB>
+</Document>

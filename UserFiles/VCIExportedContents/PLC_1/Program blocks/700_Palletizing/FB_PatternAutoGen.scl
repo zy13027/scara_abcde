@@ -1,0 +1,296 @@
+FUNCTION_BLOCK "FB_PatternAutoGen"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 3.0
+// =====================================================================
+// SCARA Phase 2 Modules D + E - one-block auto-pattern generator with
+// dual-pallet selection.  (V3.0, 2026-05-23 - WanErXin review fixes)
+//
+// MODULE D (V1.0, 2026-05-23): single-recipe one-block auto-fit. Each
+// scan, validates GDB_ActiveRecipe.recipe, derives a uniform-grid pattern
+// (cols/rows from pallet base + product dims), and writes the result into
+// GDB_PalletizingCmd's Module-C config members for FB_AutoCtrl_Palletizing
+// to consume on the next bo_InitPallet rising edge.
+//
+// MODULE E (V2.0, 2026-05-23): dual-pallet. recipe -> recipe1 + recipe2.
+// Pallet selection is OPERATOR-DRIVEN (WanErXin pattern, no auto-advance):
+// two maintained Bool flags bo_ExecutePallet1 / bo_ExecutePallet2 select
+// which pallet is active. Per-pallet bo_PalletNFull alarms latch when the
+// cycle completes; the just-emptied pallet's full bit auto-clears when the
+// operator switches to the other side (WanErXin level-driven clear).
+// FB_AutoCtrl_Palletizing remains untouched.
+//
+// V3.0 (2026-05-23) - critical review of WanErXin pattern surfaced 3 bugs;
+// V3.0 fixes them while keeping V2.0's clean shape:
+//
+//   Bug #1: V2.0's LatchPalletFull used the CURRENT i16_ActivePalletIdx to
+//           attribute bo_PalletDone. If the operator swapped pallets mid-
+//           cycle (or released both flags), the wrong pallet's full bit
+//           would latch (or neither would). FIX: snapshot activeIdx into
+//           statCyclePalletIdx on the rising edge of bo_InitPallet (= the
+//           moment FB_AutoCtrl_Palletizing locks aCmd[] from the current
+//           GDB_PalletizingCmd config) and use that snapshot for the latch.
+//
+//   Bug #2: V2.0 only cleared bo_PalletNFull via the WanErXin "swap to
+//           clear" path -- operator MUST go via the other pallet's button
+//           to reset, even if they just physically emptied this pallet and
+//           want to continue. FIX: add explicit bo_AckPallet1Full /
+//           bo_AckPallet2Full HMI-write bits; while TRUE, the corresponding
+//           full bit clears each scan. The WanErXin path stays as the
+//           convenience alternative.
+//
+//   Bug #3: No aggregate "both pallets full" status for HMI / future
+//           Module F-G integration. FIX: FB now computes bo_BothPalletsFull
+//           = bo_Pallet1Full AND bo_Pallet2Full each scan.
+//
+// Each scan, in order:
+//   1. ValidatePallet1: validate recipe1, compute grid, publish status echoes.
+//   2. ValidatePallet2: same for recipe2.
+//   3. SelectActivePallet: mutex (WanErXin) + level-driven swap-clear (WanErXin)
+//      + V3.0 explicit Ack-reset (mine).
+//   4. WriteActiveConfig: if active pallet 1/2 with valid recipe, write its
+//      pitch/grid/dynamics into GDB_PalletizingCmd. Otherwise GDB_PalletizingCmd
+//      keeps its previous state.
+//   5. TrackCycleStart (V3.0): on rising edge of GDB_PalletizingCmd.bo_InitPallet,
+//      snapshot tempActiveIdx into statCyclePalletIdx.
+//   6. LatchPalletFull (V3.0 changed): on GDB_PalletizingCmd.bo_PalletDone,
+//      latch the IN-FLIGHT pallet's full bit (via statCyclePalletIdx, not
+//      current operator-driven activeIdx).
+//   7. ComputeAggregate (V3.0): bo_BothPalletsFull := AND of full bits.
+//
+// Path ceiling: 22 boxes per pallet. Derived from GDB_PalletizingPath.aCmd[1..200]
+// and the Module-C builder's (boxes * 9 + 1) commands per pallet:
+// boxes_max = (200 - 1) DIV 9 = 22. Each pallet validated against the same
+// ceiling (each cycle builds ONE pallet at a time).
+// =====================================================================
+   VAR
+      // -- V3.0 cycle-attribution snapshot --
+      statCyclePalletIdx  : Int;    // which pallet's cycle is in flight
+      statInitPallet_prev : Bool;   // for rising-edge detection on bo_InitPallet
+   END_VAR
+
+   VAR_TEMP
+      // -- pallet 1 validation + computation --
+      tempPitchX1 : LReal;
+      tempPitchY1 : LReal;
+      tempCols1   : Int;
+      tempRows1   : Int;
+      tempBoxes1  : Int;
+      tempValid1  : Bool;
+      // -- pallet 2 validation + computation --
+      tempPitchX2 : LReal;
+      tempPitchY2 : LReal;
+      tempCols2   : Int;
+      tempRows2   : Int;
+      tempBoxes2  : Int;
+      tempValid2  : Bool;
+      // -- pallet selection --
+      tempActiveIdx : Int;
+   END_VAR
+
+
+BEGIN
+
+    REGION ValidatePallet1
+        #tempValid1 := "GDB_ActiveRecipe".recipe1.bo_Valid
+                   AND "GDB_ActiveRecipe".recipe1.product.lr_Length     > 0.0
+                   AND "GDB_ActiveRecipe".recipe1.product.lr_Width      > 0.0
+                   AND "GDB_ActiveRecipe".recipe1.product.lr_Height     > 0.0
+                   AND "GDB_ActiveRecipe".recipe1.product.lr_Gap        >= 0.0
+                   AND "GDB_ActiveRecipe".recipe1.pallet.lr_BaseLength  > 0.0
+                   AND "GDB_ActiveRecipe".recipe1.pallet.lr_BaseWidth   > 0.0
+                   AND "GDB_ActiveRecipe".recipe1.pallet.i16_LayerCount >= 1
+                   AND "GDB_ActiveRecipe".recipe1.dynamics.lr_Velocity     > 0.0
+                   AND "GDB_ActiveRecipe".recipe1.dynamics.lr_Acceleration > 0.0
+                   AND "GDB_ActiveRecipe".recipe1.dynamics.lr_Deceleration > 0.0
+                   AND "GDB_ActiveRecipe".recipe1.dynamics.lr_Jerk         > 0.0;
+        #tempPitchX1 := 0.0;  #tempPitchY1 := 0.0;
+        #tempCols1 := 0;  #tempRows1 := 0;  #tempBoxes1 := 0;
+
+        IF #tempValid1 THEN
+            #tempPitchX1 := "GDB_ActiveRecipe".recipe1.product.lr_Length
+                          + "GDB_ActiveRecipe".recipe1.product.lr_Gap;
+            #tempPitchY1 := "GDB_ActiveRecipe".recipe1.product.lr_Width
+                          + "GDB_ActiveRecipe".recipe1.product.lr_Gap;
+            IF #tempPitchX1 > "GDB_ActiveRecipe".recipe1.pallet.lr_BaseLength
+                OR #tempPitchY1 > "GDB_ActiveRecipe".recipe1.pallet.lr_BaseWidth THEN
+                #tempValid1 := FALSE;
+            ELSE
+                #tempCols1 := LREAL_TO_INT(
+                    ("GDB_ActiveRecipe".recipe1.pallet.lr_BaseLength
+                     + "GDB_ActiveRecipe".recipe1.product.lr_Gap) / #tempPitchX1);
+                #tempRows1 := LREAL_TO_INT(
+                    ("GDB_ActiveRecipe".recipe1.pallet.lr_BaseWidth
+                     + "GDB_ActiveRecipe".recipe1.product.lr_Gap) / #tempPitchY1);
+                #tempBoxes1 := #tempCols1 * #tempRows1
+                             * "GDB_ActiveRecipe".recipe1.pallet.i16_LayerCount;
+                IF #tempCols1 < 1 OR #tempRows1 < 1 OR #tempBoxes1 > 22 THEN
+                    #tempValid1 := FALSE;
+                END_IF;
+            END_IF;
+        END_IF;
+
+        "GDB_ActiveRecipe".bo_PatternValid1       := #tempValid1;
+        "GDB_ActiveRecipe".bo_PatternError1       := NOT #tempValid1;
+        "GDB_ActiveRecipe".i16_ComputedGridColsX1 := #tempCols1;
+        "GDB_ActiveRecipe".i16_ComputedGridRowsY1 := #tempRows1;
+        "GDB_ActiveRecipe".i16_ComputedBoxCount1  := #tempBoxes1;
+    END_REGION
+
+    REGION ValidatePallet2
+        #tempValid2 := "GDB_ActiveRecipe".recipe2.bo_Valid
+                   AND "GDB_ActiveRecipe".recipe2.product.lr_Length     > 0.0
+                   AND "GDB_ActiveRecipe".recipe2.product.lr_Width      > 0.0
+                   AND "GDB_ActiveRecipe".recipe2.product.lr_Height     > 0.0
+                   AND "GDB_ActiveRecipe".recipe2.product.lr_Gap        >= 0.0
+                   AND "GDB_ActiveRecipe".recipe2.pallet.lr_BaseLength  > 0.0
+                   AND "GDB_ActiveRecipe".recipe2.pallet.lr_BaseWidth   > 0.0
+                   AND "GDB_ActiveRecipe".recipe2.pallet.i16_LayerCount >= 1
+                   AND "GDB_ActiveRecipe".recipe2.dynamics.lr_Velocity     > 0.0
+                   AND "GDB_ActiveRecipe".recipe2.dynamics.lr_Acceleration > 0.0
+                   AND "GDB_ActiveRecipe".recipe2.dynamics.lr_Deceleration > 0.0
+                   AND "GDB_ActiveRecipe".recipe2.dynamics.lr_Jerk         > 0.0;
+        #tempPitchX2 := 0.0;  #tempPitchY2 := 0.0;
+        #tempCols2 := 0;  #tempRows2 := 0;  #tempBoxes2 := 0;
+
+        IF #tempValid2 THEN
+            #tempPitchX2 := "GDB_ActiveRecipe".recipe2.product.lr_Length
+                          + "GDB_ActiveRecipe".recipe2.product.lr_Gap;
+            #tempPitchY2 := "GDB_ActiveRecipe".recipe2.product.lr_Width
+                          + "GDB_ActiveRecipe".recipe2.product.lr_Gap;
+            IF #tempPitchX2 > "GDB_ActiveRecipe".recipe2.pallet.lr_BaseLength
+                OR #tempPitchY2 > "GDB_ActiveRecipe".recipe2.pallet.lr_BaseWidth THEN
+                #tempValid2 := FALSE;
+            ELSE
+                #tempCols2 := LREAL_TO_INT(
+                    ("GDB_ActiveRecipe".recipe2.pallet.lr_BaseLength
+                     + "GDB_ActiveRecipe".recipe2.product.lr_Gap) / #tempPitchX2);
+                #tempRows2 := LREAL_TO_INT(
+                    ("GDB_ActiveRecipe".recipe2.pallet.lr_BaseWidth
+                     + "GDB_ActiveRecipe".recipe2.product.lr_Gap) / #tempPitchY2);
+                #tempBoxes2 := #tempCols2 * #tempRows2
+                             * "GDB_ActiveRecipe".recipe2.pallet.i16_LayerCount;
+                IF #tempCols2 < 1 OR #tempRows2 < 1 OR #tempBoxes2 > 22 THEN
+                    #tempValid2 := FALSE;
+                END_IF;
+            END_IF;
+        END_IF;
+
+        "GDB_ActiveRecipe".bo_PatternValid2       := #tempValid2;
+        "GDB_ActiveRecipe".bo_PatternError2       := NOT #tempValid2;
+        "GDB_ActiveRecipe".i16_ComputedGridColsX2 := #tempCols2;
+        "GDB_ActiveRecipe".i16_ComputedGridRowsY2 := #tempRows2;
+        "GDB_ActiveRecipe".i16_ComputedBoxCount2  := #tempBoxes2;
+    END_REGION
+
+    REGION SelectActivePallet
+        // WanErXin mutex: one button held + other not + this side not full.
+        // Both buttons / neither button / active-side full -> idle (idx 0).
+        IF "GDB_ActiveRecipe".bo_ExecutePallet1
+                AND NOT "GDB_ActiveRecipe".bo_ExecutePallet2
+                AND NOT "GDB_ActiveRecipe".bo_Pallet1Full THEN
+            #tempActiveIdx := 1;
+        ELSIF "GDB_ActiveRecipe".bo_ExecutePallet2
+                AND NOT "GDB_ActiveRecipe".bo_ExecutePallet1
+                AND NOT "GDB_ActiveRecipe".bo_Pallet2Full THEN
+            #tempActiveIdx := 2;
+        ELSE
+            #tempActiveIdx := 0;
+        END_IF;
+
+        "GDB_ActiveRecipe".i16_ActivePalletIdx := #tempActiveIdx;
+
+        // WanErXin level-driven full-bit clear on operator swap:
+        // operator pressing the OPPOSITE side's button (while THIS side is
+        // full and THIS side's button is released) is the "I have emptied
+        // this pallet, ready to re-use" gesture. Guard `AND NOT thisSide`
+        // prevents a both-pressed transient from clearing prematurely.
+        IF "GDB_ActiveRecipe".bo_Pallet1Full
+                AND "GDB_ActiveRecipe".bo_ExecutePallet2
+                AND NOT "GDB_ActiveRecipe".bo_ExecutePallet1 THEN
+            "GDB_ActiveRecipe".bo_Pallet1Full := FALSE;
+        END_IF;
+        IF "GDB_ActiveRecipe".bo_Pallet2Full
+                AND "GDB_ActiveRecipe".bo_ExecutePallet1
+                AND NOT "GDB_ActiveRecipe".bo_ExecutePallet2 THEN
+            "GDB_ActiveRecipe".bo_Pallet2Full := FALSE;
+        END_IF;
+
+        // V3.0 explicit Ack-reset path: operator HMI button forces this
+        // side's full bit FALSE while held. Independent of the swap-clear
+        // path above, so operator can reset without going via the other
+        // pallet (e.g. after physically emptying and replacing the same
+        // pallet station).
+        IF "GDB_ActiveRecipe".bo_AckPallet1Full THEN
+            "GDB_ActiveRecipe".bo_Pallet1Full := FALSE;
+        END_IF;
+        IF "GDB_ActiveRecipe".bo_AckPallet2Full THEN
+            "GDB_ActiveRecipe".bo_Pallet2Full := FALSE;
+        END_IF;
+    END_REGION
+
+    REGION WriteActiveConfig
+        // Write GDB_PalletizingCmd from the active pallet's validated recipe.
+        // If active is 0 (idle) OR active pallet's recipe failed validation:
+        // skip the write -- GDB_PalletizingCmd keeps its previous state.
+        IF #tempActiveIdx = 1 AND #tempValid1 THEN
+            "GDB_PalletizingCmd".lr_BoxPitchX    := #tempPitchX1;
+            "GDB_PalletizingCmd".lr_BoxPitchY    := #tempPitchY1;
+            "GDB_PalletizingCmd".lr_BoxHeight    := "GDB_ActiveRecipe".recipe1.product.lr_Height;
+            "GDB_PalletizingCmd".i16_GridColsX   := #tempCols1;
+            "GDB_PalletizingCmd".i16_GridRowsY   := #tempRows1;
+            "GDB_PalletizingCmd".i16_LayerCount  := "GDB_ActiveRecipe".recipe1.pallet.i16_LayerCount;
+            "GDB_PalletizingCmd".lr_MoveVelocity := "GDB_ActiveRecipe".recipe1.dynamics.lr_Velocity;
+            "GDB_PalletizingCmd".lr_MoveAccel    := "GDB_ActiveRecipe".recipe1.dynamics.lr_Acceleration;
+            "GDB_PalletizingCmd".lr_MoveDecel    := "GDB_ActiveRecipe".recipe1.dynamics.lr_Deceleration;
+            "GDB_PalletizingCmd".lr_MoveJerk     := "GDB_ActiveRecipe".recipe1.dynamics.lr_Jerk;
+        ELSIF #tempActiveIdx = 2 AND #tempValid2 THEN
+            "GDB_PalletizingCmd".lr_BoxPitchX    := #tempPitchX2;
+            "GDB_PalletizingCmd".lr_BoxPitchY    := #tempPitchY2;
+            "GDB_PalletizingCmd".lr_BoxHeight    := "GDB_ActiveRecipe".recipe2.product.lr_Height;
+            "GDB_PalletizingCmd".i16_GridColsX   := #tempCols2;
+            "GDB_PalletizingCmd".i16_GridRowsY   := #tempRows2;
+            "GDB_PalletizingCmd".i16_LayerCount  := "GDB_ActiveRecipe".recipe2.pallet.i16_LayerCount;
+            "GDB_PalletizingCmd".lr_MoveVelocity := "GDB_ActiveRecipe".recipe2.dynamics.lr_Velocity;
+            "GDB_PalletizingCmd".lr_MoveAccel    := "GDB_ActiveRecipe".recipe2.dynamics.lr_Acceleration;
+            "GDB_PalletizingCmd".lr_MoveDecel    := "GDB_ActiveRecipe".recipe2.dynamics.lr_Deceleration;
+            "GDB_PalletizingCmd".lr_MoveJerk     := "GDB_ActiveRecipe".recipe2.dynamics.lr_Jerk;
+        END_IF;
+    END_REGION
+
+    REGION TrackCycleStart
+        // V3.0: snapshot which pallet's cycle is about to start. The Module-C
+        // builder locks aCmd[] from GDB_PalletizingCmd on the rising edge of
+        // bo_InitPallet, so that's the canonical "cycle started for pallet X"
+        // moment. Using this snapshot (instead of the live activeIdx) means
+        // mid-cycle operator swaps or releases don't mis-attribute the
+        // pallet-done event in LatchPalletFull below.
+        IF "GDB_PalletizingCmd".bo_InitPallet AND NOT #statInitPallet_prev THEN
+            #statCyclePalletIdx := #tempActiveIdx;
+        END_IF;
+        #statInitPallet_prev := "GDB_PalletizingCmd".bo_InitPallet;
+    END_REGION
+
+    REGION LatchPalletFull
+        // V3.0: latch the IN-FLIGHT pallet's full bit (statCyclePalletIdx),
+        // not the current operator-driven activeIdx (which can change mid-
+        // cycle if operator swaps or releases buttons). If statCyclePalletIdx
+        // is 0 (no cycle ever started, or post-MRES), don't latch anything
+        // -- the bo_PalletDone is orphan and ignored.
+        IF "GDB_PalletizingCmd".bo_PalletDone THEN
+            IF #statCyclePalletIdx = 1 THEN
+                "GDB_ActiveRecipe".bo_Pallet1Full := TRUE;
+            ELSIF #statCyclePalletIdx = 2 THEN
+                "GDB_ActiveRecipe".bo_Pallet2Full := TRUE;
+            END_IF;
+        END_IF;
+    END_REGION
+
+    REGION ComputeAggregate
+        // V3.0: single status bit for HMI / Module F-G integration to gate
+        // "both pallets need unloading, robot should idle".
+        "GDB_ActiveRecipe".bo_BothPalletsFull :=
+            "GDB_ActiveRecipe".bo_Pallet1Full
+            AND "GDB_ActiveRecipe".bo_Pallet2Full;
+    END_REGION
+
+END_FUNCTION_BLOCK

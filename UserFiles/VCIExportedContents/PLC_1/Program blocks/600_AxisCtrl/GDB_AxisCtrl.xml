@@ -23,6 +23,24 @@
                 <Member Name="dynamics" Datatype="&quot;LKinCtrl_typeDynamics&quot;">
                   <Sections>
                     <Section Name="None">
+                      <Member Name="path" Datatype="&quot;LKinCtrl_typePathDynamics&quot;">
+                        <Sections>
+                          <Section Name="None">
+                            <Member Name="velocity" Datatype="LReal">
+                              <StartValue>200.0</StartValue>
+                            </Member>
+                            <Member Name="acceleration" Datatype="LReal">
+                              <StartValue>2000.0</StartValue>
+                            </Member>
+                            <Member Name="deceleration" Datatype="LReal">
+                              <StartValue>2000.0</StartValue>
+                            </Member>
+                            <Member Name="jerk" Datatype="LReal">
+                              <StartValue>20000.0</StartValue>
+                            </Member>
+                          </Section>
+                        </Sections>
+                      </Member>
                       <Member Name="orientation" Datatype="&quot;LKinCtrl_typePathDynamics&quot;">
                         <Sections>
                           <Section Name="None">

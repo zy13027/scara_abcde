@@ -1,14 +1,28 @@
 FUNCTION_BLOCK "FB_AutoCtrl_Palletizing"
 { S7_Optimized_Access := 'TRUE' }
-VERSION : 5.0
+VERSION : 5.3
 // =====================================================================
-// SCARA Palletizing - 16-Box 4-Layer Auto Cycle  (Phase 4b, 2026-05-21)
+// SCARA Palletizing - Parameterized-Grid Auto Cycle  (Phase 4b, 2026-05-21)
 //
 // Huashili-pattern CASE state machine. Runs in OB1 (process logic). It
 // owns the palletizing sequence and commands motion ONLY by writing
 // GDB_AxisCtrl.LKinCtrl.input.movelinear - it never calls an MC
 // instruction. FB_AxisCtrl (OB30) runs the MC_MoveLinearAbsolute.
 //
+// V5.3 (2026-05-22) - Module C: the path builder is parameterized. Box grid
+// (i16_LayerCount / i16_GridRowsY / i16_GridColsX), pitches (lr_BoxPitchX/Y)
+// and dynamics (lr_MoveVelocity / lr_MoveAccel / lr_MoveDecel / lr_MoveJerk)
+// are GDB_PalletizingCmd config; the 16-box 4x(2x2) pattern is the StartValue
+// default. Builder rewritten as one index-decomposed grid loop. Prereq for D.
+// V5.2 (2026-05-22) - R6: REGION Pause + CASE step 75 add the auto-cycle pause.
+// bo_Pause (edge) halts the cycle mid-move via FB_AxisCtrl's MC_GroupInterrupt
+// (a gripped box stays gripped); resume on the Start edge. Stop / E-Stop override.
+// V5.1 (2026-05-22) - the two pick<->place transits (cmd 2 ABOVE_PICK and
+// cmd 6 APPROACH_PLACE) are now cmdType 4 = MOVE_PTP. A Cartesian linear
+// transit swept the TCP on a straight line across the robot base and faulted
+// the kinematics on the near-base singularity. MOVE_PTP routes (via
+// FB_AxisCtrl) to MC_MoveDirectAbsolute - joint-space, no Cartesian-path
+// constraint. The 4 vertical pick/place moves stay cmdType 1 = linear.
 // V5.0 - rebuilt onto the Huashili 7-REGION + CASE shell (same pattern as
 // FB_AutoCtrl_5Pts); motion split out to the 600 axis layer. The command-
 // list builder (16 boxes x 9 commands -> GDB_PalletizingPath.aCmd) is
@@ -21,10 +35,11 @@ VERSION : 5.0
 // Step model (GDB_PalletizingCmd.i16_PalletStep):
 //   0 idle  10 head reset  20 preconditions  30 fetch + dispatch
 //   40 gripper dwell  50 issue move  60 wait arrival  65 arrival settle
-//   100 wait move done  110 handshake done  200 abort
+//   75 pause hold  100 wait move done  110 handshake done  200 abort
 //   230 cycle complete  800 E-Stop hold  900 tail reset
 //
-// aCmd[] command types: 0 = END  1 = MOVE  2 = GRIPPER  3 = WAIT_ARRIVAL.
+// aCmd[] command types: 0 = END  1 = MOVE (linear)  2 = GRIPPER
+//   3 = WAIT_ARRIVAL  4 = MOVE_PTP (joint-space transit, base-singularity-safe).
 // =====================================================================
    VAR
       sRTRIGInitialPath {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
@@ -36,19 +51,23 @@ VERSION : 5.0
       statBoxesPlaced : Int;
       instGripperTimer {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
       instArrivalSettleTimer {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+      sRTRIGPause {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+      statStepBeforePause : Int;   // step to resume to after a pause (R6)
    END_VAR
 
    VAR_TEMP
-      tempBoxIdx : Int;
-      tempLayerNum : Int;
-      tempPosInLayer : Int;
-      tempCmdW : Int;   // write cursor into aCmd
+      tempBoxIdx : Int;     // builder - running box index 1..i16_TotalBoxes
+      tempPerLayer : Int;   // builder - boxes per layer = GridRowsY * GridColsX
+      tempLayer : Int;      // builder - layer 1..i16_LayerCount
+      tempRow : Int;        // builder - grid row 0..i16_GridRowsY-1
+      tempCol : Int;        // builder - grid col 0..i16_GridColsX-1
+      tempCmdW : Int;       // builder - write cursor into aCmd
       tempPlaceZ : LReal;
       tempBoxX : LReal;
       tempBoxY : LReal;
       tempPickX : LReal;
       tempPickY : LReal;
-      tempCmdType : Int;   // command type at statCmdPtr (executor)
+      tempCmdType : Int;    // command type at statCmdPtr (executor)
    END_VAR
 
 
@@ -56,53 +75,57 @@ BEGIN
 
     REGION Initialise path
         // ================================================================
-        // Command-list builder (carried over verbatim from V4.2 REGION 1).
-        // 16 boxes x 4 layers, 9 commands/box: WAIT_ARRIVAL, ABOVE_PICK,
-        // PICK_DESCEND, GRIPPER(grip), PICK_RAISE, APPROACH_PLACE,
-        // PLACE_DESCEND, GRIPPER(release), PLACE_RETRACT + END_OF_PATH.
-        // cmdType: 0=END 1=MOVE 2=GRIPPER 3=WAIT_ARRIVAL.
+        // Command-list builder - parameterized (Module C, Phase 2 section 4).
+        // Box grid + move velocity come from GDB_PalletizingCmd config:
+        // i16_LayerCount / i16_GridRowsY / i16_GridColsX / lr_BoxPitchX /
+        // lr_BoxPitchY / lr_MoveVelocity. 9 commands/box: WAIT_ARRIVAL,
+        // ABOVE_PICK, PICK_DESCEND, GRIPPER(grip), PICK_RAISE, APPROACH_PLACE,
+        // PLACE_DESCEND, GRIPPER(release), PLACE_RETRACT + one END_OF_PATH.
+        // cmdType: 0=END 1=MOVE 2=GRIPPER 3=WAIT_ARRIVAL 4=MOVE_PTP.
+        // Build order: bottom layer first; within a layer row-major (Y x X),
+        // the grid centred on the pallet top.
         // ================================================================
         #sRTRIGInitialPath(CLK := "GDB_PalletizingCmd".bo_InitPallet);
         IF #sRTRIGInitialPath.Q THEN
-            "GDB_PalletizingCmd".i16_TotalBoxes := 16;
-            #tempCmdW := 0;
+            #tempPerLayer := "GDB_PalletizingCmd".i16_GridRowsY
+                           * "GDB_PalletizingCmd".i16_GridColsX;
+            "GDB_PalletizingCmd".i16_TotalBoxes := "GDB_PalletizingCmd".i16_LayerCount
+                                                 * #tempPerLayer;
+            #tempCmdW  := 0;
+            #tempPickX := "GDB_PalletizingCmd".lr_PickX + "GDB_PalletizingCmd".lr_WristOffsetX;
+            #tempPickY := "GDB_PalletizingCmd".lr_PickY + "GDB_PalletizingCmd".lr_WristOffsetY;
 
-            FOR #tempBoxIdx := 1 TO 16 DO
-                #tempLayerNum   := (#tempBoxIdx - 1) / 4 + 1;
-                #tempPosInLayer := (#tempBoxIdx - 1) MOD 4;
-                #tempPlaceZ     := "GDB_PalletizingCmd".lr_PalletTopZ
-                                 + #tempLayerNum * "GDB_PalletizingCmd".lr_BoxHeight;
-                IF #tempPosInLayer = 0 THEN
-                    #tempBoxX := "GDB_PalletizingCmd".lr_PalletTopX - 200.0;
-                    #tempBoxY := "GDB_PalletizingCmd".lr_PalletTopY - 300.0;
-                ELSIF #tempPosInLayer = 1 THEN
-                    #tempBoxX := "GDB_PalletizingCmd".lr_PalletTopX + 200.0;
-                    #tempBoxY := "GDB_PalletizingCmd".lr_PalletTopY - 300.0;
-                ELSIF #tempPosInLayer = 2 THEN
-                    #tempBoxX := "GDB_PalletizingCmd".lr_PalletTopX + 200.0;
-                    #tempBoxY := "GDB_PalletizingCmd".lr_PalletTopY + 300.0;
-                ELSE
-                    #tempBoxX := "GDB_PalletizingCmd".lr_PalletTopX - 200.0;
-                    #tempBoxY := "GDB_PalletizingCmd".lr_PalletTopY + 300.0;
-                END_IF;
-                #tempPickX := "GDB_PalletizingCmd".lr_PickX + "GDB_PalletizingCmd".lr_WristOffsetX;
-                #tempPickY := "GDB_PalletizingCmd".lr_PickY + "GDB_PalletizingCmd".lr_WristOffsetY;
+            FOR #tempBoxIdx := 1 TO "GDB_PalletizingCmd".i16_TotalBoxes DO
+                // decompose the linear box index into layer / grid row / col
+                #tempLayer := (#tempBoxIdx - 1) / #tempPerLayer + 1;
+                #tempRow   := ((#tempBoxIdx - 1) / "GDB_PalletizingCmd".i16_GridColsX)
+                              MOD "GDB_PalletizingCmd".i16_GridRowsY;
+                #tempCol   := (#tempBoxIdx - 1) MOD "GDB_PalletizingCmd".i16_GridColsX;
+                #tempPlaceZ := "GDB_PalletizingCmd".lr_PalletTopZ
+                             + #tempLayer * "GDB_PalletizingCmd".lr_BoxHeight;
+                // grid box position, centred on the pallet top
+                #tempBoxX := "GDB_PalletizingCmd".lr_PalletTopX
+                           + (#tempCol - ("GDB_PalletizingCmd".i16_GridColsX - 1) / 2.0)
+                             * "GDB_PalletizingCmd".lr_BoxPitchX;
+                #tempBoxY := "GDB_PalletizingCmd".lr_PalletTopY
+                           + (#tempRow - ("GDB_PalletizingCmd".i16_GridRowsY - 1) / 2.0)
+                             * "GDB_PalletizingCmd".lr_BoxPitchY;
 
                 // cmd 1 -- WAIT_ARRIVAL
                 #tempCmdW := #tempCmdW + 1;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType := 3;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep := (#tempBoxIdx - 1) * 3 + 1;
 
-                // cmd 2 -- MOVE ABOVE_PICK (blend)
+                // cmd 2 -- MOVE_PTP ABOVE_PICK (transit; joint-space, base-safe)
                 #tempCmdW := #tempCmdW + 1;
-                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType    := 1;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType    := 4;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].x              := #tempPickX;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].y              := #tempPickY;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].z              := "GDB_PalletizingCmd".lr_PickZ
                                                                       + "GDB_PalletizingCmd".lr_PickApproachZOffset
                                                                       + "GDB_PalletizingCmd".lr_WristOffsetZ;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].a              := 0.0;
-                "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := 2000.0;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := "GDB_PalletizingCmd".lr_MoveVelocity;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].i16_BufferMode := 5;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].bo_IsBoxEnd    := FALSE;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep    := (#tempBoxIdx - 1) * 3 + 1;
@@ -115,7 +138,7 @@ BEGIN
                 "GDB_PalletizingPath".aCmd[#tempCmdW].z              := "GDB_PalletizingCmd".lr_PickZ
                                                                       + "GDB_PalletizingCmd".lr_WristOffsetZ;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].a              := 0.0;
-                "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := 2000.0;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := "GDB_PalletizingCmd".lr_MoveVelocity;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].i16_BufferMode := 1;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].bo_IsBoxEnd    := FALSE;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep    := (#tempBoxIdx - 1) * 3 + 1;
@@ -137,21 +160,21 @@ BEGIN
                                                                       + "GDB_PalletizingCmd".lr_PickApproachZOffset
                                                                       + "GDB_PalletizingCmd".lr_WristOffsetZ;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].a              := 0.0;
-                "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := 2000.0;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := "GDB_PalletizingCmd".lr_MoveVelocity;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].i16_BufferMode := 5;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].bo_IsBoxEnd    := FALSE;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep    := (#tempBoxIdx - 1) * 3 + 1;
 
-                // cmd 6 -- MOVE APPROACH_PLACE (blend)
+                // cmd 6 -- MOVE_PTP APPROACH_PLACE (transit; joint-space, base-safe)
                 #tempCmdW := #tempCmdW + 1;
-                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType    := 1;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].i16_CmdType    := 4;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].x              := #tempBoxX + "GDB_PalletizingCmd".lr_WristOffsetX;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].y              := #tempBoxY + "GDB_PalletizingCmd".lr_WristOffsetY;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].z              := #tempPlaceZ
                                                                       + "GDB_PalletizingCmd".lr_PlaceApproachZOffset
                                                                       + "GDB_PalletizingCmd".lr_WristOffsetZ;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].a              := 0.0;
-                "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := 2000.0;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := "GDB_PalletizingCmd".lr_MoveVelocity;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].i16_BufferMode := 5;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].bo_IsBoxEnd    := FALSE;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep    := (#tempBoxIdx - 1) * 3 + 1;
@@ -163,7 +186,7 @@ BEGIN
                 "GDB_PalletizingPath".aCmd[#tempCmdW].y              := #tempBoxY + "GDB_PalletizingCmd".lr_WristOffsetY;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].z              := #tempPlaceZ + "GDB_PalletizingCmd".lr_WristOffsetZ;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].a              := 0.0;
-                "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := 2000.0;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := "GDB_PalletizingCmd".lr_MoveVelocity;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].i16_BufferMode := 1;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].bo_IsBoxEnd    := FALSE;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep    := (#tempBoxIdx - 1) * 3 + 2;
@@ -185,7 +208,7 @@ BEGIN
                                                                       + "GDB_PalletizingCmd".lr_PlaceApproachZOffset
                                                                       + "GDB_PalletizingCmd".lr_WristOffsetZ;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].a              := 0.0;
-                "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := 2000.0;
+                "GDB_PalletizingPath".aCmd[#tempCmdW].lr_Velocity    := "GDB_PalletizingCmd".lr_MoveVelocity;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].i16_BufferMode := 5;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].bo_IsBoxEnd    := TRUE;
                 "GDB_PalletizingPath".aCmd[#tempCmdW].i16_HmiStep    := (#tempBoxIdx - 1) * 3 + 3;
@@ -222,10 +245,25 @@ BEGIN
 
 
     REGION Pause
-        // Reserved. GDB_PalletizingCmd has no halt/pause command bit in the
-        // minimal demo; wire a halt bit + edge detector here when pause is
-        // added (review backlog).
-        ;
+        // R6 - auto-cycle pause. On the bo_Pause rising edge, while the cycle
+        // is running, save the current step, raise the halt request to the
+        // 600 axis layer (FB_AxisCtrl runs MC_GroupInterrupt - the SCARA halts
+        // mid-trajectory, axes stay enabled, a gripped box stays gripped), and
+        // jump to the pause-hold step 75. Resume is handled in step 75. Stop /
+        // E-Stop (later REGIONs) override Pause from step 75.
+        #sRTRIGPause(CLK := "GDB_PalletizingCmd".bo_Pause);
+        IF "GDB_PalletizingCmd".bo_Mode
+            AND "GDB_PalletizingCmd".bo_ESTOP_LOCK
+            AND #sRTRIGPause.Q
+            AND NOT "GDB_PalletizingCmd".bo_Alarm
+            AND ("GDB_PalletizingCmd".i16_PalletStep >= 10)
+            AND ("GDB_PalletizingCmd".i16_PalletStep <= 230)
+            AND ("GDB_PalletizingCmd".i16_PalletStep <> 75)
+        THEN
+            #statStepBeforePause := "GDB_PalletizingCmd".i16_PalletStep;
+            "GDB_AxisCtrl".LKinCtrl.input.bo_movepathhalt := TRUE;
+            "GDB_PalletizingCmd".i16_PalletStep := 75;
+        END_IF;
     END_REGION
 
 
@@ -296,7 +334,7 @@ BEGIN
                         0:  // END_OF_PATH -> cycle complete
                             "GDB_PalletizingCmd".i16_PalletStep := 230;
 
-                        1:  // MOVE - load target + dynamics (parameters before command)
+                        1, 4:  // MOVE (1 = linear, 4 = PTP transit) - load target + dynamics
                             #statTargetPos.x := "GDB_PalletizingPath".aCmd[#statCmdPtr].x;
                             #statTargetPos.y := "GDB_PalletizingPath".aCmd[#statCmdPtr].y;
                             #statTargetPos.z := "GDB_PalletizingPath".aCmd[#statCmdPtr].z;
@@ -308,9 +346,11 @@ BEGIN
                             "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.b := 0.0;
                             "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.c := 0.0;
                             "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_velocity     := "GDB_PalletizingPath".aCmd[#statCmdPtr].lr_Velocity;
-                            "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_acceleration := 10000.0;
-                            "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_deceleration := 10000.0;
-                            "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_jerk         := 100000.0;
+                            "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_acceleration := "GDB_PalletizingCmd".lr_MoveAccel;
+                            "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_deceleration := "GDB_PalletizingCmd".lr_MoveDecel;
+                            "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_jerk         := "GDB_PalletizingCmd".lr_MoveJerk;
+                            // route the move: linear (cmdType 1) or PTP transit (cmdType 4)
+                            "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_isPTP := (#tempCmdType = 4);
                             "GDB_PalletizingCmd".i16_PalletStep := 50;
 
                         2:  // GRIPPER - write the suction-cup level bits
@@ -364,6 +404,17 @@ BEGIN
                     "GDB_PalletizingCmd".i16_PalletStep := 30;
                 END_IF;
 
+            75: // Pause hold (R6) - the cycle is frozen here. The SCARA holds
+                // position (FB_AxisCtrl ran MC_GroupInterrupt; axes stay
+                // enabled) and a gripped box stays gripped. bo_execute is held
+                // so an interrupted move keeps its command for a clean resume.
+                // Resume on the Start rising edge: release the halt request and
+                // return to the step the pause interrupted.
+                IF #sRTRIGStart.Q THEN
+                    "GDB_AxisCtrl".LKinCtrl.input.bo_movepathhalt := FALSE;
+                    "GDB_PalletizingCmd".i16_PalletStep := #statStepBeforePause;
+                END_IF;
+
             100: // Wait-in-place - FB_AxisCtrl reports the move complete.
                  // On error / abort, bail to the abort step.
                 IF "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_done THEN
@@ -389,11 +440,21 @@ BEGIN
                     "GDB_PalletizingCmd".i16_PalletStep := 30;
                 END_IF;
 
-            200: // Abort - drop the command + gripper outputs, go to tail reset
+            200: // Abort - planned group stop, then tail reset. Raise
+                 // bo_movepathstop so FB_AxisCtrl's MC_GroupStop halts the move
+                 // mid-trajectory; drop the command, pause request and gripper
+                 // outputs; advance to the tail reset once the stop concludes
+                 // (or the group is already faulted).
                 "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+                "GDB_AxisCtrl".LKinCtrl.input.bo_movepathhalt := FALSE;
+                "GDB_AxisCtrl".LKinCtrl.input.bo_movepathstop := TRUE;
                 "GDB_MCDData".bo_gripperGrip    := FALSE;
                 "GDB_MCDData".bo_gripperRelease := FALSE;
-                "GDB_PalletizingCmd".i16_PalletStep := 900;
+                IF "GDB_AxisCtrl".LKinCtrl.output.bo_stopped
+                    OR "GDB_AxisCtrl".LKinCtrl.output.bo_fault
+                THEN
+                    "GDB_PalletizingCmd".i16_PalletStep := 900;
+                END_IF;
 
             230: // Cycle complete - all boxes placed (END_OF_PATH reached)
                 "GDB_PalletizingCmd".bo_PalletDone := TRUE;
@@ -402,17 +463,22 @@ BEGIN
                 "GDB_MCDData".bo_gripperRelease := FALSE;
                 "GDB_PalletizingCmd".i16_PalletStep := 0;
 
-            800: // E-Stop hold - outputs dropped; auto-recovers to the tail
-                 // reset once the E-Stop chain is healthy again.
+            800: // E-Stop hold - outputs + pause request dropped, planned stop
+                 // raised; auto-recovers to the tail reset once the E-Stop chain
+                 // is healthy again.
                 "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+                "GDB_AxisCtrl".LKinCtrl.input.bo_movepathhalt := FALSE;
+                "GDB_AxisCtrl".LKinCtrl.input.bo_movepathstop := TRUE;
                 "GDB_MCDData".bo_gripperGrip    := FALSE;
                 "GDB_MCDData".bo_gripperRelease := FALSE;
                 IF "GDB_PalletizingCmd".bo_ESTOP_LOCK THEN
                     "GDB_PalletizingCmd".i16_PalletStep := 900;
                 END_IF;
 
-            900: // Tail reset - mirror of step 10; return to idle
+            900: // Tail reset - mirror of step 10; clears the planned-stop
+                 // request and returns to idle
                 "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+                "GDB_AxisCtrl".LKinCtrl.input.bo_movepathstop := FALSE;
                 "GDB_MCDData".bo_gripperGrip    := FALSE;
                 "GDB_MCDData".bo_gripperRelease := FALSE;
                 #statCmdPtr := 0;

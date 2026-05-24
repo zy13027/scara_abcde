@@ -1,29 +1,41 @@
 ORGANIZATION_BLOCK "Main"
 TITLE = "Main Program Sweep (Cycle)"
 { S7_Optimized_Access := 'TRUE' }
-VERSION : 3.1
+VERSION : 3.3
 // =====================================================================
 // SCARA ABCDE - Main (OB1)
 // (Phase 4, 2026-05-21 - refactor onto the Huashili layered architecture)
 //
 // OB1 holds PROCESS LOGIC ONLY - zero Motion Control instructions. The
 // axis / kinematics layer (FB_Init + FB_AxisCtrl) runs in OB30
-// (CyclicInterrupt_10ms, 10 ms). Both auto FBs are Huashili-pattern CASE
+// (CyclicInterrupt_10ms, 10 ms). All mode FBs are Huashili-pattern CASE
 // state machines that command motion only by writing GDB_AxisCtrl; the
 // OB30 axis layer runs the MC_MoveLinearAbsolute.
 //
+// CHANGES vs v3.2 (2026-05-23, Module F):
+//   - + REGION Teach_Cycle: instFB_TeachCtrl(). The 4th mutex mode -
+//     operator-driven teach (jog + capture + replay) parallel to
+//     ABCDE / Palletizing / Manual. Self-gated via statTeachOK; calling
+//     it unconditionally is safe (the gate enforces mutex with the other
+//     three modes).
+// CHANGES vs v3.1 (2026-05-23, Module D / E):
+//   - REGION Auto_Cycle: + instFB_PatternAutoGen(). Reads GDB_ActiveRecipe
+//     (PSC-written), auto-fits a one-block grid, writes GDB_PalletizingCmd's
+//     recipe-driven config members BEFORE the palletizing FB runs.
 // CHANGES vs v3.0:
-//   - REGION Auto_Cycle: FB_AutoCtrl_ABCDE -> FB_AutoCtrl_5Pts (the
-//     Huashili-pattern CASE rebuild). FB_AutoCtrl_Palletizing rebuilt
-//     in place onto the same CASE pattern (V5.0). OB1 now carries no MC.
+//   - REGION Auto_Cycle: FB_AutoCtrl_ABCDE -> FB_AutoCtrl_5Pts (Huashili-
+//     pattern CASE rebuild). FB_AutoCtrl_Palletizing rebuilt onto the
+//     same CASE pattern (V5.0). OB1 carries no MC.
 //
 // Block call sequence (cyclic, every scan):
 //   1. instFB_ConveyorCtrl()         - palletizing infeed (spawn + belt)
 //   2. instFB_ManualCtrl()           - manual-mode command routing
 //   3. instFB_AutoCtrl_5Pts()        - ABCDE 5-point auto cycle (CASE)
-//   4. instFB_AutoCtrl_Palletizing() - 16-box palletizing cycle (CASE)
-//   5. instFB_MCDDataTransfer()      - publish TO data to GDB_MCDData
-//   6. instFB_HMIStatusMirror()      - consolidate HMI display tags
+//   4. instFB_PatternAutoGen()       - Module D/E: recipe -> GDB_PalletizingCmd
+//   5. instFB_AutoCtrl_Palletizing() - 16-box palletizing cycle (CASE)
+//   6. instFB_TeachCtrl()            - Module F: operator teach + replay
+//   7. instFB_MCDDataTransfer()      - publish TO data to GDB_MCDData
+//   8. instFB_HMIStatusMirror()      - consolidate HMI display tags
 // =====================================================================
 
 BEGIN
@@ -49,8 +61,23 @@ BEGIN
         // Huashili-pattern CASE state machines that command motion only by
         // writing GDB_AxisCtrl (no MC instructions in OB1). Mutex via the
         // bo_Mode gates inside each FB prevents dual-master command writes.
+        //
+        // Module D: FB_PatternAutoGen is called BETWEEN the two auto FBs
+        // so the recipe-driven config in GDB_PalletizingCmd is fresh before
+        // the palletizing builder reads it on the next bo_InitPallet pulse.
         "instFB_AutoCtrl_5Pts"();
+        "instFB_PatternAutoGen"();
         "instFB_AutoCtrl_Palletizing"();
+    END_REGION
+
+    REGION Teach_Cycle
+        // Module F (2026-05-23): operator-driven teach + replay. The 4th
+        // mutex mode, parallel to ABCDE / Palletizing / Manual. Self-
+        // gated via statTeachOK (bo_Mode AND bo_ESTOP_LOCK AND NOT
+        // other_modes); calling unconditionally is safe. Writes to the
+        // same shared GDB_AxisCtrl interface as the other mode FBs - mutex
+        // guarantees only one mode writes per scan.
+        "instFB_TeachCtrl"();
     END_REGION
 
     REGION MCD_DataTransfer

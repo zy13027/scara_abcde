@@ -1,0 +1,332 @@
+FUNCTION_BLOCK "FB_TeachCtrl"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 1.2
+// =====================================================================
+// SCARA Phase 2 Module F - Teach mode orchestration FB  (V1.2, 2026-05-23)
+//
+// V1.2 fix (same-day, smoke-surfaced bug): REGION Cartesian_Jog now gates
+// its 8 jogframe writes inside IF #statTeachOK THEN ... END_IF. V1.0/V1.1
+// wrote them every scan as `statTeachOK AND ...`, so when teach mode was
+// OFF (statTeachOK=FALSE) the writes resolved to FALSE -- and since
+// FB_TeachCtrl runs AFTER FB_ManualCtrl in OB1's Auto_Cycle, those FALSE
+// writes overwrote FB_ManualCtrl's TRUE jog bits, silently breaking the
+// operator's manual jog whenever Module F was deployed. V1.2 keeps the
+// writes when teach owns jog and leaves the register alone otherwise.
+// Symmetric fix for FB_ManualCtrl is recommended but not made here
+// (FB_ManualCtrl runs first; with V1.2 in place, the cross-mode jog
+// interference disappears regardless).
+//
+// V1.1 extension (same-day): Capture path now records BOTH Cartesian TCP
+// AND joint angles per Phase 2 spec §7.1 ("捕获脉冲 → 当前 TCP/关节 写点表").
+// Joint angles land in GDB_TeachPoints.aJointAngles[idx, 1..4] from
+// "ScaraArm3D".AxesData.A[1..4].Position (same scan as TCP capture).
+// Clear / ClearAll also wipe the joint arrays. Replay currently still
+// walks aPoints via Cartesian linear moves (V1.0 behavior preserved);
+// joint-space PTP replay using aJointAngles is reserved for a future
+// extension (per-slot bo_IsPTP flag would route here).
+//
+// V1.0 (2026-05-23):
+// Operator-driven teach: jog the robot, capture TCP into slots, replay
+// the captured sequence. Lives as the 4th mutex mode alongside ABCDE
+// (GDB_MachineCmd, transitional), Palletizing (GDB_PalletizingCmd), and
+// Manual (GDB_ManualCmd).
+//
+// REGIONs (each ~1 screen of SCL):
+//   1. Mode_Gate          - statTeachOK = bo_Mode AND bo_ESTOP_LOCK AND
+//                           NOT other_modes. When FALSE: idle the FSM,
+//                           clear bo_execute, blank i16_TeachStep + idx.
+//   2. Cartesian_Jog      - copy of FB_ManualCtrl jog wiring, gated on
+//                           statTeachOK. Operator jogs in teach mode the
+//                           same way as in manual mode.
+//   3. Operator_Actions   - edge-detect bo_Capture / bo_Verify / bo_Clear
+//                           / bo_ClearAll. Each fires once on rising edge.
+//                           Capture reads actualposition (populated by
+//                           FB_AxisCtrl MirrorTCP) and writes the slot.
+//                           Verify pulses movelinear to drive the robot
+//                           to the slot. Clear blanks the slot + flag.
+//   4. Replay_FSM         - state machine triggered by bo_StartReplay.
+//                           Iterates aPoints[1..16] skipping uncaptured
+//                           slots; drives each via shared movelinear.
+//                           Once-through; latches bo_ReplayDone at end.
+//                           bo_StopReplay from any state -> idle.
+//   5. Compute_PointCount - each scan, count TRUE bits in abCaptured[].
+//
+// The verified Module C / D / E code is untouched. FB_TeachCtrl writes
+// to the shared GDB_AxisCtrl.LKinCtrl.input.{jogframe, movelinear}
+// interface - same as FB_ManualCtrl and the two auto FBs - so no new MC
+// instance is needed; FB_AxisCtrl (OB30) runs the actual motion.
+//
+// Module F 750_Teach\ namespace: GDB_TeachPoints (slot storage),
+// GDB_TeachCmd (HMI commands + FB status), FB_TeachCtrl, instFB_TeachCtrl.
+// =====================================================================
+   VAR
+      // -- operator-action edge triggers --
+      sRTRIG_Capture     {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+      sRTRIG_Verify      {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+      sRTRIG_Clear       {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+      sRTRIG_ClearAll    {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+      // -- replay edge triggers --
+      sRTRIG_StartReplay {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+      sRTRIG_StopReplay  {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+      // -- move-done edge (so each replay step advances exactly once) --
+      sRTRIG_MoveDone    {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+      // -- gate --
+      statTeachOK : Bool;
+   END_VAR
+
+   VAR_TEMP
+      tempIdxInRange : Bool;   // 1 <= i16_SlotIdx <= 16
+      tempReplayIdx  : Int;    // local copy of i16_ReplayIdx for FSM scratch
+      tempCount      : Int;    // for the PointCount loop
+      i              : Int;    // generic loop counter
+   END_VAR
+
+
+BEGIN
+
+    REGION Mode_Gate
+        // 4-way mutex. Teach is the 4th mode. GDB_MachineCmd.bo_Mode is
+        // transitional (ABCDE demo, slated for deletion); the term decays
+        // to a no-op once ABCDE is removed.
+        #statTeachOK := "GDB_TeachCmd".bo_Mode
+                        AND "GDB_TeachCmd".bo_ESTOP_LOCK
+                        AND NOT "GDB_MachineCmd".bo_Mode
+                        AND NOT "GDB_PalletizingCmd".bo_Mode
+                        AND NOT "GDB_ManualCmd".bo_Mode;
+
+        // On mode exit: clean idle. Clear FSM state and any held execute.
+        IF NOT #statTeachOK THEN
+            IF "GDB_TeachCmd".i16_TeachStep <> 0 THEN
+                "GDB_TeachCmd".i16_TeachStep := 0;
+                "GDB_TeachCmd".i16_ReplayIdx := 0;
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+            END_IF;
+        END_IF;
+
+        // Edge detectors always run (R_TRIG must see edges in real-time
+        // to not miss them); the action gates below check #statTeachOK.
+        #sRTRIG_Capture(    CLK := "GDB_TeachCmd".bo_Capture);
+        #sRTRIG_Verify(     CLK := "GDB_TeachCmd".bo_Verify);
+        #sRTRIG_Clear(      CLK := "GDB_TeachCmd".bo_Clear);
+        #sRTRIG_ClearAll(   CLK := "GDB_TeachCmd".bo_ClearAll);
+        #sRTRIG_StartReplay(CLK := "GDB_TeachCmd".bo_StartReplay);
+        #sRTRIG_StopReplay( CLK := "GDB_TeachCmd".bo_StopReplay);
+        #sRTRIG_MoveDone(   CLK := "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_done);
+
+        // Range-check the slot index (nested IF, per SCL-no-short-circuit
+        // rule for array access). Used by Capture/Verify/Clear below.
+        #tempIdxInRange := FALSE;
+        IF "GDB_TeachCmd".i16_SlotIdx >= 1 THEN
+            IF "GDB_TeachCmd".i16_SlotIdx <= 16 THEN
+                #tempIdxInRange := TRUE;
+            END_IF;
+        END_IF;
+    END_REGION
+
+    REGION Cartesian_Jog
+        // Mirror of FB_ManualCtrl REGION Cartesian_Jog: the same HMI jog
+        // buttons (bo_J1_JogForward .. bo_J4_JogBackward) drive Cartesian
+        // X/Y/Z/A. XOR safety: both directions held -> neither wins.
+        // SCARA is 4-DOF, so B/C jog held FALSE.
+        //
+        // V1.2 (smoke-surfaced fix): the writes are GATED by IF #statTeachOK
+        // because FB_TeachCtrl runs AFTER FB_ManualCtrl in OB1 (Manual_Control
+        // before Auto_Cycle/Teach_Cycle). V1.0/V1.1 wrote `#statTeachOK AND ...`
+        // every scan -- when teach was OFF, that resolved to FALSE and
+        // overwrote any TRUE bits FB_ManualCtrl had set, silently breaking
+        // the operator's manual jog. With the IF-gate, FB_TeachCtrl simply
+        // doesn't touch jogframe when teach is off, leaving FB_ManualCtrl's
+        // writes as the authoritative value. When teach IS active, manual
+        // mode is mutex-blocked (statManualOK FALSE -> FB_ManualCtrl writes
+        // all FALSE), so FB_TeachCtrl's writes win uncontested.
+        IF #statTeachOK THEN
+            "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogX+" := "GDB_ManualCmd".bo_J1_JogForward  AND NOT "GDB_ManualCmd".bo_J1_JogBackward;
+            "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogX-" := "GDB_ManualCmd".bo_J1_JogBackward AND NOT "GDB_ManualCmd".bo_J1_JogForward;
+            "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogY+" := "GDB_ManualCmd".bo_J2_JogForward  AND NOT "GDB_ManualCmd".bo_J2_JogBackward;
+            "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogY-" := "GDB_ManualCmd".bo_J2_JogBackward AND NOT "GDB_ManualCmd".bo_J2_JogForward;
+            "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogZ+" := "GDB_ManualCmd".bo_J3_JogForward  AND NOT "GDB_ManualCmd".bo_J3_JogBackward;
+            "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogZ-" := "GDB_ManualCmd".bo_J3_JogBackward AND NOT "GDB_ManualCmd".bo_J3_JogForward;
+            "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogA+" := "GDB_ManualCmd".bo_J4_JogForward  AND NOT "GDB_ManualCmd".bo_J4_JogBackward;
+            "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogA-" := "GDB_ManualCmd".bo_J4_JogBackward AND NOT "GDB_ManualCmd".bo_J4_JogForward;
+            "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogB+" := FALSE;
+            "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogB-" := FALSE;
+            "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogC+" := FALSE;
+            "GDB_AxisCtrl".LKinCtrl.input.jogframe."jogC-" := FALSE;
+        END_IF;
+        // When NOT #statTeachOK: no writes -- leave jogframe alone so
+        // FB_ManualCtrl (or whoever else, future) owns it.
+    END_REGION
+
+    REGION Operator_Actions
+        // --- Capture (V1.1): snapshot BOTH live TCP AND joint angles ---
+        IF #sRTRIG_Capture.Q AND #statTeachOK AND #tempIdxInRange THEN
+            // (a) Cartesian TCP -> aPoints[idx]. LKinCtrl_typePoint.position is
+            //     [0..5] but SCARA is 4-DOF -- b/c populated from TO too (the
+            //     kinematics solver fills them based on joint posture).
+            "GDB_TeachPoints".aPoints["GDB_TeachCmd".i16_SlotIdx].position[0] := "GDB_AxisCtrl".LKinCtrl.output.actualposition.x;
+            "GDB_TeachPoints".aPoints["GDB_TeachCmd".i16_SlotIdx].position[1] := "GDB_AxisCtrl".LKinCtrl.output.actualposition.y;
+            "GDB_TeachPoints".aPoints["GDB_TeachCmd".i16_SlotIdx].position[2] := "GDB_AxisCtrl".LKinCtrl.output.actualposition.z;
+            "GDB_TeachPoints".aPoints["GDB_TeachCmd".i16_SlotIdx].position[3] := "GDB_AxisCtrl".LKinCtrl.output.actualposition.a;
+            "GDB_TeachPoints".aPoints["GDB_TeachCmd".i16_SlotIdx].position[4] := "GDB_AxisCtrl".LKinCtrl.output.actualposition.b;
+            "GDB_TeachPoints".aPoints["GDB_TeachCmd".i16_SlotIdx].position[5] := "GDB_AxisCtrl".LKinCtrl.output.actualposition.c;
+            "GDB_TeachPoints".aPoints["GDB_TeachCmd".i16_SlotIdx].coordSystem := 0;  // WCS
+            // (b) Joint angles J1..J4 -> aJointAngles[idx, joint] (V1.1, Phase 2 §7.1).
+            //     Same source FB_MCDDataTransfer uses for the kin-group-view mirror.
+            //     2D array: comma-indexed (S7-1500T doesn't allow nested Array-of-
+            //     Array in interface declarations).
+            "GDB_TeachPoints".aJointAngles["GDB_TeachCmd".i16_SlotIdx, 1] := "ScaraArm3D".AxesData.A[1].Position;
+            "GDB_TeachPoints".aJointAngles["GDB_TeachCmd".i16_SlotIdx, 2] := "ScaraArm3D".AxesData.A[2].Position;
+            "GDB_TeachPoints".aJointAngles["GDB_TeachCmd".i16_SlotIdx, 3] := "ScaraArm3D".AxesData.A[3].Position;
+            "GDB_TeachPoints".aJointAngles["GDB_TeachCmd".i16_SlotIdx, 4] := "ScaraArm3D".AxesData.A[4].Position;
+            "GDB_TeachPoints".abCaptured["GDB_TeachCmd".i16_SlotIdx] := TRUE;
+            "GDB_TeachCmd".i16_TeachStep := 10;  // HMI feedback (one scan)
+        ELSIF "GDB_TeachCmd".i16_TeachStep = 10 THEN
+            "GDB_TeachCmd".i16_TeachStep := 0;  // auto-clear after capture flash
+        END_IF;
+
+        // --- Verify: move robot to aPoints[SlotIdx] ---
+        IF #sRTRIG_Verify.Q AND #statTeachOK AND #tempIdxInRange THEN
+            IF "GDB_TeachPoints".abCaptured["GDB_TeachCmd".i16_SlotIdx] THEN
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.x := "GDB_TeachPoints".aPoints["GDB_TeachCmd".i16_SlotIdx].position[0];
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.y := "GDB_TeachPoints".aPoints["GDB_TeachCmd".i16_SlotIdx].position[1];
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.z := "GDB_TeachPoints".aPoints["GDB_TeachCmd".i16_SlotIdx].position[2];
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.a := "GDB_TeachPoints".aPoints["GDB_TeachCmd".i16_SlotIdx].position[3];
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.b := 0.0;
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.c := 0.0;
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_velocity     := "GDB_TeachCmd".lr_ReplayVel;
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_acceleration := 2000.0;
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_deceleration := 2000.0;
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_jerk         := 20000.0;
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_isPTP         := FALSE;
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute       := TRUE;
+                "GDB_TeachCmd".i16_TeachStep := 20;  // verify-in-flight
+            END_IF;
+        END_IF;
+        // Verify drop: when move reports done, drop execute and return to idle.
+        IF "GDB_TeachCmd".i16_TeachStep = 20 AND #sRTRIG_MoveDone.Q THEN
+            "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+            "GDB_TeachCmd".i16_TeachStep := 0;
+        END_IF;
+
+        // --- Clear single slot (V1.1: zero BOTH TCP and joint arrays) ---
+        IF #sRTRIG_Clear.Q AND #statTeachOK AND #tempIdxInRange THEN
+            "GDB_TeachPoints".aPoints["GDB_TeachCmd".i16_SlotIdx].position[0] := 0.0;
+            "GDB_TeachPoints".aPoints["GDB_TeachCmd".i16_SlotIdx].position[1] := 0.0;
+            "GDB_TeachPoints".aPoints["GDB_TeachCmd".i16_SlotIdx].position[2] := 0.0;
+            "GDB_TeachPoints".aPoints["GDB_TeachCmd".i16_SlotIdx].position[3] := 0.0;
+            "GDB_TeachPoints".aPoints["GDB_TeachCmd".i16_SlotIdx].position[4] := 0.0;
+            "GDB_TeachPoints".aPoints["GDB_TeachCmd".i16_SlotIdx].position[5] := 0.0;
+            "GDB_TeachPoints".aJointAngles["GDB_TeachCmd".i16_SlotIdx, 1] := 0.0;
+            "GDB_TeachPoints".aJointAngles["GDB_TeachCmd".i16_SlotIdx, 2] := 0.0;
+            "GDB_TeachPoints".aJointAngles["GDB_TeachCmd".i16_SlotIdx, 3] := 0.0;
+            "GDB_TeachPoints".aJointAngles["GDB_TeachCmd".i16_SlotIdx, 4] := 0.0;
+            "GDB_TeachPoints".abCaptured["GDB_TeachCmd".i16_SlotIdx] := FALSE;
+            "GDB_TeachCmd".i16_TeachStep := 30;
+        ELSIF "GDB_TeachCmd".i16_TeachStep = 30 THEN
+            "GDB_TeachCmd".i16_TeachStep := 0;
+        END_IF;
+
+        // --- Clear ALL slots (V1.1: zero BOTH TCP and joint arrays) ---
+        IF #sRTRIG_ClearAll.Q AND #statTeachOK THEN
+            FOR #i := 1 TO 16 DO
+                "GDB_TeachPoints".aPoints[#i].position[0] := 0.0;
+                "GDB_TeachPoints".aPoints[#i].position[1] := 0.0;
+                "GDB_TeachPoints".aPoints[#i].position[2] := 0.0;
+                "GDB_TeachPoints".aPoints[#i].position[3] := 0.0;
+                "GDB_TeachPoints".aPoints[#i].position[4] := 0.0;
+                "GDB_TeachPoints".aPoints[#i].position[5] := 0.0;
+                "GDB_TeachPoints".aJointAngles[#i, 1] := 0.0;
+                "GDB_TeachPoints".aJointAngles[#i, 2] := 0.0;
+                "GDB_TeachPoints".aJointAngles[#i, 3] := 0.0;
+                "GDB_TeachPoints".aJointAngles[#i, 4] := 0.0;
+                "GDB_TeachPoints".abCaptured[#i] := FALSE;
+            END_FOR;
+            "GDB_TeachCmd".i16_TeachStep := 30;
+        END_IF;
+    END_REGION
+
+    REGION Replay_FSM
+        // Stop edge from any active state -> idle + abort move.
+        IF #sRTRIG_StopReplay.Q AND #statTeachOK THEN
+            IF "GDB_TeachCmd".i16_TeachStep >= 100 AND "GDB_TeachCmd".i16_TeachStep < 200 THEN
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+                "GDB_TeachCmd".i16_TeachStep := 0;
+                "GDB_TeachCmd".i16_ReplayIdx := 0;
+            END_IF;
+        END_IF;
+
+        // Start edge -> seed FSM at LOAD_NEXT with idx=0 (so the first
+        // increment lands on slot 1).
+        IF #sRTRIG_StartReplay.Q AND #statTeachOK
+                AND "GDB_TeachCmd".i16_TeachStep = 0
+                AND "GDB_TeachPoints".i16_PointCount > 0 THEN
+            "GDB_TeachCmd".bo_ReplayDone := FALSE;
+            "GDB_TeachCmd".i16_ReplayIdx := 0;
+            "GDB_TeachCmd".i16_TeachStep := 100;
+        END_IF;
+
+        // State 100: LOAD_NEXT -- scan forward from current idx+1 for
+        // the next abCaptured slot. If none -> DONE (200).
+        IF "GDB_TeachCmd".i16_TeachStep = 100 AND #statTeachOK THEN
+            #tempReplayIdx := "GDB_TeachCmd".i16_ReplayIdx + 1;
+            WHILE #tempReplayIdx <= 16 DO
+                IF "GDB_TeachPoints".abCaptured[#tempReplayIdx] THEN
+                    EXIT;
+                END_IF;
+                #tempReplayIdx := #tempReplayIdx + 1;
+            END_WHILE;
+            IF #tempReplayIdx > 16 THEN
+                "GDB_TeachCmd".i16_TeachStep := 200;
+            ELSE
+                "GDB_TeachCmd".i16_ReplayIdx := #tempReplayIdx;
+                "GDB_TeachCmd".i16_TeachStep := 110;
+            END_IF;
+        END_IF;
+
+        // State 110: WRITE_TARGET -- copy slot to movelinear, pulse execute.
+        IF "GDB_TeachCmd".i16_TeachStep = 110 AND #statTeachOK THEN
+            "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.x := "GDB_TeachPoints".aPoints["GDB_TeachCmd".i16_ReplayIdx].position[0];
+            "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.y := "GDB_TeachPoints".aPoints["GDB_TeachCmd".i16_ReplayIdx].position[1];
+            "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.z := "GDB_TeachPoints".aPoints["GDB_TeachCmd".i16_ReplayIdx].position[2];
+            "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.a := "GDB_TeachPoints".aPoints["GDB_TeachCmd".i16_ReplayIdx].position[3];
+            "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.b := 0.0;
+            "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.c := 0.0;
+            "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_velocity     := "GDB_TeachCmd".lr_ReplayVel;
+            "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_acceleration := 2000.0;
+            "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_deceleration := 2000.0;
+            "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_jerk         := 20000.0;
+            "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_isPTP         := FALSE;
+            "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute       := TRUE;
+            "GDB_TeachCmd".i16_TeachStep := 120;
+        END_IF;
+
+        // State 120: WAIT_DONE -- poll for move-done edge, then advance.
+        IF "GDB_TeachCmd".i16_TeachStep = 120 AND #statTeachOK
+                AND #sRTRIG_MoveDone.Q THEN
+            "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+            "GDB_TeachCmd".i16_TeachStep := 100;  // load next captured slot
+        END_IF;
+
+        // State 200: REPLAY_DONE -- latch done, return to idle.
+        IF "GDB_TeachCmd".i16_TeachStep = 200 AND #statTeachOK THEN
+            "GDB_TeachCmd".bo_ReplayDone := TRUE;
+            "GDB_TeachCmd".i16_ReplayIdx := 0;
+            "GDB_TeachCmd".i16_TeachStep := 0;
+        END_IF;
+    END_REGION
+
+    REGION Compute_PointCount
+        // Count TRUE bits in abCaptured[1..16] each scan. Runs always
+        // (NOT gated on statTeachOK) so HMI status display tracks even
+        // when teach mode is off (e.g. operator inspects taught points
+        // while in palletizing mode).
+        #tempCount := 0;
+        FOR #i := 1 TO 16 DO
+            IF "GDB_TeachPoints".abCaptured[#i] THEN
+                #tempCount := #tempCount + 1;
+            END_IF;
+        END_FOR;
+        "GDB_TeachPoints".i16_PointCount := #tempCount;
+    END_REGION
+
+END_FUNCTION_BLOCK

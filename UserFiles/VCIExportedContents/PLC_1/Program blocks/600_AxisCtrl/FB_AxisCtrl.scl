@@ -1,6 +1,6 @@
 FUNCTION_BLOCK "FB_AxisCtrl"
 { S7_Optimized_Access := 'TRUE' }
-VERSION : 2.2
+VERSION : 2.5
 // =====================================================================
 // SCARA ABCDE - Axis / Kinematics Control  (Phase 5, 2026-05-21)
 //
@@ -9,6 +9,24 @@ VERSION : 2.2
 // 500 process logic in OB1. All I/O is the consolidated
 // GDB_AxisCtrl.LKinCtrl interface (the OB1<->OB30 shared-DB bridge).
 //
+// V2.5 (2026-05-22) - Task #5/#8 kinematics robustness:
+//   * REGION Stop - MC_GroupStop on input.bo_movepathstop. A real planned
+//     abort: decelerates the group mid-trajectory and ends the move job. The
+//     auto FBs' old abort only dropped bo_execute, which a raw MC move
+//     ignores - the robot ran to target. output.bo_stopped reports done.
+//   * REGION Recovery - guided fault recovery on a Reset edge: MC_GroupReset,
+//     and if the fault persists, disable + home (mode 7) + re-enable. While
+//     it runs (output.bo_recovering) it owns input.bo_reset/home/enable.
+//   * REGION JogFrame - soft-limit jog guard: suppress a jog driving any
+//     joint into its SW-limit margin band (defense-in-depth for task #8).
+// V2.4 (2026-05-22) - R6: adds REGION Pause - MC_GroupInterrupt / MC_GroupContinue
+// halt + resume, driven by input.bo_movepathhalt. Pauses an in-flight move
+// mid-trajectory with the axes staying enabled (servo-holding position).
+// V2.3 (2026-05-22) - REGION MoveLinear renamed REGION Move: adds the PTP move
+// owner MC_MoveDirectAbsolute. input.movelinear.bo_isPTP routes each command -
+// FALSE = linear (the precise vertical pick/place moves), TRUE = PTP/joint-
+// space (the long pick<->place transits; a linear transit would sweep the TCP
+// across the robot base and fault the kinematics on the near-base singularity).
 // V2.2 - adds the Cartesian frame jog owner (REGION JogFrame). FB_ManualCtrl
 // no longer calls MC_MoveJog (which conflicts with axes inside a kinematics
 // group): it sets direction bits in GDB_AxisCtrl.LKinCtrl.input.jogframe and
@@ -27,8 +45,17 @@ VERSION : 2.2
       instGroupReset : "LKinCtrl_MC_GroupReset";
       instMC_SetTool {InstructionName := 'MC_SETTOOL'; LibVersion := '9.0'} : MC_SETTOOL;
       instMoveLinAbs {InstructionName := 'MC_MOVELINEARABSOLUTE'; LibVersion := '9.0'; S7_SetPoint := 'False'} : MC_MOVELINEARABSOLUTE;
+      instMoveDirectAbs {InstructionName := 'MC_MOVEDIRECTABSOLUTE'; LibVersion := '9.0'; S7_SetPoint := 'False'} : MC_MOVEDIRECTABSOLUTE;
       instJogFrame : "LKinCtrl_MC_JogFrame";
+      instGroupInterrupt {InstructionName := 'MC_GROUPINTERRUPT'; LibVersion := '9.0'; S7_SetPoint := 'False'} : MC_GROUPINTERRUPT;
+      instGroupContinue {InstructionName := 'MC_GROUPCONTINUE'; LibVersion := '9.0'; S7_SetPoint := 'False'} : MC_GROUPCONTINUE;
       statToolActivated : Bool;   // one-shot SetTool latch; cleared by memory reset
+      statHaltOld : Bool;         // edge memory for input.bo_movepathhalt (R6 pause)
+      statContinueExec : Bool;    // held Execute for MC_GroupContinue until Done
+      instGroupStop {InstructionName := 'MC_GROUPSTOP'; LibVersion := '9.0'; S7_SetPoint := 'False'} : MC_GROUPSTOP;
+      sRTRIGreset {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;   // Reset edge -> start guided recovery
+      instRecoverTO {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;   // per-step timeout in REGION Recovery
+      statRecoverStep : Int;      // guided fault-recovery sequencer step (0 = idle)
    END_VAR
 
    VAR_TEMP
@@ -36,10 +63,80 @@ VERSION : 2.2
       tempJogFwd : Bool;   // resolved jog-forward for LKinCtrl_MC_JogFrame
       tempJogBwd : Bool;   // resolved jog-backward for LKinCtrl_MC_JogFrame
       tempJogDir : USInt;   // resolved jog direction (1=X 2=Y 3=Z 4=A 5=B 6=C)
+      tempJogGuardTrip : Bool;   // jog-guard: a joint is being driven into its SW-limit band
+      tempGuardMin : LReal;      // jog-guard: working SW MinPosition
+      tempGuardMax : LReal;      // jog-guard: working SW MaxPosition
+      tempGuardBand : LReal;     // jog-guard: margin band = 3% of the SW range
    END_VAR
 
 
 BEGIN
+
+    REGION Recovery
+        // Task #5 - guided fault recovery. A Reset rising edge runs an ordered
+        // recovery: MC_GroupReset; if the kinematics fault persists, disable the
+        // group, home (mode 7 - re-references the encoders, which clears a
+        // joint-past-limit condition that MC_GroupReset alone cannot), then
+        // re-enable. While the sequencer runs it OWNS input.bo_reset / bo_home /
+        // bo_enable and publishes output.bo_recovering so FB_ManualCtrl suspends
+        // its Enable/Home/Reset writes. Placed first so REGION Power / Reset and
+        // FB_Init see the sequencer's input bits in the same OB30 scan.
+        #sRTRIGreset(CLK := "GDB_AxisCtrl".LKinCtrl.input.bo_reset);
+        IF #sRTRIGreset.Q AND #statRecoverStep = 0 THEN
+            #statRecoverStep := 10;
+        END_IF;
+        "GDB_AxisCtrl".LKinCtrl.output.bo_recovering := (#statRecoverStep <> 0);
+
+        CASE #statRecoverStep OF
+            0:  // idle - not recovering; the input bits are left to their owners
+                ;
+
+            10: // group reset - hold bo_reset ~2 s for MC_GroupReset to settle
+                "GDB_AxisCtrl".LKinCtrl.input.bo_reset := TRUE;
+                "GDB_AxisCtrl".LKinCtrl.input.bo_home  := FALSE;
+                #instRecoverTO(IN := TRUE, PT := T#2S);
+                IF #instRecoverTO.Q THEN
+                    "GDB_AxisCtrl".LKinCtrl.input.bo_reset := FALSE;
+                    #instRecoverTO(IN := FALSE, PT := T#0S);
+                    #statRecoverStep := 20;
+                END_IF;
+
+            20: // did the plain reset clear the fault?
+                IF NOT "GDB_AxisCtrl".LKinCtrl.output.bo_fault THEN
+                    #statRecoverStep := 0;     // recovered
+                ELSE
+                    #statRecoverStep := 30;    // escalate - home-first
+                END_IF;
+
+            30: // disable the group for a mode-7 re-home
+                "GDB_AxisCtrl".LKinCtrl.input.bo_enable := FALSE;
+                #instRecoverTO(IN := TRUE, PT := T#3S);
+                IF NOT "GDB_AxisCtrl".LKinCtrl.output.bo_enabled OR #instRecoverTO.Q THEN
+                    #instRecoverTO(IN := FALSE, PT := T#0S);
+                    #statRecoverStep := 40;
+                END_IF;
+
+            40: // home (mode 7) while disabled - re-references the encoders
+                "GDB_AxisCtrl".LKinCtrl.input.bo_home := TRUE;
+                #instRecoverTO(IN := TRUE, PT := T#5S);
+                IF "GDB_AxisCtrl".LKinCtrl.output.bo_homed OR #instRecoverTO.Q THEN
+                    "GDB_AxisCtrl".LKinCtrl.input.bo_home := FALSE;
+                    #instRecoverTO(IN := FALSE, PT := T#0S);
+                    #statRecoverStep := 50;
+                END_IF;
+
+            50: // re-enable; recovery ends once the group is ready again
+                "GDB_AxisCtrl".LKinCtrl.input.bo_enable := TRUE;
+                #instRecoverTO(IN := TRUE, PT := T#5S);
+                IF "GDB_AxisCtrl".LKinCtrl.output.bo_ready OR #instRecoverTO.Q THEN
+                    #instRecoverTO(IN := FALSE, PT := T#0S);
+                    #statRecoverStep := 0;
+                END_IF;
+
+            ELSE  // unknown - fail safe to idle
+                #statRecoverStep := 0;
+        END_CASE;
+    END_REGION
 
     REGION Power
         // Enable all kinematic axes via the library group-power FB.
@@ -80,14 +177,23 @@ BEGIN
         END_IF;
     END_REGION
 
-    REGION MoveLinear
-        // Kinematic linear move on ScaraArm3D. The auto FBs (OB1) write the
+    REGION Move
+        // Auto-cycle move owner on ScaraArm3D. The auto FBs (OB1) write the
         // target pose + dynamics into GDB_AxisCtrl.LKinCtrl.input.movelinear
-        // and hold bo_execute; this region runs the one MC_MoveLinearAbsolute
-        // and mirrors its status into output.movelinear for the auto FB's
-        // wait-in-place step. BufferMode 1 (buffered) - the auto CASE
-        // serializes moves (one per step, waits for Done), so no
-        // cross-command blending is needed.
+        // and hold bo_execute; input.movelinear.bo_isPTP routes the command:
+        //   FALSE -> MC_MoveLinearAbsolute - Cartesian straight line, for the
+        //            precise vertical pick / place / descend / retract moves.
+        //   TRUE  -> MC_MoveDirectAbsolute - joint-interpolated point-to-point,
+        //            for the long pick<->place transits. A linear transit
+        //            sweeps the TCP on a straight line across the robot base
+        //            (near-base singularity) and faults the kinematics group;
+        //            a PTP move interpolates in joint space and avoids it.
+        // Both MC FBs are called every scan (PLCopen); Execute is gated so only
+        // the routed one issues a command - the idle one stays inert and its
+        // Done/Error stay cleared. The wait-in-place status (output.movelinear)
+        // is mirrored from whichever FB is routed, so the auto FB handshake is
+        // identical for both move kinds. MC_MoveLinearAbsolute BufferMode 1 -
+        // the auto CASE serializes moves (one per step, waits for Done).
         #tempPos[1] := "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.x;
         #tempPos[2] := "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.y;
         #tempPos[3] := "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.z;
@@ -95,8 +201,10 @@ BEGIN
         #tempPos[5] := "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.b;
         #tempPos[6] := "GDB_AxisCtrl".LKinCtrl.input.movelinear.targetposition.c;
 
+        // Linear move - executes only when bo_execute AND NOT bo_isPTP.
         #instMoveLinAbs(AxesGroup    := "ScaraArm3D",
-                        Execute      := "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute,
+                        Execute      := "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute
+                                        AND NOT "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_isPTP,
                         Position     := #tempPos,
                         Velocity     := "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_velocity,
                         Acceleration := "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_acceleration,
@@ -104,11 +212,33 @@ BEGIN
                         Jerk         := "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_jerk,
                         BufferMode   := 1);
 
-        "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_done           := #instMoveLinAbs.Done;
-        "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_busy           := #instMoveLinAbs.Busy;
-        "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_active         := #instMoveLinAbs.Active;
-        "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_error          := #instMoveLinAbs.Error;
-        "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_commandaborted := #instMoveLinAbs.CommandAborted;
+        // PTP / direct move - executes only when bo_execute AND bo_isPTP.
+        // Dynamic *Factor = -1.0 -> use the kinematics-configured defaults.
+        #instMoveDirectAbs(AxesGroup          := "ScaraArm3D",
+                           Execute            := "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute
+                                                 AND "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_isPTP,
+                           Position           := #tempPos,
+                           CoordSystem        := "CS_WCS",
+                           PositionMode       := 1,
+                           VelocityFactor     := -1.0,
+                           AccelerationFactor := -1.0,
+                           DecelerationFactor := -1.0,
+                           JerkFactor         := -1.0);
+
+        // Mirror the wait-in-place status from the routed move FB.
+        IF "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_isPTP THEN
+            "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_done           := #instMoveDirectAbs.Done;
+            "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_busy           := #instMoveDirectAbs.Busy;
+            "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_active         := #instMoveDirectAbs.Active;
+            "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_error          := #instMoveDirectAbs.Error;
+            "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_commandaborted := #instMoveDirectAbs.CommandAborted;
+        ELSE
+            "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_done           := #instMoveLinAbs.Done;
+            "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_busy           := #instMoveLinAbs.Busy;
+            "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_active         := #instMoveLinAbs.Active;
+            "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_error          := #instMoveLinAbs.Error;
+            "GDB_AxisCtrl".LKinCtrl.output.movelinear.bo_commandaborted := #instMoveLinAbs.CommandAborted;
+        END_IF;
     END_REGION
 
     REGION JogFrame
@@ -146,6 +276,62 @@ BEGIN
             #tempJogDir := 6; #tempJogBwd := TRUE;
         END_IF;
 
+        // Task #8 - jog soft-limit guard (defense-in-depth). LKinCtrl_MC_JogFrame
+        // clamps the jog at the axis SW limits, but only with a 0.1 margin; this
+        // guard additionally drops the jog when it is actively driving any joint
+        // into its SW-limit band (3% of the joint range). The ActualVelocity sign
+        // discriminates approach from retreat, so jogging back toward safe range
+        // stays allowed. Skips an axis whose PositionLimits_SW is not Active.
+        #tempJogGuardTrip := FALSE;
+        IF "J1_SCARA_Arm3D".PositionLimits_SW.Active THEN
+            #tempGuardMin  := "J1_SCARA_Arm3D".PositionLimits_SW.MinPosition;
+            #tempGuardMax  := "J1_SCARA_Arm3D".PositionLimits_SW.MaxPosition;
+            #tempGuardBand := (#tempGuardMax - #tempGuardMin) * 0.03;
+            IF ("J1_SCARA_Arm3D".ActualPosition >= #tempGuardMax - #tempGuardBand
+                    AND "J1_SCARA_Arm3D".ActualVelocity > 1.0)
+                OR ("J1_SCARA_Arm3D".ActualPosition <= #tempGuardMin + #tempGuardBand
+                    AND "J1_SCARA_Arm3D".ActualVelocity < -1.0) THEN
+                #tempJogGuardTrip := TRUE;
+            END_IF;
+        END_IF;
+        IF "J2_SCARA_Arm3D".PositionLimits_SW.Active THEN
+            #tempGuardMin  := "J2_SCARA_Arm3D".PositionLimits_SW.MinPosition;
+            #tempGuardMax  := "J2_SCARA_Arm3D".PositionLimits_SW.MaxPosition;
+            #tempGuardBand := (#tempGuardMax - #tempGuardMin) * 0.03;
+            IF ("J2_SCARA_Arm3D".ActualPosition >= #tempGuardMax - #tempGuardBand
+                    AND "J2_SCARA_Arm3D".ActualVelocity > 1.0)
+                OR ("J2_SCARA_Arm3D".ActualPosition <= #tempGuardMin + #tempGuardBand
+                    AND "J2_SCARA_Arm3D".ActualVelocity < -1.0) THEN
+                #tempJogGuardTrip := TRUE;
+            END_IF;
+        END_IF;
+        IF "J3_SCARA_Arm3D".PositionLimits_SW.Active THEN
+            #tempGuardMin  := "J3_SCARA_Arm3D".PositionLimits_SW.MinPosition;
+            #tempGuardMax  := "J3_SCARA_Arm3D".PositionLimits_SW.MaxPosition;
+            #tempGuardBand := (#tempGuardMax - #tempGuardMin) * 0.03;
+            IF ("J3_SCARA_Arm3D".ActualPosition >= #tempGuardMax - #tempGuardBand
+                    AND "J3_SCARA_Arm3D".ActualVelocity > 1.0)
+                OR ("J3_SCARA_Arm3D".ActualPosition <= #tempGuardMin + #tempGuardBand
+                    AND "J3_SCARA_Arm3D".ActualVelocity < -1.0) THEN
+                #tempJogGuardTrip := TRUE;
+            END_IF;
+        END_IF;
+        IF "J4_SCARA_Arm3D".PositionLimits_SW.Active THEN
+            #tempGuardMin  := "J4_SCARA_Arm3D".PositionLimits_SW.MinPosition;
+            #tempGuardMax  := "J4_SCARA_Arm3D".PositionLimits_SW.MaxPosition;
+            #tempGuardBand := (#tempGuardMax - #tempGuardMin) * 0.03;
+            IF ("J4_SCARA_Arm3D".ActualPosition >= #tempGuardMax - #tempGuardBand
+                    AND "J4_SCARA_Arm3D".ActualVelocity > 1.0)
+                OR ("J4_SCARA_Arm3D".ActualPosition <= #tempGuardMin + #tempGuardBand
+                    AND "J4_SCARA_Arm3D".ActualVelocity < -1.0) THEN
+                #tempJogGuardTrip := TRUE;
+            END_IF;
+        END_IF;
+        IF #tempJogGuardTrip THEN
+            #tempJogFwd := FALSE;
+            #tempJogBwd := FALSE;
+        END_IF;
+
         #instJogFrame(jogForward   := #tempJogFwd,
                       jogBackward  := #tempJogBwd,
                       jogDirection := #tempJogDir,
@@ -156,6 +342,47 @@ BEGIN
                       axesGroup    := "ScaraArm3D");
     END_REGION
 
+    REGION Pause
+        // Auto-cycle pause (R6). The auto FBs (OB1) request a mid-trajectory
+        // halt by holding GDB_AxisCtrl.LKinCtrl.input.bo_movepathhalt. This
+        // region edge-detects it and runs MC_GroupInterrupt (halt - the axes
+        // stay enabled and hold position) / MC_GroupContinue (resume the
+        // interrupted move). Same kinematics operation LKinCtrl_MC_MovePath.
+        // interrupt performs internally, applied here directly to the raw MC
+        // moves of REGION Move. Both FBs are called every scan; Execute is
+        // edge-gated so only the pause / resume transitions act.
+        IF "GDB_AxisCtrl".LKinCtrl.input.bo_movepathhalt AND NOT #statHaltOld THEN
+            #statContinueExec := FALSE;                 // pause requested
+        ELSIF NOT "GDB_AxisCtrl".LKinCtrl.input.bo_movepathhalt AND #statHaltOld THEN
+            #statContinueExec := TRUE;                  // resume requested
+        END_IF;
+        #statHaltOld := "GDB_AxisCtrl".LKinCtrl.input.bo_movepathhalt;
+
+        #instGroupInterrupt(AxesGroup := "ScaraArm3D",
+                            Execute   := "GDB_AxisCtrl".LKinCtrl.input.bo_movepathhalt,
+                            Mode      := 0);
+
+        #instGroupContinue(AxesGroup := "ScaraArm3D",
+                           Execute   := #statContinueExec);
+        IF #instGroupContinue.Done OR #instGroupContinue.Error THEN
+            #statContinueExec := FALSE;
+        END_IF;
+    END_REGION
+
+    REGION Stop
+        // Task #5 - planned abort. The auto FBs raise input.bo_movepathstop to
+        // halt an in-flight move mid-trajectory: MC_GroupStop decelerates the
+        // kinematics group to standstill and ends the motion job. Raw-MC
+        // equivalent of LKinCtrl_MC_MovePath's path-stop; distinct from REGION
+        // Pause's MC_GroupInterrupt, which is resumable. output.bo_stopped
+        // mirrors Done OR Error so the auto abort step can run the tail reset
+        // even if the group is already faulted.
+        #instGroupStop(AxesGroup := "ScaraArm3D",
+                       Execute   := "GDB_AxisCtrl".LKinCtrl.input.bo_movepathstop);
+        "GDB_AxisCtrl".LKinCtrl.output.bo_stopped := #instGroupStop.Done
+                                                     OR #instGroupStop.Error;
+    END_REGION
+
     REGION StatusDerived
         // bo_ready = enabled AND homed AND NOT fault. bo_homed is written
         // by FB_Init - call FB_Init before FB_AxisCtrl in OB30.
@@ -163,6 +390,30 @@ BEGIN
             "GDB_AxisCtrl".LKinCtrl.output.bo_enabled
             AND "GDB_AxisCtrl".LKinCtrl.output.bo_homed
             AND NOT "GDB_AxisCtrl".LKinCtrl.output.bo_fault;
+    END_REGION
+
+    REGION MirrorTCP
+        // Module F (2026-05-23): publish live TCP from the ScaraArm3D
+        // kinematics group into the GDB_AxisCtrl output surface. Used by
+        // FB_TeachCtrl capture and any future diagnostic that wants PLC-
+        // side symbolic TCP access.
+        //
+        // Source: ScaraArm3D.TcpInWcs.{x,y,z,a,b,c}.Position -- the
+        // Siemens-canonical TO_Kinematics member for "TCP in WCS"
+        // (TO_Struct_Kinematics_StatusKinematicsFrameWithDynamics, V9.0).
+        // Same access pattern LKinCtrl_MC_JogFrame uses via its axesGroup
+        // InOut (#axesGroup.TcpInWcs.x.Position). Direct TO access by
+        // symbol name in SCL is supported (no InOut parameter needed) --
+        // FB_MCDDataTransfer follows the analogous pattern for AxesData.
+        //
+        // SCARA is 4-DOF (X/Y/Z/A); b/c populated from the TO too (the
+        // kinematics solver fills them based on joint posture).
+        "GDB_AxisCtrl".LKinCtrl.output.actualposition.x := "ScaraArm3D".TcpInWcs.x.Position;
+        "GDB_AxisCtrl".LKinCtrl.output.actualposition.y := "ScaraArm3D".TcpInWcs.y.Position;
+        "GDB_AxisCtrl".LKinCtrl.output.actualposition.z := "ScaraArm3D".TcpInWcs.z.Position;
+        "GDB_AxisCtrl".LKinCtrl.output.actualposition.a := "ScaraArm3D".TcpInWcs.a.Position;
+        "GDB_AxisCtrl".LKinCtrl.output.actualposition.b := "ScaraArm3D".TcpInWcs.b.Position;
+        "GDB_AxisCtrl".LKinCtrl.output.actualposition.c := "ScaraArm3D".TcpInWcs.c.Position;
     END_REGION
 
 END_FUNCTION_BLOCK

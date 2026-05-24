@@ -1,0 +1,54 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Blocks.InstanceDB ID="0">
+    <AttributeList>
+      <HeaderVersion>1.1</HeaderVersion>
+      <InstanceOfName>FB_PatternAutoGen</InstanceOfName>
+      <InstanceOfType>FB</InstanceOfType>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="Input" />
+  <Section Name="Output" />
+  <Section Name="InOut" />
+  <Section Name="Static">
+    <Member Name="statCyclePalletIdx" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0 (2026-05-23): which pallet's cycle is currently in flight. Snapshotted from i16_ActivePalletIdx at the rising edge of GDB_PalletizingCmd.bo_InitPallet. Used by LatchPalletFull region to correctly attribute bo_PalletDone to the pallet whose cycle is completing -- even if operator has swapped activeIdx mid-cycle (or released both flags). 0 = no cycle in progress.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="statInitPallet_prev" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0: previous-scan value of GDB_PalletizingCmd.bo_InitPallet for rising-edge detection in TrackCycleStart region.</MultiLanguageText>
+      </Comment>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <Name>instFB_PatternAutoGen</Name>
+      <Namespace />
+      <Number>25</Number>
+      <ProgrammingLanguage>DB</ProgrammingLanguage>
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Blocks.InstanceDB>
+</Document>

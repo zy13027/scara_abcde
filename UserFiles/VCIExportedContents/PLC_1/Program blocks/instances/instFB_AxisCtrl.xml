@@ -27,12 +27,29 @@
       </AttributeList>
     </Member>
     <Member Name="instMoveLinAbs" Datatype="MC_MOVELINEARABSOLUTE" Version="9.0" />
+    <Member Name="instMoveDirectAbs" Datatype="MC_MOVEDIRECTABSOLUTE" Version="9.0" />
     <Member Name="instJogFrame" Datatype="&quot;LKinCtrl_MC_JogFrame&quot;">
       <AttributeList>
         <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
       </AttributeList>
     </Member>
+    <Member Name="instGroupInterrupt" Datatype="MC_GROUPINTERRUPT" Version="9.0" />
+    <Member Name="instGroupContinue" Datatype="MC_GROUPCONTINUE" Version="9.0" />
     <Member Name="statToolActivated" Datatype="Bool" />
+    <Member Name="statHaltOld" Datatype="Bool" />
+    <Member Name="statContinueExec" Datatype="Bool" />
+    <Member Name="instGroupStop" Datatype="MC_GROUPSTOP" Version="9.0" />
+    <Member Name="sRTRIGreset" Datatype="R_TRIG" Version="1.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+    </Member>
+    <Member Name="instRecoverTO" Datatype="TON_TIME" Version="1.0">
+      <AttributeList>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+    </Member>
+    <Member Name="statRecoverStep" Datatype="Int" />
   </Section>
 </Sections></Interface>
       <Name>instFB_AxisCtrl</Name>

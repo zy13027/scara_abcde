@@ -20,6 +20,11 @@
         <MultiLanguageText Lang="en-US">HMI: rising edge → stop auto cycle (i16_AutoStep := 0)</MultiLanguageText>
       </Comment>
     </Member>
+    <Member Name="bo_Pause" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI: rising edge pauses the auto cycle (R6). FB_AxisCtrl halts motion mid-trajectory via MC_GroupInterrupt - the SCARA stays servo-enabled and holds position; i16_AutoStep goes to 75. Resume with the Start button. Stop / E-Stop override Pause.</MultiLanguageText>
+      </Comment>
+    </Member>
     <Member Name="bo_Mode" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">HMI: AUTO mode selector (TRUE = auto cycle enabled, FALSE = ignored)</MultiLanguageText>

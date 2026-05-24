@@ -26,8 +26,16 @@
         <Member Name="bo_jogtoposition" Datatype="Bool" />
       </Member>
       <Member Name="bo_movepathstart" Datatype="Bool" />
-      <Member Name="bo_movepathstop" Datatype="Bool" />
-      <Member Name="bo_movepathhalt" Datatype="Bool" />
+      <Member Name="bo_movepathstop" Datatype="Bool">
+        <Comment>
+          <MultiLanguageText Lang="en-US">Task #5 (2026-05-22): planned-stop / abort request, written by the auto FBs and read by FB_AxisCtrl. While TRUE, FB_AxisCtrl runs MC_GroupStop to decelerate the kinematics group to a halt and end the move job (not resumable - distinct from bo_movepathhalt, which pauses). The auto abort path raises this and waits for output.bo_stopped before the tail reset.</MultiLanguageText>
+        </Comment>
+      </Member>
+      <Member Name="bo_movepathhalt" Datatype="Bool">
+        <Comment>
+          <MultiLanguageText Lang="en-US">R6 pause/halt request, written by the auto FBs and read by FB_AxisCtrl. While TRUE, FB_AxisCtrl runs MC_GroupInterrupt to halt motion mid-trajectory (axes stay enabled, holding position); on FALSE it runs MC_GroupContinue to resume. Originally a placeholder for LKinCtrl_MC_MovePath.interrupt; reused as the generic pause signal.</MultiLanguageText>
+        </Comment>
+      </Member>
       <Member Name="movelinear" Datatype="Struct">
         <Member Name="bo_execute" Datatype="Bool" />
         <Member Name="targetposition" Datatype="Struct">
@@ -42,6 +50,11 @@
         <Member Name="r64_acceleration" Datatype="LReal" />
         <Member Name="r64_deceleration" Datatype="LReal" />
         <Member Name="r64_jerk" Datatype="LReal" />
+        <Member Name="bo_isPTP" Datatype="Bool">
+          <Comment>
+            <MultiLanguageText Lang="en-US">Move-type selector. FALSE = MC_MoveLinearAbsolute (Cartesian straight line). TRUE = MC_MoveDirectAbsolute (joint-interpolated PTP) for long transits that would otherwise cross the near-base singularity. FB_AxisCtrl routes the command on this bit.</MultiLanguageText>
+          </Comment>
+        </Member>
       </Member>
       <Member Name="configuration" Datatype="Struct">
         <Member Name="home" Datatype="Struct">
@@ -109,6 +122,16 @@
       <Member Name="bo_fault" Datatype="Bool" />
       <Member Name="bo_ready" Datatype="Bool" />
       <Member Name="bo_standstill" Datatype="Bool" />
+      <Member Name="bo_stopped" Datatype="Bool">
+        <Comment>
+          <MultiLanguageText Lang="en-US">Task #5 (2026-05-22): the planned group stop has concluded - FB_AxisCtrl mirrors MC_GroupStop Done OR Error here. The auto FBs wait for it in the abort step before running the tail reset.</MultiLanguageText>
+        </Comment>
+      </Member>
+      <Member Name="bo_recovering" Datatype="Bool">
+        <Comment>
+          <MultiLanguageText Lang="en-US">Task #5 (2026-05-22): the guided fault-recovery sequencer (FB_AxisCtrl REGION Recovery) is running. While TRUE the sequencer owns input.bo_reset / bo_home / bo_enable; FB_ManualCtrl suspends its Enable/Home/Reset writes.</MultiLanguageText>
+        </Comment>
+      </Member>
       <Member Name="bo_done" Datatype="Bool" />
       <Member Name="i16_activeCmdNo" Datatype="Int" />
       <Member Name="actualposition" Datatype="Struct">

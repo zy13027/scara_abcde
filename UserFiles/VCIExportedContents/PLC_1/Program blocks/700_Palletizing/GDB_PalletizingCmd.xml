@@ -20,6 +20,11 @@
         <MultiLanguageText Lang="en-US">HMI: rising edge -&gt; stop palletizing cycle (i16_PalletStep := 0)</MultiLanguageText>
       </Comment>
     </Member>
+    <Member Name="bo_Pause" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">HMI: rising edge pauses the palletizing cycle (R6). FB_AxisCtrl halts motion mid-trajectory via MC_GroupInterrupt - the SCARA stays servo-enabled and holds position, a gripped box stays gripped; i16_PalletStep goes to 75. Resume with the Start button. Stop / E-Stop override Pause.</MultiLanguageText>
+      </Comment>
+    </Member>
     <Member Name="bo_Mode" Datatype="Bool">
       <Comment>
         <MultiLanguageText Lang="en-US">HMI: Palletizing AUTO mode selector (TRUE = palletizing cycle enabled, FALSE = ignored). Mutually exclusive with GDB_MachineCmd.bo_Mode (ABCDE cycle) and GDB_ManualCmd.bo_Mode (manual). Operator must turn other modes off before enabling palletizing.</MultiLanguageText>
@@ -49,7 +54,7 @@
     </Member>
     <Member Name="i16_TotalBoxes" Datatype="Int">
       <Comment>
-        <MultiLanguageText Lang="en-US">C69 Phase 2.2 (2026-05-18): hardcoded 16-box pattern = 4 layers x 4 boxes/layer x 3 phases = 48 path points. Mirrors statActiveBoxes from FB_AutoCtrl_Palletizing iDB (snapshotted at last InitPallet pulse). V3.x recipe-driven would change this; for V2 hardcoded port, always 16.</MultiLanguageText>
+        <MultiLanguageText Lang="en-US">Status: total boxes in the active palletizing path. Module C (2026-05-22): COMPUTED by the FB_AutoCtrl_Palletizing builder at each bo_InitPallet pulse = i16_LayerCount * i16_GridRowsY * i16_GridColsX (no longer a hardcoded 16). StartValue 16 is only the pre-init default.</MultiLanguageText>
       </Comment>
       <StartValue>16</StartValue>
     </Member>
@@ -114,7 +119,7 @@
     </Member>
     <Member Name="lr_BoxHeight" Datatype="LReal">
       <Comment>
-        <MultiLanguageText Lang="en-US">V3.0 (2026-05-19, Brief 32 corrected): Box height (mm) — layer-to-layer Z spacing for the 4-layer stack + cup-tip offset above pallet surface. Default 200.0 (small carton in current NX scene). Tune to 300 for the bigger box variant.</MultiLanguageText>
+        <MultiLanguageText Lang="en-US">V3.0 (2026-05-19, Brief 32 corrected): Box height (mm) — layer-to-layer Z spacing for the 4-layer stack + cup-tip offset above pallet surface. Default 200.0 (small carton in current NX scene). Tune to 300 for the bigger box variant. Module D (2026-05-23): now sole-written by FB_PatternAutoGen from recipe.product.lr_Height; DO NOT hand-edit, edit the recipe instead.</MultiLanguageText>
       </Comment>
       <StartValue>200.0</StartValue>
     </Member>
@@ -165,6 +170,60 @@
         <MultiLanguageText Lang="en-US">V3.0 (Brief 33, 2026-05-19): Z component, default 0.0. The 135.7 mm cup-tip-below-wrist offset is now handled by ScaraArm3D.Tool[1].Frame.z = 135.7 in the TIA TO (operator updated). MC_MoveLinearAbsolute commands TCP (cup tip) directly; kinematic group computes wrist position via Tool[1]. (Brief 31's +135.7 SCL compensation is no longer needed since Tool[1] now carries the full vertical offset.) Operator may set this Member non-zero if a different tool is loaded.</MultiLanguageText>
       </Comment>
       <StartValue>0.0</StartValue>
+    </Member>
+    <Member Name="i16_LayerCount" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Module C config (2026-05-22): number of stacked layers. Default 4. Total boxes = i16_LayerCount * i16_GridRowsY * i16_GridColsX (the builder computes that into i16_TotalBoxes). Module D (2026-05-23): now sole-written by FB_PatternAutoGen from GDB_ActiveRecipe.recipe.pallet.i16_LayerCount each scan — DO NOT hand-edit; edit the recipe instead.</MultiLanguageText>
+      </Comment>
+      <StartValue>4</StartValue>
+    </Member>
+    <Member Name="i16_GridColsX" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Module C config (2026-05-22): boxes per layer along WCS X. Default 2. The per-layer grid is i16_GridRowsY x i16_GridColsX. Module D (2026-05-23): now sole-written by FB_PatternAutoGen — auto-fitted from recipe product+pallet dims; DO NOT hand-edit.</MultiLanguageText>
+      </Comment>
+      <StartValue>2</StartValue>
+    </Member>
+    <Member Name="i16_GridRowsY" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Module C config (2026-05-22): boxes per layer along WCS Y. Default 2. Module D (2026-05-23): now sole-written by FB_PatternAutoGen — auto-fitted from recipe product+pallet dims; DO NOT hand-edit.</MultiLanguageText>
+      </Comment>
+      <StartValue>2</StartValue>
+    </Member>
+    <Member Name="lr_BoxPitchX" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Module C config (2026-05-22): box-to-box pitch (mm) along WCS X. Default 400.0 - a 2-col grid then sits at +/-200 mm from the pallet centre, reproducing the pre-Module-C hard-coded layout. Module D (2026-05-23): now sole-written by FB_PatternAutoGen as recipe.product.lr_Length + recipe.product.lr_Gap; DO NOT hand-edit.</MultiLanguageText>
+      </Comment>
+      <StartValue>400.0</StartValue>
+    </Member>
+    <Member Name="lr_BoxPitchY" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Module C config (2026-05-22): box-to-box pitch (mm) along WCS Y. Default 600.0 - a 2-row grid then sits at +/-300 mm from the pallet centre. Module D (2026-05-23): now sole-written by FB_PatternAutoGen as recipe.product.lr_Width + recipe.product.lr_Gap; DO NOT hand-edit.</MultiLanguageText>
+      </Comment>
+      <StartValue>600.0</StartValue>
+    </Member>
+    <Member Name="lr_MoveVelocity" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Module C config (2026-05-22): path velocity (mm/s) written into every palletizing move command by the builder. Default 2000.0. Module D (2026-05-23): now sole-written by FB_PatternAutoGen from recipe.dynamics.lr_Velocity; DO NOT hand-edit.</MultiLanguageText>
+      </Comment>
+      <StartValue>2000.0</StartValue>
+    </Member>
+    <Member Name="lr_MoveAccel" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Module C config (2026-05-22): acceleration for palletizing moves, fed to GDB_AxisCtrl.LKinCtrl.input.movelinear.r64_acceleration at dispatch. Default 10000.0. Module D (2026-05-23): now sole-written by FB_PatternAutoGen from recipe.dynamics.lr_Acceleration; DO NOT hand-edit.</MultiLanguageText>
+      </Comment>
+      <StartValue>10000.0</StartValue>
+    </Member>
+    <Member Name="lr_MoveDecel" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Module C config (2026-05-22): deceleration for palletizing moves. Default 10000.0. Module D (2026-05-23): now sole-written by FB_PatternAutoGen from recipe.dynamics.lr_Deceleration; DO NOT hand-edit.</MultiLanguageText>
+      </Comment>
+      <StartValue>10000.0</StartValue>
+    </Member>
+    <Member Name="lr_MoveJerk" Datatype="LReal">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Module C config (2026-05-22): jerk for palletizing moves. Default 100000.0. Module D (2026-05-23): now sole-written by FB_PatternAutoGen from recipe.dynamics.lr_Jerk; DO NOT hand-edit.</MultiLanguageText>
+      </Comment>
+      <StartValue>100000.0</StartValue>
     </Member>
   </Section>
 </Sections></Interface>

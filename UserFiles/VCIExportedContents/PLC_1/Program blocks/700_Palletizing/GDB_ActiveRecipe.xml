@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <SW.Blocks.GlobalDB ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="Static">
+    <Member Name="recipe1" Datatype="&quot;UDT_Recipe&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Active recipe for PALLET 1 (LEFT). PSC binds and writes here from the HMI's pallet-1 parameter set. FB_PatternAutoGen consumes this each scan iff recipe1.bo_Valid is TRUE AND i16_ActivePalletIdx = 1. StartValues = the verified 16-box 4x(2x2) Module D default.</MultiLanguageText>
+      </Comment>
+      <Sections>
+        <Section Name="None">
+          <Member Name="sName" Datatype="String[32]">
+            <StartValue>'Pallet 1 Default 4x2x2'</StartValue>
+          </Member>
+          <Member Name="bo_Valid" Datatype="Bool">
+            <StartValue>TRUE</StartValue>
+          </Member>
+          <Member Name="product" Datatype="Struct">
+            <Member Name="lr_Length" Datatype="LReal">
+              <StartValue>400.0</StartValue>
+            </Member>
+            <Member Name="lr_Width" Datatype="LReal">
+              <StartValue>600.0</StartValue>
+            </Member>
+            <Member Name="lr_Height" Datatype="LReal">
+              <StartValue>200.0</StartValue>
+            </Member>
+            <Member Name="lr_Gap" Datatype="LReal">
+              <StartValue>0.0</StartValue>
+            </Member>
+          </Member>
+          <Member Name="pallet" Datatype="Struct">
+            <Member Name="lr_BaseLength" Datatype="LReal">
+              <StartValue>800.0</StartValue>
+            </Member>
+            <Member Name="lr_BaseWidth" Datatype="LReal">
+              <StartValue>1200.0</StartValue>
+            </Member>
+            <Member Name="i16_LayerCount" Datatype="Int">
+              <StartValue>4</StartValue>
+            </Member>
+          </Member>
+          <Member Name="dynamics" Datatype="Struct">
+            <Member Name="lr_Velocity" Datatype="LReal">
+              <StartValue>2000.0</StartValue>
+            </Member>
+            <Member Name="lr_Acceleration" Datatype="LReal">
+              <StartValue>10000.0</StartValue>
+            </Member>
+            <Member Name="lr_Deceleration" Datatype="LReal">
+              <StartValue>10000.0</StartValue>
+            </Member>
+            <Member Name="lr_Jerk" Datatype="LReal">
+              <StartValue>100000.0</StartValue>
+            </Member>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="recipe2" Datatype="&quot;UDT_Recipe&quot;">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Active recipe for PALLET 2 (RIGHT). PSC binds and writes here from the HMI's pallet-2 parameter set. FB_PatternAutoGen consumes this each scan iff recipe2.bo_Valid is TRUE AND i16_ActivePalletIdx = 2. StartValues match recipe1 (pallets share a default product); operator overrides via PSC if pallet 2 should carry a different box product.</MultiLanguageText>
+      </Comment>
+      <Sections>
+        <Section Name="None">
+          <Member Name="sName" Datatype="String[32]">
+            <StartValue>'Pallet 2 Default 4x2x2'</StartValue>
+          </Member>
+          <Member Name="bo_Valid" Datatype="Bool">
+            <StartValue>TRUE</StartValue>
+          </Member>
+          <Member Name="product" Datatype="Struct">
+            <Member Name="lr_Length" Datatype="LReal">
+              <StartValue>400.0</StartValue>
+            </Member>
+            <Member Name="lr_Width" Datatype="LReal">
+              <StartValue>600.0</StartValue>
+            </Member>
+            <Member Name="lr_Height" Datatype="LReal">
+              <StartValue>200.0</StartValue>
+            </Member>
+            <Member Name="lr_Gap" Datatype="LReal">
+              <StartValue>0.0</StartValue>
+            </Member>
+          </Member>
+          <Member Name="pallet" Datatype="Struct">
+            <Member Name="lr_BaseLength" Datatype="LReal">
+              <StartValue>800.0</StartValue>
+            </Member>
+            <Member Name="lr_BaseWidth" Datatype="LReal">
+              <StartValue>1200.0</StartValue>
+            </Member>
+            <Member Name="i16_LayerCount" Datatype="Int">
+              <StartValue>4</StartValue>
+            </Member>
+          </Member>
+          <Member Name="dynamics" Datatype="Struct">
+            <Member Name="lr_Velocity" Datatype="LReal">
+              <StartValue>2000.0</StartValue>
+            </Member>
+            <Member Name="lr_Acceleration" Datatype="LReal">
+              <StartValue>10000.0</StartValue>
+            </Member>
+            <Member Name="lr_Deceleration" Datatype="LReal">
+              <StartValue>10000.0</StartValue>
+            </Member>
+            <Member Name="lr_Jerk" Datatype="LReal">
+              <StartValue>100000.0</StartValue>
+            </Member>
+          </Member>
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="bo_PatternValid1" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">FB_PatternAutoGen status for PALLET 1: recipe1 passed validation and its computed grid is mathematically valid. HMI lamp. (Independent of whether pallet 1 is currently active.)</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_PatternValid2" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">FB_PatternAutoGen status for PALLET 2: recipe2 passed validation.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_PatternError1" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">FB_PatternAutoGen status for PALLET 1: recipe1 failed validation. HMI alarm.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_PatternError2" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">FB_PatternAutoGen status for PALLET 2: recipe2 failed validation.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="i16_ComputedGridColsX1" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">FB_PatternAutoGen echo for PALLET 1: auto-fitted columns along X.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="i16_ComputedGridColsX2" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">FB_PatternAutoGen echo for PALLET 2: auto-fitted columns along X.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="i16_ComputedGridRowsY1" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">FB_PatternAutoGen echo for PALLET 1: auto-fitted rows along Y.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="i16_ComputedGridRowsY2" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">FB_PatternAutoGen echo for PALLET 2: auto-fitted rows along Y.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="i16_ComputedBoxCount1" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">FB_PatternAutoGen echo for PALLET 1: total boxes = Cols x Rows x LayerCount. Must stay within the GDB_PalletizingPath.aCmd[] ceiling (22) or recipe1 is rejected.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="i16_ComputedBoxCount2" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">FB_PatternAutoGen echo for PALLET 2: total boxes. Same ceiling.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_ExecutePallet1" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Operator flag (HMI MAINTAINED button) -- "execute pallet 1" (WanErXin pattern). Setting TRUE while bo_ExecutePallet2=FALSE selects pallet 1 as active; FB_PatternAutoGen then writes recipe1 into GDB_PalletizingCmd. Cleared TRUE by operator releasing the button OR auto-cleared by FB when bo_Pallet1Full (operator must press the other side's button to swap, which auto-clears the just-emptied pallet's full bit so it can be re-used).</MultiLanguageText>
+      </Comment>
+      <StartValue>TRUE</StartValue>
+    </Member>
+    <Member Name="bo_ExecutePallet2" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Operator flag -- "execute pallet 2". Mirror of bo_ExecutePallet1 for the right-side pallet. Both flags simultaneously TRUE = mutex stalemate (FB keeps the current active pallet); both FALSE = i16_ActivePalletIdx := 0, no pallet active, GDB_PalletizingCmd left at safe defaults.</MultiLanguageText>
+      </Comment>
+      <StartValue>FALSE</StartValue>
+    </Member>
+    <Member Name="i16_ActivePalletIdx" Datatype="Int">
+      <Comment>
+        <MultiLanguageText Lang="en-US">FB_PatternAutoGen status: which pallet is currently active. 1 = pallet 1 (LEFT), 2 = pallet 2 (RIGHT), 0 = neither (no operator flag set OR active recipe invalid). HMI display.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_Pallet1Full" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Latched "pallet 1 full" alarm. Set TRUE by FB_PatternAutoGen when GDB_PalletizingCmd.bo_PalletDone is TRUE while i16_ActivePalletIdx = 1 (the cycle just placed the last box of pallet 1). Cleared automatically when the operator switches to pallet 2 (bo_ExecutePallet1 := FALSE AND bo_ExecutePallet2 := TRUE) -- which is interpreted as "I have emptied pallet 1, ready to re-use it later". HMI lamp/alarm.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_Pallet2Full" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">Latched "pallet 2 full" alarm. Same logic as bo_Pallet1Full, mirrored.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_AckPallet1Full" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0 (2026-05-23): Operator acknowledge / explicit reset for bo_Pallet1Full. HMI MAINTAINED button. While TRUE, FB_PatternAutoGen forces bo_Pallet1Full := FALSE every scan -- explicit reset path used when operator has physically emptied pallet 1 and wants to re-use it WITHOUT first having to swap to pallet 2. (The WanErXin swap-clear path remains as a convenience: pressing pallet 2's button while pallet 1's full bit is latched still clears it.) Operator releases the Ack button before re-starting the cycle so the next bo_PalletDone can re-latch bo_Pallet1Full normally.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_AckPallet2Full" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0: Operator acknowledge / explicit reset for bo_Pallet2Full. Mirror of bo_AckPallet1Full.</MultiLanguageText>
+      </Comment>
+    </Member>
+    <Member Name="bo_BothPalletsFull" Datatype="Bool">
+      <Comment>
+        <MultiLanguageText Lang="en-US">V3.0: FB-computed aggregate = bo_Pallet1Full AND bo_Pallet2Full. Single status bit for HMI / future Module F-G integration to gate "both pallets need unloading, robot should idle". Read-only from HMI side -- FB_PatternAutoGen is sole writer.</MultiLanguageText>
+      </Comment>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <MemoryLayout>Optimized</MemoryLayout>
+      <MemoryReserve>100</MemoryReserve>
+      <Name>GDB_ActiveRecipe</Name>
+      <Namespace />
+      <Number>24</Number>
+      <ProgrammingLanguage>DB</ProgrammingLanguage>
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text>SCARA Phase 2 Module D + E active-recipe DB (V3.0, 2026-05-23). Two pallet slots (recipe1 = LEFT, recipe2 = RIGHT), each a UDT_Recipe. PSC binds member-for-member to recipe1.* and recipe2.* from separate HMI parameter sets. Pallet selection is operator-driven via the maintained bo_ExecutePallet1 / bo_ExecutePallet2 flags (WanErXin pattern -- no auto-advance); FB_PatternAutoGen mediates the mutex, picks the active recipe, writes its config to GDB_PalletizingCmd, validates both recipes independently, and latches per-pallet bo_PalletNFull alarms on cycle completion attributed to the IN-FLIGHT pallet (snapshotted at cycle start, so mid-cycle operator swaps cannot mis-attribute). Operator swaps pallets by clearing one flag and setting the other -- the just-emptied side's full bit auto-clears so it can be re-used. V3.0 also adds explicit per-pallet bo_AckPalletNFull reset bits and the bo_BothPalletsFull aggregate for HMI / future module integration.</Text>
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text>Active recipes (Modules D+E, dual-pallet, PSC-bound)</Text>
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Blocks.GlobalDB>
+</Document>

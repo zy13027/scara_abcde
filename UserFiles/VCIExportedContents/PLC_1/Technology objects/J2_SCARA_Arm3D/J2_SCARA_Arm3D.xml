@@ -736,8 +736,11 @@
       </AttributeList>
       <Sections>
         <Section Name="None">
+          <Member Name="Active" Datatype="Bool">
+            <StartValue>true</StartValue>
+          </Member>
           <Member Name="MinPosition" Datatype="LReal">
-            <StartValue>-1820.0</StartValue>
+            <StartValue>-2000.0</StartValue>
           </Member>
           <Member Name="MaxPosition" Datatype="LReal">
             <StartValue>600.0</StartValue>

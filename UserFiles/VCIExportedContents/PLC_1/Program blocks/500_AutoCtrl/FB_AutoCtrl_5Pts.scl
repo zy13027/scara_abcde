@@ -1,6 +1,6 @@
 FUNCTION_BLOCK "FB_AutoCtrl_5Pts"
 { S7_Optimized_Access := 'TRUE' }
-VERSION : 1.0
+VERSION : 1.2
 // =====================================================================
 // SCARA ABCDE - 5-Point Auto Cycle  (Phase 4a, 2026-05-21)
 //
@@ -15,7 +15,7 @@ VERSION : 1.0
 //
 // Step model (GDB_MachineCmd.i16_AutoStep):
 //   0   idle              10  head reset       20  preconditions
-//   30  load target       50  issue motion     75  pause (reserved)
+//   30  load target       50  issue motion     75  pause hold
 //   100 wait-in-place     110 handshake done   200 abort
 //   230 advance / wrap    800 E-Stop hold      900 tail reset
 //
@@ -25,6 +25,13 @@ VERSION : 1.0
 // move is a clean rising edge for MC_MoveLinearAbsolute.
 //
 // Replaces FB_AutoCtrl_ABCDE (retired once this FB is verified).
+//
+// V1.2 (2026-05-22) - R6: REGION Pause + CASE step 75 implement the auto-cycle
+// pause. bo_Pause (edge) halts the cycle mid-move via FB_AxisCtrl's
+// MC_GroupInterrupt; resume on the Start edge. Stop / E-Stop override.
+// V1.1 (2026-05-22) - step 30 sets input.movelinear.bo_isPTP := FALSE so the
+// ABCDE square always uses Cartesian linear moves. FB_AxisCtrl V2.3 added a
+// PTP route on that shared bit (for the palletizing transits); ABCDE opts out.
 // =====================================================================
    VAR
       pts : Array[1..5] of "UDT_typePoint5";
@@ -34,6 +41,8 @@ VERSION : 1.0
       sRTRIGStart {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
       sRTRIGStop {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
       sRTRIGAlarm {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+      sRTRIGPause {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+      statStepBeforePause : Int;   // step to resume to after a pause (R6)
    END_VAR
 
 
@@ -71,10 +80,25 @@ BEGIN
 
 
     REGION Pause
-        // Reserved. GDB_MachineCmd has no halt/pause command bit in the
-        // minimal demo; the CASE keeps step 75 as the pause hook. Wire a
-        // halt bit + edge detector here when pause is added (review backlog).
-        ;
+        // R6 - auto-cycle pause. On the bo_Pause rising edge, while the cycle
+        // is running, save the current step, raise the halt request to the
+        // 600 axis layer (FB_AxisCtrl runs MC_GroupInterrupt - the SCARA halts
+        // mid-trajectory, axes stay enabled), and jump to the pause-hold step
+        // 75. Resume is handled in step 75. Stop / E-Stop (later REGIONs)
+        // override Pause - they re-target step 200 / 800 from step 75.
+        #sRTRIGPause(CLK := "GDB_MachineCmd".bo_Pause);
+        IF "GDB_MachineCmd".bo_Mode
+            AND "GDB_MachineCmd".bo_ESTOP_LOCK
+            AND #sRTRIGPause.Q
+            AND NOT "GDB_MachineCmd".bo_Alarm
+            AND ("GDB_MachineCmd".i16_AutoStep >= 10)
+            AND ("GDB_MachineCmd".i16_AutoStep <= 230)
+            AND ("GDB_MachineCmd".i16_AutoStep <> 75)
+        THEN
+            #statStepBeforePause := "GDB_MachineCmd".i16_AutoStep;
+            "GDB_AxisCtrl".LKinCtrl.input.bo_movepathhalt := TRUE;
+            "GDB_MachineCmd".i16_AutoStep := 75;
+        END_IF;
     END_REGION
 
 
@@ -147,14 +171,24 @@ BEGIN
                 "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_acceleration := 3000.0;
                 "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_deceleration := 3000.0;
                 "GDB_AxisCtrl".LKinCtrl.input.movelinear.r64_jerk         := 30000.0;
+                // ABCDE square stays Cartesian linear (no base-crossing path).
+                "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_isPTP         := FALSE;
                 "GDB_MachineCmd".i16_AutoStep := 50;
 
             50: // Issue motion - hand the move to the 600 axis layer
                 "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := TRUE;
                 "GDB_MachineCmd".i16_AutoStep := 100;
 
-            75: // Pause - reserved (see REGION Pause)
-                ;
+            75: // Pause hold (R6) - the cycle is frozen here. The SCARA holds
+                // position (FB_AxisCtrl ran MC_GroupInterrupt; axes stay
+                // enabled). bo_execute is held, so the interrupted move keeps
+                // its command for a clean resume. Resume on the Start rising
+                // edge: release the halt request and return to the step the
+                // pause interrupted.
+                IF #sRTRIGStart.Q THEN
+                    "GDB_AxisCtrl".LKinCtrl.input.bo_movepathhalt := FALSE;
+                    "GDB_MachineCmd".i16_AutoStep := #statStepBeforePause;
+                END_IF;
 
             100: // Wait-in-place - FB_AxisCtrl reports the move complete.
                  // On error / abort, bail to the abort step.
@@ -175,9 +209,18 @@ BEGIN
                     "GDB_MachineCmd".i16_AutoStep := 230;
                 END_IF;
 
-            200: // Abort - drop the command, fall through to the tail reset
+            200: // Abort - planned group stop, then tail reset. Raise
+                 // bo_movepathstop so FB_AxisCtrl's MC_GroupStop halts the move
+                 // mid-trajectory; drop the command + pause request; advance to
+                 // the tail reset once the stop concludes (or the group faults).
                 "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
-                "GDB_MachineCmd".i16_AutoStep := 900;
+                "GDB_AxisCtrl".LKinCtrl.input.bo_movepathhalt := FALSE;
+                "GDB_AxisCtrl".LKinCtrl.input.bo_movepathstop := TRUE;
+                IF "GDB_AxisCtrl".LKinCtrl.output.bo_stopped
+                    OR "GDB_AxisCtrl".LKinCtrl.output.bo_fault
+                THEN
+                    "GDB_MachineCmd".i16_AutoStep := 900;
+                END_IF;
 
             230: // Advance - next point; the ABCDE cycle wraps E -> A
                 IF #statPointIdx >= 5 THEN
@@ -187,15 +230,20 @@ BEGIN
                 END_IF;
                 "GDB_MachineCmd".i16_AutoStep := 30;
 
-            800: // E-Stop hold - command dropped; auto-recovers to the tail
-                 // reset once the E-Stop chain is healthy again.
+            800: // E-Stop hold - command + pause request dropped, planned stop
+                 // raised; auto-recovers to the tail reset once the E-Stop chain
+                 // is healthy again.
                 "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+                "GDB_AxisCtrl".LKinCtrl.input.bo_movepathhalt := FALSE;
+                "GDB_AxisCtrl".LKinCtrl.input.bo_movepathstop := TRUE;
                 IF "GDB_MachineCmd".bo_ESTOP_LOCK THEN
                     "GDB_MachineCmd".i16_AutoStep := 900;
                 END_IF;
 
-            900: // Tail reset - mirror of step 10; return to idle
+            900: // Tail reset - mirror of step 10; clears the planned-stop
+                 // request and returns to idle
                 "GDB_AxisCtrl".LKinCtrl.input.movelinear.bo_execute := FALSE;
+                "GDB_AxisCtrl".LKinCtrl.input.bo_movepathstop := FALSE;
                 #statPointIdx := 1;
                 "GDB_MachineCmd".i16_AutoStep := 0;
 
