@@ -3,7 +3,7 @@
 **Target device:** MTP1000 Unified Basic Panel 10" (6AV2123-3KB32-0AW0, 1280×800)
 **5-control-per-screen cap** (Siemens docs; operator empirically confirms during authoring)
 **HMI driver:** WinCC Unified Basic (NOT Comfort — no `ToggleTag` system function; use JS PULSE pattern via `HMIRuntime.Tags(...).Write()` + setTimeout 250ms)
-**Last updated:** 2026-05-21 (Phase 6 — architectural-refactor binding deltas; see Section 7)
+**Last updated:** 2026-05-23 (Module F V1.2 — Teach mode VERIFIED, jog-gate bug fixed)
 **Plan:** Architectural refactor (`C:\Users\Admin\.claude\plans\dazzling-squishing-sloth.md`)
 **Status:** Sections 1-4 below are the **originally-spec'd MTP1000 1280×800 design** (superseded — HMI agent's Cycle-7.0 UBP 1024×600 build is canonical). See Section 5 for the as-built UBP family, Section 6 for the PLC diagnostic mirror tags, and **Section 7 for the 2026-05-21 architectural-refactor binding deltas — the HMI agent's action list.**
 
@@ -285,10 +285,342 @@ are wired, label them X / Y / Z / A, not J1..J4. The command paths
 
 ---
 
+## 8. R6 — Auto-cycle Pause step (2026-05-22)
+
+R6 (the last open item of the 2026-05-21 review refactor checklist) adds an auto-cycle
+**Pause (暂停)** to both auto modes. Pause is a true mid-trajectory motion halt via
+`MC_GroupInterrupt` — the SCARA stops where it is, axes stay **enabled and hold position** —
+resumed via `MC_GroupContinue`. HMI impact below.
+
+### 8.1 — New bindings — Pause buttons
+
+| PLC path | Widget | R/W | Pattern | Notes |
+|---|---|---|---|---|
+| `GDB_MachineCmd.bo_Pause` | new `btnAutoPause` on the Auto / ABCDE surface | W Bool | PULSE 250 ms | Edge-triggered; pauses the ABCDE cycle (R_TRIG in `FB_AutoCtrl_5Pts` consumes). |
+| `GDB_PalletizingCmd.bo_Pause` | new `btnPalletPause` on the palletizing surface | W Bool | PULSE 250 ms | Edge-triggered; pauses the palletizing cycle. |
+
+Same JS PULSE pattern as `btnStart` / `btnStop`. **Resume needs no new binding** — it is the
+existing `bo_Start` button (Start doubles as Resume while the cycle is paused).
+
+### 8.2 — Value-semantics change — same path, new meaning
+
+| PLC path | Change |
+|---|---|
+| `GDB_MachineCmd.i16_AutoStep` | Value set now also includes **`75`** (pause-hold state) — `0/10/20/30/50/75/100/110/200/230/800/900`. |
+| `GDB_PalletizingCmd.i16_PalletStep` | Value set now also includes **`75`** (pause-hold state). |
+
+An IOField bound to `i16_AutoStep` / `i16_PalletStep` should treat `75` as "paused" — `75` is
+the recommended source for a Paused lamp / status text.
+
+---
+
+## 9. Module D — Recipe-driven box sizes (2026-05-23)
+
+Module D adds a recipe layer to the palletizing cycle: WinCC Unified **Parameter Set Control
+(PSC)** holds the recipe library on the HMI panel; the PLC keeps one active recipe in
+`GDB_ActiveRecipe`; `FB_PatternAutoGen` (called in OB1 `Auto_Cycle` REGION before the
+palletizing FB) validates the recipe, auto-fits a one-block grid from product + pallet base
+dims, and writes `GDB_PalletizingCmd`'s 10 recipe-driven config members each scan.
+
+### 9.1 — New PSC-bound recipe members (HMI writes via Parameter Set Control)
+
+| PLC path | Type | R/W | Notes |
+|---|---|---|---|
+| `GDB_ActiveRecipe.recipe.sName` | String[32] | W | Recipe name. HMI display + PSC parameter-set identity. |
+| `GDB_ActiveRecipe.recipe.bo_Valid` | Bool | W | **Mandatory PSC handshake.** Write FALSE before transferring a parameter set; write TRUE only AFTER all other members have landed. `FB_PatternAutoGen` consumes the recipe only when TRUE — closes the mid-write race. |
+| `GDB_ActiveRecipe.recipe.product.lr_Length` | LReal | W | Box length (mm). Drives pitchX (= Length + Gap). |
+| `GDB_ActiveRecipe.recipe.product.lr_Width` | LReal | W | Box width (mm). Drives pitchY. |
+| `GDB_ActiveRecipe.recipe.product.lr_Height` | LReal | W | Box height (mm). Copied to `GDB_PalletizingCmd.lr_BoxHeight` — layer Z spacing. |
+| `GDB_ActiveRecipe.recipe.product.lr_Gap` | LReal | W | Clearance between boxes (mm). Set 0 for edge-to-edge. |
+| `GDB_ActiveRecipe.recipe.pallet.lr_BaseLength` | LReal | W | Pallet base length (mm). Auto-fits `cols = (BaseLength + Gap) DIV (Length + Gap)`. |
+| `GDB_ActiveRecipe.recipe.pallet.lr_BaseWidth` | LReal | W | Pallet base width (mm). Auto-fits `rows`. |
+| `GDB_ActiveRecipe.recipe.pallet.i16_LayerCount` | Int | W | Stacked layers (tower mode — all layers use the same auto-gen grid). |
+| `GDB_ActiveRecipe.recipe.dynamics.lr_Velocity` | LReal | W | Palletizing move velocity (mm/s). |
+| `GDB_ActiveRecipe.recipe.dynamics.lr_Acceleration` | LReal | W | Palletizing move acceleration (mm/s²). |
+| `GDB_ActiveRecipe.recipe.dynamics.lr_Deceleration` | LReal | W | Palletizing move deceleration (mm/s²). |
+| `GDB_ActiveRecipe.recipe.dynamics.lr_Jerk` | LReal | W | Palletizing move jerk (mm/s³). |
+
+### 9.2 — Recipe status / echo (HMI reads, FB_PatternAutoGen writes)
+
+| PLC path | Type | R/W | Notes |
+|---|---|---|---|
+| `GDB_ActiveRecipe.bo_PatternValid` | Bool | R | Recipe passed validation and the computed grid is live in `GDB_PalletizingCmd`. HMI lamp. |
+| `GDB_ActiveRecipe.bo_PatternError` | Bool | R | Recipe rejected (invalid, product bigger than pallet, or over the 22-box path ceiling). `GDB_PalletizingCmd` stays at safe defaults. HMI alarm. |
+| `GDB_ActiveRecipe.i16_ComputedGridColsX` | Int | R | Auto-fitted cols X. HMI display. |
+| `GDB_ActiveRecipe.i16_ComputedGridRowsY` | Int | R | Auto-fitted rows Y. HMI display. |
+| `GDB_ActiveRecipe.i16_ComputedBoxCount` | Int | R | Total boxes = ColsX × RowsY × LayerCount. HMI display. |
+
+### 9.3 — Value-semantics change — `GDB_PalletizingCmd` config members are now recipe-driven
+
+The 10 Module-C config members on `GDB_PalletizingCmd` (`i16_LayerCount`, `i16_GridColsX`,
+`i16_GridRowsY`, `lr_BoxPitchX`, `lr_BoxPitchY`, `lr_BoxHeight`, `lr_MoveVelocity`,
+`lr_MoveAccel`, `lr_MoveDecel`, `lr_MoveJerk`) are now **sole-written by `FB_PatternAutoGen`
+each scan from `GDB_ActiveRecipe.recipe`**. The HMI must not write them directly — write the
+recipe instead, and `FB_PatternAutoGen` mirrors it into the config. The corresponding
+`GDB_PalletizingCmd` member comments document this.
+
+### 9.4 — Deferred (future module — out of Module D scope)
+
+- **WebEditor** for custom (non-grid) per-box patterns — embedded in a Unified Web Control
+  widget (no border / header), reading/writing a SEPARATE DB (e.g. `GDB_CustomPattern`) via
+  the S7 Webserver API. Not in Module D. `GDB_ActiveRecipe` is symbolically reachable via
+  the S7 Webserver API by default, so the WebEditor add-on architecture remains open.
+
+---
+
+## 10. Module E — Dual-pallet (WanErXin operator-driven + V3.0 review fixes, 2026-05-23)
+
+Module E extends Module D to two pallets with **operator-driven switching** (the WanErXin
+pattern — no auto-advance). `GDB_ActiveRecipe.recipe` (Module D singular) is **superseded
+by `recipe1` + `recipe2`** — Section 9 paths are **deprecated**; rebind to Section 10 paths
+below. PSC binds two parameter sets, one per pallet.
+
+`FB_AutoCtrl_Palletizing` is still untouched — `FB_PatternAutoGen` now mediates pallet
+selection + per-pallet validation + writes the active pallet's config into `GDB_PalletizingCmd`.
+
+**V3.0 (same-day, 2026-05-23)** — a critical review of the WanErXin source surfaced 3
+bugs the V2.0 inherited or introduced: (a) full-bit was attributed to the **current**
+`i16_ActivePalletIdx`, so mid-cycle operator swaps mis-attributed `bo_PalletDone`; (b) no
+way to reset `bo_PalletNFull` without going via the other pallet (forced operator to "fake
+swap" after a physical refill on the same station); (c) no aggregate "both full" status.
+V3.0 fixes all three — see Section 10.6.
+
+### 10.1 — PSC-bound recipes (HMI writes via Parameter Set Control, one set per pallet)
+
+| PLC path | Type | R/W | Notes |
+|---|---|---|---|
+| `GDB_ActiveRecipe.recipe1.sName` | String[32] | W | Pallet 1 (LEFT) recipe name. |
+| `GDB_ActiveRecipe.recipe1.bo_Valid` | Bool | W | **PSC handshake** — FALSE before transfer, TRUE after. Pallet 1. |
+| `GDB_ActiveRecipe.recipe1.product.lr_Length / lr_Width / lr_Height / lr_Gap` | LReal | W | Pallet 1 box dims + gap. |
+| `GDB_ActiveRecipe.recipe1.pallet.lr_BaseLength / lr_BaseWidth / i16_LayerCount` | LReal / LReal / Int | W | Pallet 1 base dims + stack layers. |
+| `GDB_ActiveRecipe.recipe1.dynamics.lr_Velocity / lr_Acceleration / lr_Deceleration / lr_Jerk` | LReal | W | Pallet 1 move dynamics. |
+| `GDB_ActiveRecipe.recipe2.sName` | String[32] | W | Pallet 2 (RIGHT) recipe name. |
+| `GDB_ActiveRecipe.recipe2.bo_Valid` | Bool | W | PSC handshake for pallet 2. |
+| `GDB_ActiveRecipe.recipe2.product.*` / `.pallet.*` / `.dynamics.*` | as above | W | Pallet 2 mirror of recipe1. |
+
+The HMI authors **two** Parameter Set Controls (one per pallet) or one PSC with per-pallet
+parameter-set groups — vendor-specific UX choice. Each PSC writes its pallet's recipe via
+the `bo_Valid` handshake (FALSE → write members → TRUE).
+
+### 10.2 — Pallet selection (HMI maintained-button operator flags)
+
+| PLC path | Type | R/W | Notes |
+|---|---|---|---|
+| `GDB_ActiveRecipe.bo_ExecutePallet1` | Bool | W | **Maintained** "select pallet 1" button (WanErXin `执行左边`). Hold TRUE while pallet 1 is the active target. |
+| `GDB_ActiveRecipe.bo_ExecutePallet2` | Bool | W | **Maintained** "select pallet 2" button. |
+| `GDB_ActiveRecipe.i16_ActivePalletIdx` | Int | R | FB status: 1 = pallet 1 active, 2 = pallet 2 active, 0 = idle (neither pressed, both pressed [stalemate], or active-side full). |
+
+**Mutex rules** (enforced in `FB_PatternAutoGen`):
+- Both flags FALSE → idle (idx 0).
+- Both flags TRUE → idle (stalemate; HMI should prevent this UX-side).
+- One flag TRUE AND that side not full → that pallet active.
+- One flag TRUE AND that side full → idle (operator must press the OTHER side to swap).
+
+### 10.3 — Per-pallet status (FB writes; HMI reads)
+
+| PLC path | Type | R/W | Notes |
+|---|---|---|---|
+| `GDB_ActiveRecipe.bo_PatternValid1` / `bo_PatternValid2` | Bool | R | Per-pallet recipe validation status (independent of whether the pallet is active). Lamps. |
+| `GDB_ActiveRecipe.bo_PatternError1` / `bo_PatternError2` | Bool | R | Per-pallet alarm. |
+| `GDB_ActiveRecipe.i16_ComputedGridColsX1` / `_X2` | Int | R | Per-pallet auto-fitted cols. |
+| `GDB_ActiveRecipe.i16_ComputedGridRowsY1` / `_Y2` | Int | R | Per-pallet auto-fitted rows. |
+| `GDB_ActiveRecipe.i16_ComputedBoxCount1` / `_BoxCount2` | Int | R | Per-pallet total boxes. |
+| `GDB_ActiveRecipe.bo_Pallet1Full` | Bool | R | Latched when GDB_PalletizingCmd.bo_PalletDone is TRUE while the **in-flight cycle's** pallet (`statCyclePalletIdx`, snapshotted at bo_InitPallet rising edge — V3.0) is 1. Auto-clears when operator switches to pallet 2 (presses Pallet 2 button while Pallet 1 button is released). Also clears while `bo_AckPallet1Full` is held TRUE (V3.0). |
+| `GDB_ActiveRecipe.bo_Pallet2Full` | Bool | R | Mirror of bo_Pallet1Full for pallet 2. |
+
+**V3.0 attribution fix:** the full-bit latch uses the cycle-start snapshot, not the live
+`i16_ActivePalletIdx`. This means mid-cycle operator swaps cannot mis-attribute the
+`bo_PalletDone` event — the pallet that was building when `bo_InitPallet` fired is the
+pallet that gets its full bit latched, regardless of where the operator's flags are when
+the cycle completes.
+
+A `bo_BothPalletsFull` aggregate is now provided in V3.0 (see 10.6) — there is still no
+`bo_AllPalletsDone` semantic distinction (the WanErXin model treats the two pallets as
+independent demand-driven slots; "session done" is HMI-side if needed).
+
+### 10.4 — Section 9 (Module D singular `recipe.*`) is DEPRECATED
+
+The Module D paths `GDB_ActiveRecipe.recipe.*` / `bo_PatternValid` / `bo_PatternError` /
+`i16_ComputedGridColsX` / `RowsY` / `BoxCount` no longer exist — they were renamed and
+duplicated for dual-pallet. Map of old → new (use this for HMI re-bind):
+
+| Section 9 (Module D, gone) | Section 10 (Module E) |
+|---|---|
+| `recipe.*` | `recipe1.*` (pallet 1) + `recipe2.*` (pallet 2) |
+| `bo_PatternValid` | `bo_PatternValid1` + `bo_PatternValid2` |
+| `bo_PatternError` | `bo_PatternError1` + `bo_PatternError2` |
+| `i16_ComputedGridColsX` | `i16_ComputedGridColsX1` + `_X2` |
+| `i16_ComputedGridRowsY` | `i16_ComputedGridRowsY1` + `_Y2` |
+| `i16_ComputedBoxCount` | `i16_ComputedBoxCount1` + `_BoxCount2` |
+
+### 10.5 — Unchanged
+
+- `GDB_PalletizingCmd` config members (Section 9.3) — still sole-written by
+  `FB_PatternAutoGen` each scan; HMI still must NOT write them directly. The only change is
+  *which* pallet's recipe drives the write at any given moment (determined by
+  `i16_ActivePalletIdx`).
+- Palletizing cycle command bits (`bo_InitPallet`, `bo_Start`, `bo_Stop`, `bo_Pause`,
+  `bo_Mode`, etc.) — unchanged.
+
+### 10.6 — V3.0 WanErXin-review additions (same-day, 2026-05-23)
+
+Three new GDB bits surfaced from the V3.0 fixes — author HMI controls for them:
+
+| PLC path | Type | R/W | Notes |
+|---|---|---|---|
+| `GDB_ActiveRecipe.bo_AckPallet1Full` | Bool | W | **Maintained** "reset pallet 1 full alarm" button (HMI authors next to the pallet 1 Full lamp). While TRUE, `FB_PatternAutoGen` forces `bo_Pallet1Full := FALSE` each scan. Use this when operator physically empties + replaces pallet 1 on the same station and wants to re-arm without first having to swap to pallet 2. Operator must **release** the Ack button before the next cycle's `bo_PalletDone` can re-latch the full bit. |
+| `GDB_ActiveRecipe.bo_AckPallet2Full` | Bool | W | Mirror of `bo_AckPallet1Full` — operator reset for pallet 2. |
+| `GDB_ActiveRecipe.bo_BothPalletsFull` | Bool | R | FB-computed aggregate = `bo_Pallet1Full AND bo_Pallet2Full`. Use as a single status lamp / alarm condition on the HMI ("both pallets need unloading"). Read-only — `FB_PatternAutoGen` is sole writer. |
+
+UX guidance:
+- The per-pallet Ack button sits next to that pallet's Full alarm lamp. It is **maintained**
+  (operator holds while pressing, releases before re-arming). A momentary HMI button works
+  too if the HMI layer pulses it via JS (250 ms), but maintained matches the WanErXin idiom
+  of the Execute buttons.
+- The WanErXin swap-clear path **still works** — `Ack` is the additional convenience path,
+  not a replacement. Both paths clear the full bit; either gesture is operator-valid.
+- `bo_BothPalletsFull` is a derived bit — no HMI write. Use as a colour/blink driver on a
+  Both-Full panel-level alarm.
+
+---
+
+## 11. Module F — Teach mode (operator-driven jog + capture + replay, V1.2 VERIFIED 2026-05-23)
+
+Module F adds the **4th mutex mode** — `GDB_TeachCmd.bo_Mode` — parallel to ABCDE
+(`GDB_MachineCmd.bo_Mode`, transitional), Palletizing (`GDB_PalletizingCmd.bo_Mode`), and
+Manual (`GDB_ManualCmd.bo_Mode`). HMI should radio-button them so exactly one is active.
+
+**V1.2 (same-day, 2026-05-23):** smoke-surfaced jog-gate fix in `FB_TeachCtrl` REGION
+Cartesian_Jog. V1.0/V1.1 wrote 8 jogframe bits unconditionally each scan; since
+FB_TeachCtrl runs AFTER FB_ManualCtrl in OB1, those writes silently overwrote
+FB_ManualCtrl's TRUE jog bits to FALSE, breaking operator manual jog whenever Module F
+was deployed. V1.2 wraps the writes in `IF #statTeachOK THEN ... END_IF` — when teach
+is off, FB_TeachCtrl leaves `jogframe.*` alone; when teach is on, manual is mutex-blocked
+so FB_TeachCtrl owns jog uncontested. No HMI binding changes from this fix.
+
+**V1.1 (same-day, 2026-05-23):** Capture now records BOTH Cartesian TCP AND joint angles
+per Phase 2 Chinese spec §7.1 (`捕获脉冲 → 当前 TCP/关节 写点表`). One bo_Capture pulse fills
+both `aPoints[idx]` (Cartesian) and `aJointAngles[idx, 1..4]` (J1/J2/J3/J4). Replay
+still walks `aPoints` via Cartesian linear (V1.0 behavior preserved); joint-space PTP
+replay using `aJointAngles` is reserved for a future extension.
+
+In teach mode the operator jogs the SCARA with the existing manual-mode jog buttons,
+captures the live TCP into one of 16 slots (`GDB_TeachPoints.aPoints[1..16]`), and then
+plays the captured sequence back. The taught points reuse `LKinCtrl_typePoint` (Siemens-
+canonical 6-DoF UDT, position[0..5]), with the 4-DoF SCARA populating [0..3] and zeroing
+[4..5]. `FB_TeachCtrl` writes to the same shared `GDB_AxisCtrl.LKinCtrl.input.movelinear`
+register the other mode FBs use; `FB_AxisCtrl` (OB30) runs the motion. The HMI also gains
+a PLC-side mirror of live TCP at `GDB_AxisCtrl.LKinCtrl.output.actualposition.{x,y,z,a}`
+(new in Module F — populated by `FB_AxisCtrl` REGION `MirrorTCP` from
+`ScaraArm3D.Position[1..4]`).
+
+### 11.1 — Mode toggle + safety (HMI W)
+
+| PLC path | Type | R/W | Notes |
+|---|---|---|---|
+| `GDB_TeachCmd.bo_Mode` | Bool | W | Teach mode toggle (4th mutex mode). HMI: radio-group with the other three mode toggles. Default FALSE. |
+| `GDB_TeachCmd.bo_ESTOP_LOCK` | Bool | W | Safety latch (mirrors the GDB_PalletizingCmd / GDB_ManualCmd convention). Default TRUE post-startup. |
+
+### 11.2 — Per-slot operator commands (HMI PULSE)
+
+All four are **edge-detected by FB_TeachCtrl** — HMI must pulse them (TRUE then FALSE
+within ~250 ms via JS, same pattern as `btnStart` / `btnInitPath`).
+
+| PLC path | Type | R/W | Notes |
+|---|---|---|---|
+| `GDB_TeachCmd.i16_SlotIdx` | Int | W | Which slot (1..16) the per-slot operations target. HMI: IOField + spinner, or a selectable row in the teach-table view. Default 1. |
+| `GDB_TeachCmd.bo_Capture` | Bool | W | PULSE: snapshot the live TCP into `aPoints[i16_SlotIdx]` and set `abCaptured[idx] := TRUE`. Operator's main teach action. |
+| `GDB_TeachCmd.bo_Verify` | Bool | W | PULSE: move the robot to `aPoints[i16_SlotIdx]` (linear move at `lr_ReplayVel`). Validates the slot points where intended. |
+| `GDB_TeachCmd.bo_Clear` | Bool | W | PULSE: clear `aPoints[i16_SlotIdx]` (zero the position fields) and `abCaptured[idx] := FALSE`. |
+| `GDB_TeachCmd.bo_ClearAll` | Bool | W | PULSE: clear all 16 slots in one pass. |
+
+### 11.3 — Replay (HMI PULSE + dynamics)
+
+| PLC path | Type | R/W | Notes |
+|---|---|---|---|
+| `GDB_TeachCmd.bo_StartReplay` | Bool | W | PULSE: start once-through replay of captured slots in index order. Skips uncaptured slots. Latches `bo_ReplayDone` at end. |
+| `GDB_TeachCmd.bo_StopReplay` | Bool | W | PULSE: abort replay immediately; current move aborts via the MC layer. |
+| `GDB_TeachCmd.lr_ReplayVel` | LReal | W | Replay-move velocity (mm/s). Default 200.0 — matches FB_ManualCtrl safe-jog dynamics. |
+
+### 11.4 — FB status / echoes (HMI R)
+
+| PLC path | Type | R/W | Notes |
+|---|---|---|---|
+| `GDB_TeachCmd.i16_TeachStep` | Int | R | Current FSM step (0=idle, 10=capture-flash, 20=verify-in-flight, 30=clear-flash, 100/110/120=replay-in-flight, 200=replay-done-flash, 800=fault). HMI status text. |
+| `GDB_TeachCmd.i16_ReplayIdx` | Int | R | Slot currently being executed during replay (1..16, 0 when idle). HMI: highlight the active row in the teach-table. |
+| `GDB_TeachCmd.bo_ReplayDone` | Bool | R | Latched TRUE on replay completion. Cleared on next StartReplay. HMI lamp. |
+| `GDB_TeachPoints.i16_PointCount` | Int | R | Count of captured slots (0..16). HMI status: "N / 16 captured". |
+| `GDB_TeachPoints.aPoints[i].name` | WString | R | Per-slot name (HMI-writable later if Module F adds a "rename" button; the FB does not touch this). |
+| `GDB_TeachPoints.aPoints[i].position[0..5]` | LReal | R | Per-slot Cartesian position (WCS). [0]=X, [1]=Y, [2]=Z, [3]=A wrist. [4]/[5] = B/C (populated from TO; SCARA solver fills based on joint posture). HMI: display [0..3] per row in the teach-table view. |
+| `GDB_TeachPoints.aJointAngles[i, 1..4]` | LReal | R | V1.1: per-slot joint angles J1/J2/J3/J4 captured at the same scan as `aPoints[i]`. **2D array** (`Array[1..16, 1..4]`) — comma-indexed access, e.g. `aJointAngles[3, 1]` = slot 3's J1. J1/J2/J4 in degrees, J3 in mm (prismatic Z). HMI optional: secondary "joints" view of the teach table for operators who want to inspect joint posture per slot. Archival today (Cartesian replay uses `aPoints`); a future joint-space PTP replay would consume this. |
+| `GDB_TeachPoints.abCaptured[i]` | Bool | R | Per-slot "this slot is taught" flag (one flag covers BOTH aPoints[i] and aJointAngles[i] — V1.1). HMI: row icon (filled vs. empty). |
+
+### 11.5 — Live TCP mirror (Module F latent-gap fix)
+
+`FB_AxisCtrl` REGION `MirrorTCP` (new) populates these every OB30 scan (10 ms) from
+`ScaraArm3D.TcpInWcs.{x,y,z,a,b,c}.Position` — the Siemens-canonical TO_Kinematics
+member for TCP-in-WCS (`TO_Struct_Kinematics_StatusKinematicsFrameWithDynamics`, V9.0).
+The HMI's existing `Actual_Pos_Screen` reads the TCP directly via the S7 driver — this
+PLC-side mirror is for FB_TeachCtrl capture and any future diagnostic that needs
+symbolic TCP access.
+
+| PLC path | Type | R/W | Notes |
+|---|---|---|---|
+| `GDB_AxisCtrl.LKinCtrl.output.actualposition.x` | LReal | R | Live TCP X (mm) in WCS. Source `ScaraArm3D.TcpInWcs.x.Position`. |
+| `GDB_AxisCtrl.LKinCtrl.output.actualposition.y` | LReal | R | Live TCP Y (mm). Source `ScaraArm3D.TcpInWcs.y.Position`. |
+| `GDB_AxisCtrl.LKinCtrl.output.actualposition.z` | LReal | R | Live TCP Z (mm). Source `ScaraArm3D.TcpInWcs.z.Position`. |
+| `GDB_AxisCtrl.LKinCtrl.output.actualposition.a` | LReal | R | Live TCP wrist A (deg). Source `ScaraArm3D.TcpInWcs.a.Position`. |
+
+### 11.6 — Jog buttons are SHARED with Manual mode
+
+`FB_TeachCtrl` REGION `Cartesian_Jog` copies the wiring from `FB_ManualCtrl` verbatim,
+so the same HMI jog buttons (`GDB_ManualCmd.bo_J1_JogForward` etc.) drive the robot in
+**both** manual and teach mode. The two FBs are mutually exclusive via their mode gates,
+so they never both write the `jogframe` register on the same scan. No new jog tags.
+
+HMI consideration: when the operator is on the teach screen, the jog buttons should be
+**visible and active** — operator jogs, then captures. If the HMI prefers a dedicated
+teach screen, mirror or link the existing manual-screen jog buttons there.
+
+### 11.7 — UX guidance
+
+- **Mode radio-button**: the four mode toggles (ABCDE / Palletizing / Manual / Teach)
+  should be a single-selection radio so the operator can only have one active at a time.
+  The HMI can enforce this client-side; PLC's `FB_TeachCtrl` (and the other mode FBs)
+  defensively gate on `NOT other_modes` regardless.
+- **Capture choreography**: operator enters teach mode → jogs to desired TCP → sets
+  `i16_SlotIdx := N` → pulses `bo_Capture` → repeats. The `i16_TeachStep` flashes to 10
+  briefly (one scan) for visual feedback that the capture landed.
+- **Verify**: a "Go to slot" button per row, pulsing `bo_Verify` after setting
+  `i16_SlotIdx`. The robot moves there at `lr_ReplayVel`. Display the captured pose vs.
+  the live TCP to confirm.
+- **Replay**: a single "Play taught sequence" button pulses `bo_StartReplay`. The robot
+  moves through captured slots 1 → 16 in order (skipping `abCaptured = FALSE` slots).
+  HMI highlights the current slot via `i16_ReplayIdx`. On finish, `bo_ReplayDone` lamp
+  lights. Operator can pulse `bo_StopReplay` to abort.
+
+### 11.8 — What is intentionally NOT in Module F (deferred)
+
+- **Per-point velocity / dwell / gripper actions** — a single shared `lr_ReplayVel` for
+  all moves. Per-point dynamics would be a Module F-prime extension.
+- **Joint-space teach** — Module F captures in WCS only (`coordSystem := 0`).
+- **PSC handshake for teach points** — points live in Retain memory directly. No
+  HMI-side "save teach to panel / load from panel" yet. If added later, follows the
+  Module D `bo_Valid` PSC handshake pattern.
+- **Singularity hints** (`linkConstellation`, `turnJoint`) — left at UDT defaults
+  (`16#FFFF_FFFF` / 0). Operator-configurable hints are a followup if a teach point
+  lands in a singularity-sensitive pose.
+
+---
+
 ## Refresh model
 
 - **Sections 1-4** (original MTP1000 1280×800 4-screen spec): historical reference, superseded by Section 5. DO NOT edit further.
 - **Section 5** (UBP family canonical): updated when HMI agent authors / modifies UBP screens (sync via HMI handoff cycle).
 - **Section 6** (Phase C.0/C.0b diagnostic mirror): updated when PLC agent extends `FB_MCDDataTransfer` / `FB_AxisCtrl` / similar diagnostic publishers.
 - **Section 7** (2026-05-21 refactor deltas): the authoritative change list for the layered-architecture refactor; the HMI agent re-authors the tag table + screens against it, then this section folds into Section 5 once the HMI rebuild is verified.
+- **Section 8** (R6 Pause step): new auto-cycle Pause bindings; the HMI agent authors the two Pause buttons + the step-75 handling, then this folds into Section 5.
+- **Section 9** (Module D recipe + PSC): **DEPRECATED by Section 10** — Module D's singular `recipe.*` was renamed to `recipe1.*` and a second `recipe2.*` was added for dual-pallet. Rebind to Section 10 paths.
+- **Section 10** (Module E dual-pallet): two PSC parameter sets (one per pallet) bound to `recipe1.*` / `recipe2.*`; two maintained "execute pallet N" buttons; per-pallet status + full-alarm lamps. Operator-driven switch (WanErXin pattern, no auto-advance). HMI agent authors two PSCs + the two-button switch UI + per-pallet alarm lamps, then this folds into Section 5.
+- **Section 11** (Module F V1.2 teach mode, VERIFIED 2026-05-23): new 4th mutex mode + teach screen (16-slot table + Capture/Verify/Clear/ClearAll + Replay Start/Stop/Vel + status echoes). PLC side smoke-tested 24/24 PASS. HMI agent authors the teach screen and the 4-way mode radio (Module F V1.2 PLC binding contract is stable), then this folds into Section 5.
 - Per AGENT_CONTRACT.md, this file is **PLC-agent sole writer** (HMI agent proposes new rows via HMI_HANDOFF §6; PM/PLC agent absorbs).

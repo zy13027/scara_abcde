@@ -1,9 +1,9 @@
 # PLC_HANDOFF — 2026-05-21 — Architectural Refactor → HMI binding deltas
 
-**Status:** PENDING_VERIFICATION — Phases 1–6 authored + compile clean per phase (operator-confirmed); Phase 7 end-to-end sim regression still owed.
+**Status:** PENDING_VERIFICATION — Phases 1–6 compiled clean (operator-confirmed); Phase 7 sim regression — ABCDE 5-point + 16-box palletizing both VERIFIED (2026-05-22 PLCSIM-Adv); Cartesian jog test still owed.
 
 **From:** scara-PLC  **To:** scara-HMI
-**Plan:** `C:\Users\Admin\.claude\plans\dazzling-squishing-sloth.md`
+**Plan:** `C:\Users\Admin\.claude\plans\polished-wobbling-lagoon.md`
 **Authoritative contract:** `HMI_BINDING_MAP.md` Section 7 (binding-delta list)
 
 ---
@@ -78,14 +78,40 @@ facade shape, and every TO tag (`J{n}_SCARA_Arm3D.*`, `ScaraArm3D.Position[]`).
 4. When wiring the deferred manual-jog widgets, label them X / Y / Z / A (Cartesian).
 5. Going forward: route ALL reads through the `GDB_HMI_Status` facade — it is rename-proof.
 
-## 4. Not done yet (PLC side)
+## 4. Verification status (Phase 7)
 
-- **Phase 7** — full-system regression: ABCDE 5-point + 16-box palletizing + NX MCD co-sim,
-  end-to-end. The PLC compiles clean per phase; the integrated sim run is still owed.
-- `FB_AutoCtrl_ABCDE.scl` + `instFB_AutoCtrl_ABCDE` remain in the project (uncalled) until
-  `FB_AutoCtrl_5Pts` is sim-verified, then they are deleted.
+Phase 7 = full-system PLCSIM-Adv regression. **Partial** as of 2026-05-22:
 
-## 5. Notes
+- ✅ **ABCDE 5-point cycle VERIFIED.** `FB_AutoCtrl_5Pts` runs end-to-end — `statPointIdx`
+  cycles 1→5 and wraps, the SCARA moves point to point, Stop returns the CASE to step 0.
+  The P3 (OB30 motion owner) + P4 (CASE auto FB) refactor is proven for the ABCDE path.
+- ✅ **Palletizing 16-box cycle VERIFIED (2026-05-22).** The V5.0 stall — `FB_AutoCtrl_Palletizing`
+  aborted at cmd 6 (the pick→place transit) on the near-base kinematic singularity — was
+  fixed in Module 0: the long transits are now `MC_MoveDirectAbsolute` PTP moves
+  (`FB_AutoCtrl_Palletizing` V5.2, `FB_AxisCtrl` V2.4). PLCSIM-Adv ran all 16 boxes across
+  4 layers clean. **No HMI binding changes** — `GDB_PalletizingCmd.*` paths are stable.
+- ⬜ **Cartesian jog not yet sim-tested.** The P5 `LKinCtrl_MC_JogFrame` path compiles clean;
+  the X/Y/Z/A TCP-jog check is still owed — the one remaining Phase 7 item.
+
+`FB_AutoCtrl_ABCDE.scl` + `instFB_AutoCtrl_ABCDE.xml` — **deleted 2026-05-22** (Module 0
+retirement step; the block was uncalled, `FB_AutoCtrl_5Pts` is the verified production FB).
+
+## 5. Phase 2 heads-up — screens coming, no action this cycle
+
+The refactor clears the way for **Phase 2** (MCD co-sim, fine palletizing, recipe, teach,
+dual-pallet). Listed here for HMI planning only — **none of this is authored yet, no bindings
+to change now**:
+
+- **Recipe screen (Phase 2 §5)** — recipe-selection + field-edit. New DBs to bind later: a
+  `UDT_Recipe`-typed recipe-table DB + `GDB_ActiveRecipe`.
+- **Teach-point table screen (Phase 2 §7)** — teach-point capture/edit table. New DB:
+  `GDB_TeachPoints`.
+- **Dual-pallet status (Phase 2 §6)** — pallet-1 / pallet-2 active + full indicators.
+
+Each lands with its own `PLC_HANDOFF_*.md` (exact paths) once the PLC side is authored.
+Nothing to do until then.
+
+## 6. Notes
 
 - The new shared interfaces — `GDB_AxisCtrl.LKinCtrl.input.movelinear` (auto-cycle linear
   move) and `…input.jogframe` (Cartesian jog) — are nested structs of LReal / Bool / Int;
