@@ -21,7 +21,7 @@
 
 | # | 内容 | 描述 | 方法 | 难度 | 步骤 |
 |---|---|---|---|---|---|
-| 1.1 | 夹爪模型 (D1) ✅已确认 | 真吸盘 / Object Sink 几何吸附 | 在 NX 中确认 SCARA TCP 是否真响应 bo_gripperGrip/Release | 🟡 中 | 步骤 1 |
+| 1.1 | 夹爪模型 (D1) ✅已确认 | 真吸盘 / MCD 夹爪 (Gripper) 对象（无物理吸附） | 在 NX 中确认 SCARA TCP 是否真响应 bo_gripperGrip/Release | 🟡 中 | 步骤 1 |
 | 1.2 | 抓取时传送带 (D2) ✅已确认 | 完全停 / 减速 | 默认完全停；确定后写入 GDB StartValue | 🟢 简单 | 步骤 1 |
 | 1.3 | 满箱后重启 (D3) ✅已确认 | 手动重启 / 自动 re-init | 二选一 | 🟢 简单 | 步骤 1 |
 | 1.4 | 生箱节奏 (D4) ✅已确认 | 上一箱抓完才生 / 固定间隔 | 默认抓完才生 | 🟢 简单 | 步骤 1 |
@@ -33,9 +33,9 @@
 
 | # | 内容 | 描述 | 方法 | 难度 | 步骤 |
 |---|---|---|---|---|---|
-| 2.1 | 纸盒产生源 ✅已完成 | Object Source 被触发时在传送带起点生成纸盒 | NX MCD → Mechatronics → Object Source；指定纸盒原型与生成位姿 | 🟡 中 | 步骤 2 |
-| 2.2 | 生箱信号接入 ✅已完成 | 在 saContainerBelt 信号适配器中增加 sActivateSpawnContainer 信号 | 在 saContainerBelt 里增加一个参数，绑定 Object Source 的触发信号 | 🟡 中 | 步骤 2 |
-| 2.3 | 吸盘信号接入 ✅已完成 | sScaraGrip（吸真空）+ sScaraRelease（释放）绑定物理 | 在 SignalAdapter 中确认这 2 个信号已用公式绑定到吸盘 attach/detach 动作 | 🟡 中 | 步骤 2 |
+| 2.1 | 纸盒产生源 ✅已完成 | 对象源 (Object Source) 被触发时在传送带起点生成纸盒 | NX MCD → 机电一体化 (Mechatronics) → 对象源 (Object Source)；指定纸盒原型与生成位姿 | 🟡 中 | 步骤 2 |
+| 2.2 | 生箱信号接入 ✅已完成 | 在 saContainerBelt 信号适配器中增加 sActivateSpawnContainer 信号 | 在 saContainerBelt 里增加一个参数，绑定对象源 (Object Source) 的触发信号 | 🟡 中 | 步骤 2 |
+| 2.3 | 吸盘信号接入 ✅已完成 | sScaraGrip（吸真空）+ sScaraRelease（释放）绑定物理 | 在信号适配器 (Signal Adapter) 中确认这 2 个信号已用公式绑定到吸盘 attach/detach 动作 | 🟡 中 | 步骤 2 |
 | 2.4 | 第二托盘 ✅已完成 | Pallet 2（-Y 镜像位）已在场景内 | NX 已探测 PALLET_SOUTH ≈ (-0.5,-1500,-867)；若没有则镜像 Pallet 1 生成 | 🟢 简单 | 步骤 2 |
 | 2.5 | TIA 外部信号映射 ✅已完成 | 把 GDB_MCDData 的新增信号映射到 MCD 的 15 个信号 | 设备网络 → SCARA 站 → 运动系统 → 外部信号映射 → Do Auto Mapping | 🟡 中 | 步骤 2 |
 
@@ -46,13 +46,13 @@
 | 3.1 | 传送带 + 生箱 🚧 部分完成 | 移植之前版本现成的 FB_ConveyorInfeed V2.0（带速驱动 + 生箱节奏 + 到位传感器，已为 NX-MCD 联仿做好） | 传感器名按 SCARA 重映射；编译并下载到设备；用 Watch Table 抽查带速、生箱、传感器 → 验证：能生箱、传送带运转、到位停带（V2–V4） | 🟡 中 | 步骤 3 |
 | **现状** | | FB_ConveyorCtrl 已挂 Main.scl REGION Conveyor_Infeed，逻辑就位；V2–V4 的物理验收需在 NX-MCD 联仿环境跑通（操作员侧）。 | | | |
 | 3.2 | 精细码垛 🚧 部分完成 | 移植之前版本现成的 FB_AutoCtrl_Palletizing V4.0（6 阶段单箱抓放，与本项目模型一致） | 适配吸盘抓放信号；编译并下载到设备（FB + iDB + 2 GDB）；在 NX 仿真中观察 6 阶段抓放并调试 → 验证：真实抓放、6 阶段顺序执行、满箱收尾、多层码成（V5–V9） | 🔴 难 | 步骤 3 |
-| **现状** | | FB_AutoCtrl_Palletizing V5.0 (Huashili CASE) 已重建，PLCSIM-Adv 单机仿真冒烟测试通过（16 箱 4×(2×2) 路径完整跑通，maxCmdPtr ≥ 15；无 NX-MCD 联仿，旁路了传感器门 bo_RequireSensorGate）。V5–V9 物理验收（真吸盘抓放、6 阶段、多层堆叠）需 NX-MCD 联仿环境（Module G 范畴）。 | | | |
+| **现状** | | FB_AutoCtrl_Palletizing V5.0 (Huashili CASE) 已重建，PLCSIM-Adv 单机仿真功能调试通过（16 箱 4×(2×2) 路径完整跑通，maxCmdPtr ≥ 15；无 NX-MCD 联仿，旁路了传感器门 bo_RequireSensorGate）。V5–V9 物理验收（真吸盘抓放、6 阶段、多层堆叠）需 NX-MCD 联仿环境（Module G 范畴）。 | | | |
 | 3.3 | 参数化 FB ✅已完成 | 把码垛 FB 里写死的数值改成可调参数 | 照搬之前版本的参数化做法，把箱数 / 层数 / 速度 / 间距 这些数值改成可调参数；编译并下载到设备；修改参数验证是否生效 → 验证：只改参数即生效（V10） | 🟡 中 | 步骤 3 |
 | **现状** | | **随 §3.4 一并完成** — Module D 的 FB_PatternAutoGen 把箱数 / 层数 / 速度 / 间距全部从 GDB_ActiveRecipe 注入到 GDB_PalletizingCmd 的 10 个 config 字段，硬编码全部外提为配方字段。V10 验收已通过（PLCSIM-Adv 12-box 切换实测：3×2×2 配方切到配方后 i16_TotalBoxes / i16_CmdCount 实时改变）。 | | | |
 | 3.4 | 配方设定 ✅已完成 | 移植之前版本现成的配方栈（FB_RecipeAdapter 等）+ 编写 HMI 配方画面 | 移植之前版本的配方相关 UDT / GDB / FB；编写 HMI 配方画面；PLC、HMI 都编译下载；切换配方实测 → 验证：配方切换实时生效、多组配方可存取（V11 V12） | 🟡 中 | 步骤 3 |
 | **现状** | | Module D PLC 侧 14/14 PASS（PSC handshake bo_Valid 闭环 + auto-grid + 越界拒收 + 0-dim 拒收）；Module E 后扩为双配方（recipe1 + recipe2 per pallet）。HMI PSC 画面（多组配方存取，V12）是 scara-HMI 的下一步。 | | | |
 | 3.5 | 双托盘切换 ✅已完成 | 编写托盘切换逻辑（之前版本无现成，需新写） | 用 statActivePallet + 码满判断实现自动切换到 Pallet 2 续码；编译并下载到设备；在 NX 仿真中观察 Pallet 1→2 切换无错位 → 验证：双托盘自动切换不错位、双盘满收尾（V13 V14） | 🟡 中 | 步骤 3 |
-| **现状** | | Module E V3.0 27/27 PASS。**与原计划差异**：操作员定向采用 WanErXin 模式（操作员手动按对面按钮切换，**非自动切换**），故 V13 验收条件从「自动切」改为「按对面按钮即切，无错位」—— 已通过。V14 双盘满 = bo_BothPalletsFull（V3.0 新增的聚合位）。V3.0 还修了 WanErXin 原码评审中发现的 3 个 bug：① 中途换盘时满垛归属错位 ② 原 WanErXin 必须按对面才能清满垛，V3.0 加了独立 Ack 复位 ③ 缺失双盘汇总状态。 | | | |
+| **现状** | | Module E V3.0 27/27 PASS。**与原计划差异**：操作员定向采用**操作员双按钮手动切换**方案（参考万尔芯客户项目实现思路 —— 西门子另一位工程师做的 TIA 项目；**非自动切换**），故 V13 验收条件从「自动切」改为「按对面按钮即切，无错位」—— 已通过。V14 双盘满 = bo_BothPalletsFull（V3.0 新增的双盘满信号）。V3.0 评审万尔芯参考项目原码时发现并修复 3 个 bug：① 中途换盘时满垛归属错位 ② 原参考项目实现要求必须按对面才能清满垛，V3.0 加了独立 Ack 复位 ③ 缺失双盘汇总信号。 | | | |
 | 3.6 | 示教功能 ✅已完成 | 在已完成的手动控制功能上，新增示教捕获逻辑 + HMI 点表画面 | 手动 jog 沿用已有的手动控制功能；新写捕获逻辑（捕获脉冲 → 写 GDB_TeachPoints）+ HMI 点表画面；PLC、HMI 都编译下载；jog 后实操示教 → 验证：示教捕获点位正确、示教点可回放（V15 V16） | 🟡 中 | 步骤 3 |
 | **现状** | | Module F V1.2 24/24 PASS。**第 4 种互斥模式** GDB_TeachCmd.bo_Mode（与 ABCDE / 码垛 / 手动 并列）；reuse LKinCtrl_typePoint UDT（西门子官方）；V1.1 同时捕获 TCP 与关节角（per §7.1 spec「TCP/关节」）；V1.2 修了示教 FB 越界写 jogframe 导致手动 jog 失效的 bug。HMI 点表画面是 scara-HMI 的下一步。 | | | |
 
@@ -81,8 +81,8 @@
 | V10 | 参数化生效 | 仅改参数（不改代码）→ 层数 / 箱数 / 速度随之变 | ✅ Module D 验证（PLCSIM-Adv 12-box 配方切换实测） |
 | V11 | 配方切换 | 选不同配方 → 箱体尺寸 / 层数 / 速度 实时生效 | ✅ Module D 14/14 + Module E 27/27 双配方切换均验证 |
 | V12 | 配方常驻 | 多组配方存表，可重复切换、可重复加载 | 🚧 PLC 单 slot；多配方存表是 HMI PSC 库（scara-HMI 待做） |
-| V13 | 双托盘切换 | ~~Pallet 1 码满 → 自动切 Pallet 2 续码~~ → **WanErXin 模式：按对面按钮切换**，无停顿错位 | ✅ Module E V3.0 验证（操作员手动切换，非自动） |
-| V14 | 双托盘收尾 | 两托盘全满 → ~~bo_AllPalletsDone~~ **bo_BothPalletsFull**（V3.0 聚合位），循环停 | ✅ Module E V3.0 验证 |
+| V13 | 双托盘切换 | ~~Pallet 1 码满 → 自动切 Pallet 2 续码~~ → **操作员双按钮手动切换**（参考万尔芯客户项目实现思路），无停顿错位 | ✅ Module E V3.0 验证（操作员手动切换，非自动） |
+| V14 | 双托盘收尾 | 两托盘全满 → ~~bo_AllPalletsDone~~ **bo_BothPalletsFull**（V3.0 双盘满信号），循环停 | ✅ Module E V3.0 验证 |
 | V15 | 示教捕获 | 手动 jog 定位 → 一键捕获 → 点位正确写入点表（V1.1：TCP + 关节角同时写） | ✅ Module F V1.1/V1.2 验证（24/24 PASS） |
 | V16 | 示教点应用 | 路径切到示教点表 → 机械臂走示教点 | ✅ Module F V1.2 验证（replay 走 1→5→10 顺序，bo_ReplayDone latch） |
 | V17 | 模式互斥 | 码垛 / ABCDE / 手动 / 示教 多模式互不干涉 | ✅ Module F V1.2 验证（4 模式互斥 + V1.2 修复 jog 越界 bug） |
@@ -98,7 +98,7 @@ Phase 2 按四步推进：**定决策（步骤 1）→ 搭 NX 仿真环境（步
 
 ### 当前进度（2026-05-23 收盘）
 
-**PLC 侧**：步骤 1 决策全部确认；步骤 2 NX-MCD 信号接入完成（操作员侧）；步骤 3 六个模块中 §3.3 (参数化 FB) / §3.4 (配方) / §3.5 (双托盘) / §3.6 (示教) **PLC 侧 PLCSIM-Adv 冒烟测试全部通过**（合计 65 / 65 检查项 PASS）。§3.1 (传送带) / §3.2 (精细码垛) 的 PLC FB 逻辑已就绪，PLCSIM-Adv 单机仿真测试通过；物理 V2–V9 验收需 NX-MCD 联仿环境。
+**PLC 侧**：步骤 1 决策全部确认；步骤 2 NX-MCD 信号接入完成（操作员侧）；步骤 3 六个模块中 §3.3 (参数化 FB) / §3.4 (配方) / §3.5 (双托盘) / §3.6 (示教) **PLC 侧 PLCSIM-Adv 离线功能调试全部通过**（合计 65 / 65 检查项 PASS）。§3.1 (传送带) / §3.2 (精细码垛) 的 PLC FB 逻辑已就绪，PLCSIM-Adv 单机仿真调试通过；物理 V2–V9 验收需 NX-MCD 联仿环境。
 
 **HMI 侧（scara-HMI agent，待做）**：配方 PSC 画面 (V12)、双托盘操作按钮 + 满垛灯 + Ack 复位 (Module E §10.6)、示教点表画面 + 4 模式互斥单选 (Module F §11)。三份 PLC handoff 已下发：`PLC_HANDOFF_2026-05-23_ModuleD_Recipe.md`、`PLC_HANDOFF_2026-05-23_ModuleE_DualPallet.md`、`PLC_HANDOFF_2026-05-23_ModuleF_Teach.md`，绑定契约见 `HMI_BINDING_MAP.md` Section 9–11。
 
@@ -106,4 +106,4 @@ Phase 2 按四步推进：**定决策（步骤 1）→ 搭 NX 仿真环境（步
 
 ### 工时回顾
 
-原估约 3 周（操作员侧）。PLC 代码侧（agent）当天日内完成 Module D / E / F 三模块，共三轮冒烟测试通过，期间两次代码复审修 bug：Module E 的 WanErXin 原码评审修了 3 个 bug → V3.0；Module F 的冒烟测试发现 jog 越界写覆盖 bug → V1.2。剩余 NX-MCD 联仿 + HMI 三屏由操作员 + scara-HMI agent 推进。
+原估约 3 周（操作员侧）。PLC 代码侧（agent）当天日内完成 Module D / E / F 三模块，共三轮离线功能调试通过，期间两次代码复审修 bug：Module E 评审万尔芯客户项目（西门子另一位工程师所做的 TIA 项目，作为双盘切换实现参考）的原码时修了 3 个 bug → V3.0；Module F 的离线功能调试中发现 jog 越界写覆盖 bug → V1.2。剩余 NX-MCD 联仿 + HMI 三屏由操作员 + scara-HMI agent 推进。
