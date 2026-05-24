@@ -3,7 +3,20 @@
 **Plan:** `C:\Users\Admin\.claude\plans\zazzy-mixing-hammock.md`
 **Source spec:** `UserFiles/VCIExportedContents/杨子楠5月17日周计划.md`
 **Predecessor:** `hmiDemoMomoryCapacity_v9` (archived sibling, untouched)
-**Last updated:** 2026-05-18 23:30+ (Phase 2.2 re-VERIFIED 12/12 PASS `palletizing_20260518_233034.log` after SW-limit revert — see lesson note in Phase 2.2 row below. C71 Phase 2.4 HMI Status Facade VERIFIED 9/9 — `GDB_HMI_Status` 40-member read-only facade + `FB_HMIStatusMirror` deployed, smoke probe `hmiStatusFacade_20260518_220300.log` confirms activeMode priority chain + CASE step/target routing + per-joint actuals + safety-chain mirrors all live)
+**Last updated:** 2026-05-21 (VCI export runbook — “already mapped” + path length; see `VCI_EXPORT_RUNBOOK.md`)
+
+---
+
+## VCI export / disk sync (2026-05-21)
+
+| Topic | Status | Notes |
+|---|---|---|
+| **Routine sync** | Use **Generate blocks from source** in TIA | Do **not** re-run full VCI export after every agent edit |
+| **“Already mapped” errors** | Expected when re-exporting to `VCIExportedContents/` | External sources already point at the same `.scl`/`.xml` paths |
+| **900_TIALib / LKinCtrl on disk** | Partial export OK; one file may fail path length | `LKinCtrl_CalcCircPathChoiceByIntermediatePointAndEndPoint.scl` ~262 char path; exclude `900_TIALib` from export or shorten `E:\` base path |
+| **Agent-edited PLC** | `100_OB`, `500_AutoCtrl`, `600_*`, `700_`, `instances`, TOs | Primary VCI-sync targets |
+
+Full procedure: [VCI_EXPORT_RUNBOOK.md](VCI_EXPORT_RUNBOOK.md).
 
 ---
 

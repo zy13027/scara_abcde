@@ -192,4 +192,38 @@ These notes track activity since `c8f8af1` landed (catch-up #2) but BEFORE a fol
 
 ---
 
+## 2026-05-21 (late) — Session: Phase-4 CASE rebuild + HMI binding map (unlogged catch-up)
+
+| Time | Event | Detail |
+|---|---|---|
+| | cycle.phase.a4b37f3 | scara-PLC "phase ready" → scara-PM committed + pushed `a4b37f3` "Phase-4 CASE rebuild + Cartesian JogFrame". FB_AutoCtrl_Palletizing V4.2→V5.0 rebuilt onto 7-REGION + CASE step-machine shell; motion handed to 600 axis layer via GDB_AxisCtrl.LKinCtrl.input.movelinear handshake. FB_AxisCtrl V2.1→V2.2 adds JogFrame region (LKinCtrl_MC_JogFrame on ScaraArm3D WCS-frame Cartesian jog, replacing MC_MoveJog). FB_ManualCtrl drops MC_MoveJog; routes jog via GDB_AxisCtrl.LKinCtrl.input.jogframe direction bits. FB_HMIStatusMirror V0.1→V0.2 repointed FB_AutoCtrl_ABCDE→FB_AutoCtrl_5Pts. iDBs reshaped. DB-shape change → memory reset owed. |
+| | cycle.phase.0fe04a8 | scara-PM committed + pushed `0fe04a8` "HMI binding map §7 + cross-agent handoff: refactor binding deltas". Added HMI_BINDING_MAP.md Section 7 documenting 4 broken target-position paths repointed to GDB_HMI_Status facade, CASE step value-set changes, Cartesian jog relabelling, unchanged-safe-to-keep inventory. New PLC_HANDOFF_2026-05-21_LayeredRefactor_HmiBindingDeltas.md (PENDING_VERIFICATION) → scara-HMI with 5 concrete action items. |
+| | next | Await scara-HMI cycle-7.9 response. scara-PLC: R5 wiring (FB_AutoCtrl_5Pts into Main.scl) + R6 (Pause). Operator: memory reset + recompile + download. |
+
+---
+
+## 2026-05-22 — Session: HMI cycle-7.9 handoff read + bookkeeping
+
+| Time | Event | Detail |
+|---|---|---|
+| | cycle.handoff.read | Read `HMI_HANDOFF_2026-05-22_Cycle7_9_LayeredRefactorResponse.md` (169 lines). Status: PENDING_VERIFICATION. C# build 0W/0E; TIA fire NOT YET RUN. Rebuild status: PARTIAL — Pause button `[BLOCKED-ON-PLC]`, GDB_Control ambiguity unresolved. |
+| | cycle.handoff.read.acks | HMI confirmed done: §2.1 (4 target IOField repoints — already done cycle-7.6) ✅; §2.2 (N/M progress display — ioCurrentStep/ioTotalSteps paired on Auto+Pallet screens) ✅; §2.3 (Cartesian jog relabels — per-axis headers J{n}→X/Y/Z/A + button labels + hint footer) ✅; §2.4 (unchanged paths GDB_MachineCmd/TO acknowledged) ✅; §3.3 (future jog widgets deferred). |
+| | cycle.handoff.read.escalations | **3 PLC-side actions surfaced:** (a) §6.1 `[NEEDS_CLARIFICATION]` — 7 TopBar/KinBanner bindings (enableAxes/homeAxes/resetAxes + axesEnabled/Homed/Error/Ready) still point at deleted `GDB_Control`. PM analysis: 4 status tags already in `GDB_HMI_Status` facade ✅; 3 command tags (`bo_enable/home/reset`) live at `GDB_AxisCtrl.LKinCtrl.input.*` (nested UDT, not HMI-bindable) — need flat facade aliases in `GDB_MachineCmd` or similar, routed by FB_HMIStatusMirror or FB_ManualCtrl. (b) §6.2 `[BLOCKED-ON-PLC]` — `instFB_AutoCtrl_ABCDE.statProgress` (LReal 0..1) retired with iDB; `GDB_HMI_Status` lacks `blendProgress`. Either add facade member or confirm field retired. (c) §6.3 `[NEEDS_PLC]` — Pause = refactor R6. `GDB_MachineCmd.bo_Pause` (Bool W, PULSE 250ms) + `GDB_MachineCmd.bo_Paused` (Bool R, LEVEL). HMI pre-authored btnAutoPause visual + constants, commented out `[BLOCKED-ON-PLC]`. |
+| | cycle.handoff.read.notes | TCP position now always-visible (48px strip below TopBar). ContentH shrunk 640→592 (dynamic). StatTargetX/Y/Z/A marked `[OBSOLETE]`. i16_AutoStep value-semantics change acknowledged (Range 10:50 BackColor still works for A-E highlight). Pallet totalSteps label now dynamic via hmiTotalSteps facade. HMI priority order for PLC response: (a) GDB_Control §6.1, (b) Pause §6.3, (c) blendProgress §6.2. |
+| | scoreboard.refresh | `SCOREBOARD_PLC.md`: bumped Last updated/Last action; B.25 updated (R1–R5 status + R6 🆕 + 3 gaps); +B.29 (HMI cycle-7.9 3 PLC actions); +2 Recently-completed rows (Phase-4 + binding map catch-up; HMI cycle-7.9 read). |
+| | next | PLC response to HMI cycle-7.9 (§6.1 clarification + §6.2 decision + §6.3 R6 impl). scara-PLC: working tree has +134 lines (FB_AxisCtrl V2.3 PTP move + UDT bo_isPTP + FB changes) — next "phase ready" expected. Operator: memory reset + recompile + download still owed for `502edd6`+`a4b37f3` iDB shape changes. |
+
+---
+
+## 2026-05-22 — Session: Bookkeeping cycle — R6 VERIFIED + GDB_Control_Replacement read + TiaUnifiedAuto C# refactor push
+
+| Time | Event | Detail |
+|---|---|---|
+| | cycle.handoff.read | Read `PLC_HANDOFF_2026-05-22_R6_PauseStep.md` (57 lines). Status: VERIFIED. R6 auto-cycle Pause step delivered by scara-PLC: `GDB_MachineCmd.bo_Pause` (PULSE 250ms) + `GDB_PalletizingCmd.bo_Pause` (PULSE 250ms). PLCSIM-Adv smoke PASSED: mid-move halt (step 75, axes enabled, joints frozen 0.000 drift), resume (Start) continues interrupted move. 23 ABCDE point-transitions clean. HMI action: 2 Pause buttons (Auto + Pallet screens), edge-triggered PULSE JS pattern, BackColor dyn amber when step==75. Resume = existing Start button. |
+| | cycle.handoff.read | Read `HMI_HANDOFF_2026-05-22_GDB_Control_Replacement.md` (59 lines). Status: BLOCKED-ON-PLC. Operator visual confirmed pink/broken PLC paths in Ubp_PLC tag table. 7 HMI tags need new PLC paths (3 W commands: enableAxes/homeAxes/resetAxes + 4 R status: axesEnabled/Homed/Error/Ready). §6.3 Pause CLOSED ✅ (HMI accepted `bo_Pause` + step==75, no `bo_Paused` needed). §6.1 remains HIGH PRIORITY `[BLOCKED-ON-PLC]`. §6.2 blendProgress unchanged `[BLOCKED-ON-PLC]`. |
+| | infrastructure.csharp_refactor | TiaUnifiedAuto C# refactoring pushed to `origin/master` (4 commits `e1bc1c2`→`f28125f`): Step 1 extract `IUnifiedScreenAdapter.cs`, Step 2 partial-class split (`Program.cs` + `Program.UbpAuthoring.cs` + `Program.V10Pipeline.cs`), Step 3 `#region` ownership markers, Step 4 `CLAUDE.md` ownership table. Zero functional change. Both HMI agents (scara-HMI + v9-HMI) must rebase worktree branches onto master before resuming C# edits. |
+| | scoreboard.refresh | `SCOREBOARD_PLC.md`: bumped Last updated/Last action; B.25 R6 🆕→✅ VERIFIED; B.29 §6.3 ✅ CLOSED (simpler — no bo_Paused needed), §6.1 HIGH `[BLOCKED-ON-PLC]` per GDB_Control_Replacement; +1 Recently-completed row. |
+| | v9_project.status | v9 project: no new HMI handoffs since 2026-05-18 (`HMI_HANDOFF_2026-05-18_Cycle7_2_C65RebindAbsorption.md`). v9-HMI quiet 4 days. No v9 bookkeeping needed this cycle. |
+| | next | §6.1 GDB_Control 7-path response: scara-PLC must provide flat facade paths for 3 command tags (enableAxes/homeAxes/resetAxes → flat aliases in `GDB_MachineCmd` or `GDB_HMI_Status`, routed by FB_HMIStatusMirror) + confirm 4 status tags already in `GDB_HMI_Status`. §6.2 blendProgress: confirm retired or add facade member. Operator: memory reset + recompile + download still owed. |
+
 ---
