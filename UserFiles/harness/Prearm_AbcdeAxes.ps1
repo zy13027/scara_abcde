@@ -60,8 +60,14 @@ function Wait-Tag {
 }
 
 # Step 1: clear all mode bits
+# 2026-05-25 — Post-LayeredRefactor (2026-05-21): GDB_Control (DB#3) retired.
+#   WRITE paths moved to GDB_ManualCmd.bo_Kin{Enable,Home,Reset} (per-button);
+#         FB_ManualCtrl REGION 2 ORs J1..J4 + Kin into GDB_AxisCtrl.LKinCtrl.input.bo_{enable,home,reset}.
+#         Requires statManualOK gate: GDB_ManualCmd.bo_Mode=TRUE + bo_ESTOP_LOCK=TRUE + GDB_MachineCmd.bo_Mode=FALSE.
+#   READ paths moved to GDB_HMI_Status.axes{Enabled,Homed,Error,Ready} facade
+#         (FB_HMIStatusMirror V0.2 absorbs FB renames; rename-proof per PLC_HANDOFF_2026-05-21_LayeredRefactor §2.4).
 Write-Host ""
-Write-Host "[1/6] Clearing mode bits..." -ForegroundColor Yellow
+Write-Host "[1/6] Clearing mode bits + entering manual mode..." -ForegroundColor Yellow
 Safe-Write 'GDB_MachineCmd.bo_Mode'     $false
 Safe-Write 'GDB_PalletizingCmd.bo_Mode' $false
 Safe-Write 'GDB_ManualCmd.bo_Mode'      $false
@@ -73,18 +79,22 @@ Safe-Write 'GDB_PalletizingCmd.bo_Start' $false
 Safe-Write 'GDB_PalletizingCmd.bo_Stop'  $false
 Safe-Write 'GDB_PalletizingCmd.bo_InitPallet' $false
 Start-Sleep -Milliseconds 400
+# Enter manual mode so FB_ManualCtrl REGION 2 will route Kin buttons into GDB_AxisCtrl
+Safe-Write 'GDB_ManualCmd.bo_ESTOP_LOCK' $true
+Safe-Write 'GDB_ManualCmd.bo_Mode'       $true
+Start-Sleep -Milliseconds 200
 
 # Step 2: pulse reset
-Write-Host "[2/6] Pulsing GDB_Control.resetAxes..." -ForegroundColor Yellow
-Safe-Write 'GDB_Control.enableAxes' $false
+Write-Host "[2/6] Pulsing GDB_ManualCmd.bo_KinReset..." -ForegroundColor Yellow
+Safe-Write 'GDB_ManualCmd.bo_KinEnable' $false
 Start-Sleep -Milliseconds 300
-Safe-Pulse 'GDB_Control.resetAxes'
+Safe-Pulse 'GDB_ManualCmd.bo_KinReset'
 Start-Sleep -Milliseconds 800
 
 # Step 3: enable axes
-Write-Host "[3/6] enableAxes=TRUE, waiting for axesEnabled (${EnableTimeoutS}s)..." -ForegroundColor Yellow
-Safe-Write 'GDB_Control.enableAxes' $true
-if (-not (Wait-Tag 'GDB_Control.axesEnabled' $true $EnableTimeoutS)) {
+Write-Host "[3/6] bo_KinEnable=TRUE, waiting for GDB_HMI_Status.axesEnabled (${EnableTimeoutS}s)..." -ForegroundColor Yellow
+Safe-Write 'GDB_ManualCmd.bo_KinEnable' $true
+if (-not (Wait-Tag 'GDB_HMI_Status.axesEnabled' $true $EnableTimeoutS)) {
     Write-Host "  FAIL: axesEnabled never went TRUE" -ForegroundColor Red
     Write-Host "  Diagnostic:" -ForegroundColor Red
     foreach ($n in 1..4) {
@@ -93,35 +103,38 @@ if (-not (Wait-Tag 'GDB_Control.axesEnabled' $true $EnableTimeoutS)) {
         $b = try { Safe-Read "instFB_AxisCtrl.instPower_J$n.Busy" } catch { '<read-failed>' }
         Write-Host ("    J${n} Power: Status=$s  Busy=$b  Error=$e") -ForegroundColor Red
     }
+    Write-Host ("    statManualOK gate: GDB_ManualCmd.bo_Mode={0}  bo_ESTOP_LOCK={1}  GDB_MachineCmd.bo_Mode={2}" -f `
+        (Safe-Read 'GDB_ManualCmd.bo_Mode'), (Safe-Read 'GDB_ManualCmd.bo_ESTOP_LOCK'), (Safe-Read 'GDB_MachineCmd.bo_Mode')) -ForegroundColor Red
+    Write-Host ("    LKinCtrl recovering: {0}" -f (try { Safe-Read 'GDB_AxisCtrl.LKinCtrl.output.bo_recovering' } catch { '<read-failed>' })) -ForegroundColor Red
     exit 1
 }
 Write-Host "  axesEnabled=TRUE" -ForegroundColor Green
 
 # Step 4: home axes
-Write-Host "[4/6] homeAxes=TRUE, waiting for axesHomed (${HomeTimeoutS}s)..." -ForegroundColor Yellow
-Safe-Write 'GDB_Control.homeAxes' $true
-if (-not (Wait-Tag 'GDB_Control.axesHomed' $true $HomeTimeoutS)) {
+Write-Host "[4/6] bo_KinHome=TRUE, waiting for GDB_HMI_Status.axesHomed (${HomeTimeoutS}s)..." -ForegroundColor Yellow
+Safe-Write 'GDB_ManualCmd.bo_KinHome' $true
+if (-not (Wait-Tag 'GDB_HMI_Status.axesHomed' $true $HomeTimeoutS)) {
     Write-Host "  FAIL: axesHomed never went TRUE" -ForegroundColor Red
-    Safe-Write 'GDB_Control.homeAxes' $false
+    Safe-Write 'GDB_ManualCmd.bo_KinHome' $false
     exit 1
 }
 Write-Host "  axesHomed=TRUE" -ForegroundColor Green
 
 # Step 5: release home cmd
-Write-Host "[5/6] Releasing homeAxes (clear command)..." -ForegroundColor Yellow
-Safe-Write 'GDB_Control.homeAxes' $false
+Write-Host "[5/6] Releasing bo_KinHome (clear command)..." -ForegroundColor Yellow
+Safe-Write 'GDB_ManualCmd.bo_KinHome' $false
 Start-Sleep -Milliseconds 500
 
 # Step 6: verify ready
-Write-Host "[6/6] Verifying axesReady..." -ForegroundColor Yellow
-$ready = try { Safe-Read 'GDB_Control.axesReady' } catch { $false }
+Write-Host "[6/6] Verifying GDB_HMI_Status.axesReady..." -ForegroundColor Yellow
+$ready = try { Safe-Read 'GDB_HMI_Status.axesReady' } catch { $false }
 if ($ready) {
     Write-Host "  axesReady=TRUE" -ForegroundColor Green
 } else {
     Write-Host "  FAIL: axesReady is FALSE (axesEnabled AND axesHomed AND NOT axesError check failed)" -ForegroundColor Red
-    Write-Host ("    axesEnabled = {0}" -f (Safe-Read 'GDB_Control.axesEnabled'))
-    Write-Host ("    axesHomed   = {0}" -f (Safe-Read 'GDB_Control.axesHomed'))
-    Write-Host ("    axesError   = {0}" -f (Safe-Read 'GDB_Control.axesError'))
+    Write-Host ("    axesEnabled = {0}" -f (Safe-Read 'GDB_HMI_Status.axesEnabled'))
+    Write-Host ("    axesHomed   = {0}" -f (Safe-Read 'GDB_HMI_Status.axesHomed'))
+    Write-Host ("    axesError   = {0}" -f (Safe-Read 'GDB_HMI_Status.axesError'))
     exit 1
 }
 

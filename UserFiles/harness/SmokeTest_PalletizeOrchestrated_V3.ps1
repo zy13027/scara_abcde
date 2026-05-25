@@ -114,8 +114,9 @@ while ((Get-Date) -lt $deadline) {
     $sub      = [int](Safe-Read 'instFB_AutoCtrl_Palletizing.statExecState')
     $belt     = [double](Safe-Read 'GDB_MCDData.BeltVelocity')
     $spawn    = [bool](Safe-Read 'GDB_MCDData.SpawnContainerCmd')
-    $grip     = [bool](Safe-Read 'GDB_Control.bo_gripperGrip')
-    $rel      = [bool](Safe-Read 'GDB_Control.bo_gripperRelease')
+    # 2026-05-25: Post-LayeredRefactor (2026-05-21) — GDB_Control retired; gripper signals relocated to GDB_MCDData.
+    $grip     = [bool](Safe-Read 'GDB_MCDData.bo_gripperGrip')
+    $rel      = [bool](Safe-Read 'GDB_MCDData.bo_gripperRelease')
     $done     = [bool](Safe-Read 'GDB_PalletizingCmd.bo_PalletDone')
     $pack     = [bool](Safe-Read 'GDB_MCDData.PackingSensor')
     $pallet   = [bool](Safe-Read 'GDB_MCDData.PalletizingSensor')
